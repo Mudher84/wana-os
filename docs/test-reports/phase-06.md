@@ -82,5 +82,48 @@ Buildroot release.
 
 ## T5: Two independent builds produce identical artifacts (CI)
 
-- Workflow `reproducibility`, build A (ccache) vs build B (no ccache), then `compare-manifests.py`
-- Actual: *pending*. Any artifact that differs will be listed here with its cause and fix.
+- Workflow `reproducibility`: build A (ccache) and build B (`CCACHE_DISABLE=1`), on separate runners, then `compare-manifests.py`
+
+### Attempt 1: run [36129247384](https://github.com/Mudher84/wana-os/actions/runs/36129247384), commit `466ca4c`: **FAIL**
+
+```
+identical  bzImage
+DIFFERENT  disk.img  e2386fda996a447b vs efb3307ef0da4b51
+identical  efi-part/EFI/BOOT/bootx64.efi
+identical  efi-part/EFI/BOOT/grub.cfg
+identical  efi-part/wana/bzImage
+identical  esp.vfat
+identical  genimage.cfg
+identical  rootfs.cpio
+identical  rootfs.cpio.zst
+DIFFERENT  rootfs.ext2  7ef610a9a8e3d53c vs 9689a4aadf30f4ea
+identical  rootfs.ext4          (symlink -> rootfs.ext2)
+identical  rootfs.tar
+[BUILD] reproducibility: FAIL (10/12 artifacts identical, 2 problem(s))
+```
+
+What this already proves: B was compiled without ccache on a different runner and still matched A for:
+- the kernel;
+- every target binary, including wana-init, since the cpio and tar hold the whole root filesystem;
+- GRUB;
+- the ESP.
+
+Only one source of non-determinism remains. `disk.img` embeds `rootfs.ext2`, so it follows from it.
+
+Root cause, isolated locally with Buildroot's exact tools (`mke2fs` 1.47.3 built from the v1.47.3 tag), same options as `fs/ext2/ext2.mk`:
+- Default options, `SOURCE_DATE_EPOCH` set: 690 bytes differ. The timestamps already match (1.47.3 honors `SOURCE_DATE_EPOCH`: created/write time = epoch), but
+  **Filesystem UUID** and **Directory Hash Seed** are random per run. The checksums seeded from the UUID account for the rest of the bytes.
+- Also checked: `mke2fs -d` copies each file's atime, so a file read during the build could leak its atime into the image. This does not apply
+  to Buildroot. `fs/common.mk` (`ROOTFS_REPRODUCIBLE`) runs `touch -hd @SOURCE_DATE_EPOCH` on every file right before `mkfs`.
+
+Fix:
+- `BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-O ^64bit -U <uuid> -E hash_seed=<uuid>"`. `-O ^64bit` is Buildroot's default and stays.
+- Both values are recorded in `disk.env`; `tools/check-repo.sh` fails if the defconfig and `disk.env` disagree (negative test: exit 1).
+- A fixed directory hash seed is acceptable for a shipped, read-only root image. The installer will create each installed
+  filesystem with a fresh UUID and seed (Phase 19).
+
+Local end-to-end re-test, run twice: Buildroot's touch step, `mke2fs` 1.47.3 with the new options, then `post-image.sh` with genimage 19:
+- `rootfs.ext2` 720359a0…, `esp.vfat` 322b5ef3… and `disk.img` 5c7bf551… are **identical** across both runs.
+- The disk boots: `EXT4-fs (vda2): mounted filesystem 5d9f6a52-7e1b-4c3a-9b8e-0a1a57a0a0f5`, then `[INIT] info: ready`, then power off.
+
+### Attempt 2: *pending*
