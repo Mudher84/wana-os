@@ -150,7 +150,8 @@ kernel evdev  ->  udev (eudev)  ->  libinput  ->  xkbcommon  ->  wana-input  -> 
   Qt, SDL, Chromium, and later Xwayland and Wine) can run without dictating
   our desktop. The implementation is our own Rust code. Whether we build on
   the Smithay protocol library or on bare `wayland-server` is decided at the
-  start of Phase 10, with written reasons.
+  start of Phase 10, with written reasons: see
+  [decision 0001](decisions/0001-wayland-protocol-layer.md) (proposed).
 - `wana-shell` is a separate process: a privileged client that uses
   Wana-specific protocols for its surfaces (desktop, dock, launcher, status
   area, control center). A shell crash must not take down the compositor or
