@@ -115,6 +115,8 @@ def main():
     ap.add_argument("--memory", default="1024", help="guest RAM in MiB")
     ap.add_argument("--log", default="qemu-graphics.log")
     ap.add_argument("--expect", action="append", default=[])
+    ap.add_argument("--reject", action="append", default=[],
+                    help="regex that must NOT appear in the log (repeatable)")
     ap.add_argument("--screendump-on", help="regex; take the screenshot when a log line matches")
     ap.add_argument("--screendump", help="output .ppm path (a .png is written next to it)")
     ap.add_argument("--pixel", action="append", default=[], help="fx,fy=RRGGBB (repeatable)")
@@ -202,6 +204,16 @@ def main():
         else:
             log("error", f"missing: {pattern}", sys.stderr)
             fail = True
+
+    for pattern in args.reject:
+        bad = re.findall(f".*(?:{pattern}).*", out)
+        if bad:
+            log("error", f"rejected pattern present: {pattern}", sys.stderr)
+            for line in bad[:5]:
+                print("    " + line.rstrip(), file=sys.stderr)
+            fail = True
+        else:
+            log("info", f"absent as required: {pattern}")
 
     if send_trigger and not sent:
         log("error", "input was never sent (--send-on line never appeared)", sys.stderr)

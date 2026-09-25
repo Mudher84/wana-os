@@ -216,7 +216,8 @@ input-boot-test:
 		--expect '\[INPUT\] info: typed text "wana" matches' \
 		--expect '\[INPUT\] info: done: 4 key presses, [1-9][0-9]* pointer events, 1 left clicks' \
 		--expect '\[INIT\] info: /usr/bin/wana-input exited successfully' \
-		--expect 'reboot: Power down'
+		--expect 'reboot: Power down' \
+		--reject 'Unknown (group|user)' --reject '\[(INIT|INPUT)\] error'
 
 br-%: buildroot-src
 	$(BR_MAKE) $*

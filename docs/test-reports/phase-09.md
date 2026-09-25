@@ -129,16 +129,60 @@ since Phase 3; PS/2 keyboard and mouse come from `x86_64_defconfig`.
 
 ## T6: Buildroot image + `make input-boot-test` in CI
 
-- Boots the real `disk.img` (OVMF → GRUB → kernel → ext4 → wana-init → eudev → wana-input) with KVM and the same
-  injected input, and expects:
-  - the udev start and coldplug lines, with at least one input device;
-  - the US keymap;
-  - the virtio keyboard and tablet;
-  - `typed text "wana" matches`, 4 key presses and 1 left click;
-  - a clean exit and power-off.
-- The earlier boot tests (kernel, initramfs, disk, graphics, GPU rendering) must stay green with eudev in the image.
-- Actual: *pending*
+- Run [36174232427](https://github.com/Mudher84/wana-os/actions/runs/36174232427), commit `d73a8e9`, job
+  `toolchain, image, UEFI boot`, 21 min:
+  - `Build image` took 10m31s: eudev, util-linux libs, libevdev, libinput, libxkbcommon, xkeyboard-config (with its host
+    X tools) and `wana-input`, built from source for the first time.
+- All earlier tests still pass with eudev in the image:
+  - kernel config (50 options);
+  - kernel alone, initramfs, disk through GRUB;
+  - graphics (`wana-kms`, 3/3 pixels) and GPU rendering (`wana-gl`, 3/3 pixels).
+  Every boot now shows `[INIT] info: udev: /sbin/udevd started` and a coldplug line before `ready`.
+  `ready` comes 1.52-1.56 s after kernel start, against about 1.3 s before udev.
+- `make input-boot-test` (KVM, OVMF → GRUB → kernel → ext4 → wana-init → eudev → wana-input), 7 s:
+  ```
+  [INIT] info: udev: /sbin/udevd started (pid 79)
+  [INIT] info: udev: coldplug done in 342 ms: 136 devices initialized, 10 input
+  [INIT] info: ready (1.52s after kernel start)
+  [INPUT] info: wana-input 0.1.0: seat seat0, layout us
+  [INPUT] info: keymap compiled: English (US) (xkbcommon)
+  [INPUT] info: device added: Power Button (event0) [keyboard]
+  [INPUT] info: device added: QEMU Virtio Keyboard (event1) [keyboard]
+  [INPUT] info: device added: QEMU Virtio Tablet (event2) [pointer]
+  [INPUT] info: device added: AT Translated Set 2 keyboard (event3) [keyboard]
+  [INPUT] info: device added: ImExPS/2 Generic Explorer Mouse (event4) [pointer]
+  [INPUT] info: seat0: 5 devices, 3 with keyboard, 2 with pointer
+  [INPUT] info: waiting for input (timeout 60s)
+  [INPUT] info: event1: key 17 pressed: w text "w"
+  [INPUT] info: event1: key 30 pressed: a text "a"
+  [INPUT] info: event1: key 49 pressed: n text "n"
+  [INPUT] info: event1: key 30 pressed: a text "a"
+  [INPUT] info: event4: pointer motion dx 22.00 dy 16.50
+  [INPUT] info: event2: button BTN_LEFT pressed
+  [INPUT] info: event2: button BTN_LEFT released
+  [INPUT] info: typed text "wana" matches "wana"
+  [INPUT] info: done: 4 key presses, 1 pointer events, 1 left clicks
+  [INIT] info: /usr/bin/wana-input exited successfully
+  [BOOT] graphics test: PASS
+  ```
+  All 9 expectations were found. The CI result matches the local run, event routing included, with the Buildroot
+  versions: eudev 3.2.14, libinput 1.31.1, xkbcommon 1.9.2 and xkeyboard-config 2.38.
+- `ci` run 36174267098: fmt, clippy, 44 unit tests including the real-keymap tests, repo checks, MSRV 1.88: success.
+- Result: **PASS**
+- Gap in the evidence, and its fix: the CI console echoes only tagged lines. An untagged eudev error, such as
+  `Unknown group`, would not show. `qemu-graphics-test.py` now has `--reject REGEX`, and `input-boot-test` fails
+  if `Unknown (group|user)` or an `[INIT]`/`[INPUT]` error appears anywhere in the console log. The check was
+  proven locally: the minimal-`/etc/group` test image fails it (`rejected pattern present: Unknown (group|user)`).
+  The next CI run applies it to the Buildroot image.
 
 ## Phase 9 status
 
-**IN PROGRESS.** T1-T5 pass locally. T6 (the Buildroot image in CI) is pending.
+**PASS.** T1-T6 pass. The Buildroot image, booted the way hardware boots it, starts udev from `wana-init`, and
+input injected through QEMU travels evdev → udev → libinput → xkbcommon → `wana-input`: text, pointer motion and a
+click, each attributed to its device.
+
+Not done yet:
+- eudev's hwdb is disabled (Phase 27, real laptops);
+- touch, tablet and gesture events are recognized but not handled yet;
+- key repeat and seat and device permission handling belong to the compositor (Phase 10). `wana-input` runs as
+  root and opens devices directly.
