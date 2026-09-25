@@ -173,11 +173,25 @@ since Phase 3; PS/2 keyboard and mouse come from `x86_64_defconfig`.
   `Unknown group`, would not show. `qemu-graphics-test.py` now has `--reject REGEX`, and `input-boot-test` fails
   if `Unknown (group|user)` or an `[INIT]`/`[INPUT]` error appears anywhere in the console log. The check was
   proven locally: the minimal-`/etc/group` test image fails it (`rejected pattern present: Unknown (group|user)`).
-  The next CI run applies it to the Buildroot image.
+  On the Buildroot image, buildroot run 36180287275 on `develop` @ `82d1929`: all 9 expectations were found, plus
+  `[BOOT] info: absent as required: Unknown (group|user)` and
+  `[BOOT] info: absent as required: \[(INIT|INPUT)\] error`. eudev ran with no unknown-group errors, so the
+  users table works.
+
+## T7: Reproducibility with the input stack
+
+- Reproducibility run [36180287309](https://github.com/Mudher84/wana-os/actions/runs/36180287309) on `develop` @
+  `82d1929`. This is the first run with eudev, util-linux libs, libevdev, libinput, libxkbcommon, xkeyboard-config,
+  the users table and `wana-input` in the image.
+- Build A (ccache) took 48 min. Build B (`CCACHE_DISABLE=1`) took 69 min.
+- `compare A vs B`: `[BUILD] reproducibility: PASS (12/12 artifacts identical)`. bzImage, rootfs (cpio, tar, ext4),
+  the ESP files, `esp.vfat` and `disk.img` all match. The fixed GIDs in the users table and the disabled hwdb
+  (no compiled `hwdb.bin`) mean the input stack adds no new source of difference.
+- Result: **PASS**
 
 ## Phase 9 status
 
-**PASS.** T1-T6 pass. The Buildroot image, booted the way hardware boots it, starts udev from `wana-init`, and
+**PASS.** T1-T7 pass. The Buildroot image, booted the way hardware boots it, starts udev from `wana-init`, and
 input injected through QEMU travels evdev → udev → libinput → xkbcommon → `wana-input`: text, pointer motion and a
 click, each attributed to its device.
 
