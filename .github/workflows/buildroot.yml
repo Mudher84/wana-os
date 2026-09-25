@@ -53,14 +53,14 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
 
       - name: Cache downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: dl
           key: br-dl-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}
           restore-keys: br-dl-
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.buildroot-ccache
           key: br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-${{ github.sha }}
@@ -92,7 +92,7 @@ jobs:
 
       - name: Upload logs and kernel
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wana-kernel-${{ github.sha }}
           path: |

@@ -37,8 +37,19 @@
 
 ## T5: Cross toolchain build in CI
 
-- Command: workflow `buildroot`, job `toolchain` (`make toolchain`, then `tools/smoke-toolchain.sh`)
+- Command: workflow `buildroot`, job `cross toolchain` (`make toolchain`, then `tools/smoke-toolchain.sh`)
+- Run: [36104757968](https://github.com/Mudher84/wana-os/actions/runs/36104757968) on `develop`, commit `2a15b98`
 - Expected: toolchain builds; C and C++ test programs are x86-64 ELF using `/lib64/ld-linux-x86-64.so.2`
-- Actual: *pending first CI run*
-- Result: **NOT RUN YET**. This cannot run in the development sandbox, because
-  gnu.org, kernel.org, and sources.buildroot.net are blocked there (see audit 0000).
+- Actual: `Build toolchain` succeeded in 24m05s (06:51:54 to 07:15:59, cold caches). Packages built: host-gcc-initial 14.3.0, linux-headers 6.18.33, glibc 2.42-67-g4ebd33dd, host-gcc-final 14.3.0. Smoke test output:
+  ```
+  [CHECK] info: x86_64-buildroot-linux-gnu-gcc.br_real (Buildroot 2026.02.3) 14.3.0
+  [CHECK] info: t-c: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 6.18.0, not stripped
+  [CHECK] info: t-cxx: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 6.18.0, not stripped
+  [CHECK] toolchain smoke test: PASS
+  ```
+- Artifacts: `toolchain-build-log` (full build log and the resolved `.config`), retained 14 days
+- Result: **PASS**
+
+## Phase 2 status
+
+**PASS.** T1-T5 all pass.

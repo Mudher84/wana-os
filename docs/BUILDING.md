@@ -12,10 +12,13 @@ current list of targets.
 | `make config` | Loads `wana_x86_64_defconfig` into `out/build/wana_x86_64` | host gcc, make |
 | `make config-check` | Checks that the defconfig loads and round-trips through `savedefconfig` unchanged | host gcc, make |
 | `make toolchain` | Builds the cross toolchain: gcc 14.3, glibc, Linux 6.18 headers, C++ | Host packages in `tools/host-packages-ubuntu.txt`, unrestricted network, about 30 min |
+| `make kernel` | Builds Linux 6.18.33 (`x86_64_defconfig` + `platform/board/x86_64/linux.fragment`) into `out/build/wana_x86_64/images/bzImage` | as `make toolchain` |
+| `make kernel-config-check` | Checks every fragment option reached the kernel `.config` | a built kernel |
+| `make kernel-boot-test` | Boots `bzImage` under QEMU + OVMF (UEFI) and checks the serial log | `qemu-system-x86`, `ovmf` |
 | `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
 
-The kernel, rootfs, and ISO targets do not exist yet. They are added in
-Phases 3-6.
+The rootfs, bootloader and ISO targets do not exist yet. They are added in
+Phases 4-6 and 18.
 
 Build layout:
 

@@ -10,8 +10,8 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 |---|-------|-----------|--------|----------|
 | 0 | Repository audit | Audit written from the actual repo state | PASS | [audit 0000](audit/0000-repository-audit.md) |
 | 1 | Project architecture | Layout, docs, Rust workspace; `make check` green locally and in CI | PASS | [phase 01 report](test-reports/phase-01.md) |
-| 2 | Build environment | Pinned Buildroot fetched and verified; defconfig round-trips; CI builds the cross toolchain and a C/C++ smoke test passes | IN PROGRESS | [phase 02 report](test-reports/phase-02.md) |
-| 3 | Linux kernel | CI builds `bzImage` from a pinned kernel and our config fragment | NOT STARTED | |
+| 2 | Build environment | Pinned Buildroot fetched and verified; defconfig round-trips; CI builds the cross toolchain and a C/C++ smoke test passes | PASS | [phase 02 report](test-reports/phase-02.md) |
+| 3 | Linux kernel | CI builds `bzImage` (6.18.33 + fragment); all fragment options verified; boots under QEMU+OVMF to the root mount | PASS | [phase 03 report](test-reports/phase-03.md) |
 | 4 | Minimal rootfs | rootfs with `wana-init` as PID 1 | NOT STARTED | |
 | 5 | UEFI/QEMU boot | QEMU+OVMF boots; serial shows `[INIT]` ready | NOT STARTED | |
 | 6 | Reproducible build | Build manifest (commit, configs, toolchain, versions, SHA-256) produced and archived | NOT STARTED | |
