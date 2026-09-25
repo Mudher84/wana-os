@@ -72,6 +72,53 @@ pub enum wl_display {}
 pub enum wl_event_loop {}
 #[derive(Debug)]
 pub enum wl_client {}
+#[derive(Debug)]
+pub enum wl_resource {}
+#[derive(Debug)]
+pub enum wl_global {}
+
+/// Variable-length byte array (`wl_array`).
+#[repr(C)]
+#[derive(Debug)]
+pub struct wl_array {
+    pub size: usize,
+    pub alloc: usize,
+    pub data: *mut c_void,
+}
+
+/// One marshalled argument (`union wl_argument`), 8 bytes on LP64.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union wl_argument {
+    pub i: i32,
+    pub u: u32,
+    /// `wl_fixed_t`: 24.8 signed fixed point.
+    pub f: i32,
+    pub s: *const c_char,
+    /// Object arguments point at the resource (its `wl_object` header).
+    pub o: *mut wl_resource,
+    pub n: u32,
+    pub a: *mut wl_array,
+    pub h: i32,
+}
+
+impl std::fmt::Debug for wl_argument {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // SAFETY: every bit pattern is a valid u64-sized pointer value.
+        write!(f, "wl_argument({:p})", unsafe { self.s })
+    }
+}
+
+pub type wl_dispatcher_func_t = unsafe extern "C" fn(
+    implementation: *const c_void,
+    target: *mut c_void,
+    opcode: u32,
+    message: *const wl_message,
+    args: *mut wl_argument,
+) -> c_int;
+pub type wl_global_bind_func_t =
+    unsafe extern "C" fn(client: *mut wl_client, data: *mut c_void, version: u32, id: u32);
+pub type wl_resource_destroy_func_t = unsafe extern "C" fn(resource: *mut wl_resource);
 
 #[link(name = "wayland-server")]
 extern "C" {
@@ -96,6 +143,41 @@ extern "C" {
         gid: *mut u32,
     );
     pub fn wl_client_add_destroy_listener(client: *mut wl_client, listener: *mut wl_listener);
+    /// printf-style; always called with "%s".
+    pub fn wl_client_post_implementation_error(client: *mut wl_client, fmt: *const c_char, ...);
+
+    pub fn wl_global_create(
+        display: *mut wl_display,
+        interface: *const wl_interface,
+        version: c_int,
+        data: *mut c_void,
+        bind: wl_global_bind_func_t,
+    ) -> *mut wl_global;
+
+    pub fn wl_resource_create(
+        client: *mut wl_client,
+        interface: *const wl_interface,
+        version: c_int,
+        id: u32,
+    ) -> *mut wl_resource;
+    pub fn wl_resource_set_dispatcher(
+        resource: *mut wl_resource,
+        dispatcher: wl_dispatcher_func_t,
+        implementation: *const c_void,
+        data: *mut c_void,
+        destroy: wl_resource_destroy_func_t,
+    );
+    pub fn wl_resource_destroy(resource: *mut wl_resource);
+    pub fn wl_resource_get_user_data(resource: *mut wl_resource) -> *mut c_void;
+    pub fn wl_resource_get_id(resource: *mut wl_resource) -> u32;
+    pub fn wl_resource_get_version(resource: *mut wl_resource) -> c_int;
+    pub fn wl_resource_get_client(resource: *mut wl_resource) -> *mut wl_client;
+    pub fn wl_resource_post_event_array(
+        resource: *mut wl_resource,
+        opcode: u32,
+        args: *mut wl_argument,
+    );
+    pub fn wl_client_post_no_memory(client: *mut wl_client);
 }
 
 #[cfg(test)]
@@ -112,5 +194,7 @@ mod tests {
         assert_eq!(size_of::<wl_list>(), 16);
         assert_eq!(size_of::<wl_listener>(), 24);
         assert_eq!(align_of::<wl_interface>(), 8);
+        assert_eq!(size_of::<wl_argument>(), 8);
+        assert_eq!(size_of::<wl_array>(), 24);
     }
 }

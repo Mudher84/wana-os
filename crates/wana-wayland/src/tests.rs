@@ -1,7 +1,7 @@
 //! Tests against the real libwayland-server of the build host.
 
 use crate::protocols::{wayland, xdg_shell};
-use crate::server::{ClientEvent, Display};
+use crate::server::{Arg, ClientEvent, Ctx, Display, Handler, ReqArg, Resource};
 use crate::sys::{wl_interface, wl_message};
 use std::ffi::{CStr, CString};
 use std::io::{Read, Write};
@@ -106,72 +106,212 @@ fn xdg_shell_references_core_tables() {
         "cross-protocol reference"
     );
     assert_eq!(wayland::wl_display::request::GET_REGISTRY, 1);
+    assert_eq!(
+        crate::server::request_name(&wayland::WL_COMPOSITOR_INTERFACE, 0),
+        "wl_compositor.create_surface"
+    );
+    assert_eq!(
+        crate::server::request_name(&wayland::WL_COMPOSITOR_INTERFACE, 99),
+        "wl_compositor.#99"
+    );
     assert_eq!(wayland::wl_callback::event::DONE, 0);
 }
 
-fn header(object: u32, opcode: u16, size: u16) -> [u8; 8] {
-    let mut h = [0u8; 8];
-    h[..4].copy_from_slice(&object.to_ne_bytes());
-    h[4..].copy_from_slice(&(((size as u32) << 16) | opcode as u32).to_ne_bytes());
+/// Test handler: one wl_shm global announcing two formats on bind.
+#[derive(Default)]
+struct ShmOnly {
+    binds: u32,
+    destroyed: u32,
+    requests: Vec<u32>,
+    post_errors: Vec<String>,
+}
+
+impl Handler for ShmOnly {
+    fn bind(&mut self, ctx: &mut Ctx, _global: usize, res: Resource) {
+        self.binds += 1;
+        for fmt in [0u32, 1] {
+            ctx.post(res, wayland::wl_shm::event::FORMAT, &[Arg::Uint(fmt)])
+                .unwrap();
+        }
+        // Checked marshalling: wrong kind, wrong count, missing event.
+        for bad in [
+            ctx.post(res, wayland::wl_shm::event::FORMAT, &[Arg::Int(1)]),
+            ctx.post(res, wayland::wl_shm::event::FORMAT, &[]),
+            ctx.post(res, 7, &[Arg::Uint(0)]),
+        ] {
+            self.post_errors.push(bad.unwrap_err());
+        }
+    }
+    fn request(&mut self, _ctx: &mut Ctx, _res: Resource, opcode: u32, _args: Vec<ReqArg>) {
+        self.requests.push(opcode);
+    }
+    fn destroyed(&mut self, ctx: &mut Ctx, res: Resource) {
+        assert!(!ctx.is_alive(res));
+        assert!(
+            ctx.post(res, 0, &[Arg::Uint(0)]).is_err(),
+            "stale resource refused"
+        );
+        self.destroyed += 1;
+    }
+}
+
+fn header(object: u32, opcode: u32, size: usize) -> Vec<u8> {
+    let mut h = Vec::new();
+    h.extend(object.to_ne_bytes());
+    h.extend((((size as u32) << 16) | opcode).to_ne_bytes());
     h
 }
 
+/// Wire string: length including NUL, bytes, NUL, padded to 4.
+fn wire_str(s: &str) -> Vec<u8> {
+    let mut v = ((s.len() + 1) as u32).to_ne_bytes().to_vec();
+    v.extend(s.as_bytes());
+    v.push(0);
+    while !v.len().is_multiple_of(4) {
+        v.push(0);
+    }
+    v
+}
+
+/// Parsed server messages: (object, opcode, body words).
+fn messages_of(buf: &[u8]) -> Vec<(u32, u32, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 8 <= buf.len() {
+        let obj = u32::from_ne_bytes(buf[at..at + 4].try_into().unwrap());
+        let w = u32::from_ne_bytes(buf[at + 4..at + 8].try_into().unwrap());
+        let (size, opcode) = ((w >> 16) as usize, w & 0xffff);
+        if at + size > buf.len() {
+            break;
+        }
+        out.push((obj, opcode, buf[at + 8..at + size].to_vec()));
+        at += size;
+    }
+    out
+}
+
+fn pump(
+    display: &mut Display<ShmOnly>,
+    client: &mut UnixStream,
+    got: &mut Vec<u8>,
+    until: impl Fn(&[u8]) -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !until(got) && Instant::now() < deadline {
+        display.dispatch(Duration::from_millis(20)).unwrap();
+        let mut buf = [0u8; 1024];
+        if let Ok(n) = client.read(&mut buf) {
+            got.extend_from_slice(&buf[..n]);
+        }
+    }
+}
+
 /// A hand-written Wayland client speaks the wire format to the socket:
-/// wl_display.get_registry + wl_display.sync, and must receive
-/// wl_callback.done and wl_display.delete_id. Connect and disconnect must be
-/// reported with the client's credentials.
+/// registry + sync, then binds the advertised wl_shm global and syncs
+/// again. The global's initial events must arrive before the sync reply;
+/// destroying the client destroys its resources and is reported.
 #[test]
 fn socket_round_trip_with_a_raw_client() {
     let dir = std::env::temp_dir().join(format!("wana-wl-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // Only this test touches the environment.
     std::env::set_var("XDG_RUNTIME_DIR", &dir);
-    let mut display = Display::new().unwrap();
+    let mut display = Display::new(ShmOnly::default()).unwrap();
+    assert!(
+        display
+            .create_global(&wayland::WL_SHM_INTERFACE, 99)
+            .is_err(),
+        "beyond XML version"
+    );
+    assert_eq!(
+        display
+            .create_global(&wayland::WL_SHM_INTERFACE, 1)
+            .unwrap(),
+        0
+    );
     let name = display.add_socket_auto().unwrap();
     let path = display.socket_path().unwrap();
     assert!(name.starts_with("wayland-"), "{name}");
-    assert!(path.exists(), "{}", path.display());
 
     let mut client = UnixStream::connect(&path).unwrap();
-    let mut req = Vec::new();
-    req.extend(header(
-        1,
-        wayland::wl_display::request::GET_REGISTRY as u16,
-        12,
-    ));
+    let mut req = header(1, wayland::wl_display::request::GET_REGISTRY, 12);
     req.extend(2u32.to_ne_bytes());
-    req.extend(header(1, wayland::wl_display::request::SYNC as u16, 12));
+    req.extend(header(1, wayland::wl_display::request::SYNC, 12));
     req.extend(3u32.to_ne_bytes());
     client.write_all(&req).unwrap();
     client.set_nonblocking(true).unwrap();
-
     let mut got = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let mut events = Vec::new();
-    while got.len() < 24 && Instant::now() < deadline {
-        display.dispatch(Duration::from_millis(20)).unwrap();
-        events.extend(display.take_events());
-        let mut buf = [0u8; 256];
-        if let Ok(n) = client.read(&mut buf) {
-            got.extend_from_slice(&buf[..n]);
-        }
+    let done = |obj: u32| move |b: &[u8]| messages_of(b).iter().any(|m| m.0 == obj && m.1 == 0);
+    pump(&mut display, &mut client, &mut got, done(3));
+
+    let msgs = messages_of(&got);
+    // wl_registry@2.global(name, "wl_shm", 1)
+    let global = msgs
+        .iter()
+        .find(|m| m.0 == 2 && m.1 == wayland::wl_registry::event::GLOBAL)
+        .expect("global event");
+    let global_name = u32::from_ne_bytes(global.2[..4].try_into().unwrap());
+    assert_eq!(
+        &global.2[4..],
+        &[wire_str("wl_shm"), 1u32.to_ne_bytes().to_vec()].concat()[..]
+    );
+    assert!(msgs
+        .iter()
+        .any(|m| m.0 == 3 && m.1 == wayland::wl_callback::event::DONE));
+    assert!(msgs.iter().any(|m| m.0 == 1
+        && m.1 == wayland::wl_display::event::DELETE_ID
+        && m.2 == 3u32.to_ne_bytes()));
+
+    // wl_registry@2.bind(name, "wl_shm", 1, new id 4), then sync -> 5.
+    let mut body = global_name.to_ne_bytes().to_vec();
+    body.extend(wire_str("wl_shm"));
+    body.extend(1u32.to_ne_bytes());
+    body.extend(4u32.to_ne_bytes());
+    let mut req = header(2, wayland::wl_registry::request::BIND, 8 + body.len());
+    req.extend(body);
+    req.extend(header(1, wayland::wl_display::request::SYNC, 12));
+    req.extend(5u32.to_ne_bytes());
+    client.write_all(&req).unwrap();
+    got.clear();
+    pump(&mut display, &mut client, &mut got, done(5));
+    let msgs = messages_of(&got);
+    let order: Vec<(u32, u32)> = msgs.iter().map(|m| (m.0, m.1)).collect();
+    assert_eq!(
+        order,
+        vec![
+            (4, 0),
+            (4, 0),
+            (5, 0),
+            (1, wayland::wl_display::event::DELETE_ID)
+        ],
+        "two wl_shm.format events, then the sync reply"
+    );
+    assert_eq!(msgs[0].2, 0u32.to_ne_bytes());
+    assert_eq!(msgs[1].2, 1u32.to_ne_bytes());
+    {
+        let h = display.handler();
+        assert_eq!(h.binds, 1);
+        assert_eq!(h.post_errors.len(), 3);
+        assert!(
+            h.post_errors[0].contains("does not match 'u'"),
+            "{:?}",
+            h.post_errors
+        );
+        assert!(
+            h.post_errors[1].contains("0 arguments, signature has 1"),
+            "{:?}",
+            h.post_errors
+        );
+        assert!(
+            h.post_errors[2].contains("no event 7"),
+            "{:?}",
+            h.post_errors
+        );
     }
-    let word = |i: usize| u32::from_ne_bytes(got[i..i + 4].try_into().unwrap());
-    assert!(got.len() >= 24, "only {} bytes from the server", got.len());
-    // wl_callback@3.done(serial)
-    assert_eq!(word(0), 3);
-    assert_eq!(word(4), (12 << 16) | wayland::wl_callback::event::DONE);
-    // wl_display@1.delete_id(3)
-    assert_eq!(word(12), 1);
-    assert_eq!(word(16), (12 << 16) | wayland::wl_display::event::DELETE_ID);
-    assert_eq!(word(20), 3);
 
     let me = std::process::id() as i32;
-    assert!(
-        matches!(events.first(), Some(ClientEvent::Connected(c)) if c.pid == me),
-        "{events:?}"
-    );
     drop(client);
+    let mut events = display.take_events();
     for _ in 0..50 {
         display.dispatch(Duration::from_millis(20)).unwrap();
         events.extend(display.take_events());
@@ -183,9 +323,19 @@ fn socket_round_trip_with_a_raw_client() {
         }
     }
     assert!(
+        matches!(events.first(), Some(ClientEvent::Connected(c)) if c.pid == me),
+        "{events:?}"
+    );
+    assert!(
         matches!(events.last(), Some(ClientEvent::Disconnected(c)) if c.pid == me),
         "{events:?}"
     );
+    assert_eq!(
+        display.handler().destroyed,
+        1,
+        "the bound wl_shm is reported destroyed"
+    );
+    assert!(display.handler().requests.is_empty());
     drop(display);
     assert!(!path.exists(), "socket removed when the display is dropped");
     std::fs::remove_dir_all(&dir).unwrap();

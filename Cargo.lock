@@ -6,6 +6,7 @@ version = 4
 name = "wana-compositor"
 version = "0.1.0"
 dependencies = [
+ "wana-drm",
  "wana-log",
  "wana-wayland",
 ]

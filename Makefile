@@ -43,7 +43,7 @@ help:
 	@echo "    make graphics-boot-test  boot disk.img with virtio-gpu, run wana-kms, check screenshot pixels"
 	@echo "    make gl-boot-test        boot disk.img with virtio-gpu, run wana-gl (GBM/EGL/GLES), check pixels"
 	@echo "    make input-boot-test     boot disk.img, inject keys + mouse via QEMU, wana-input must see them"
-	@echo "    make compositor-boot-test  boot disk.img, wana-compositor serves wayland-info over its socket"
+	@echo "    make compositor-boot-test  boot disk.img, wayland-info must list wana-compositor globals"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -220,28 +220,38 @@ input-boot-test:
 		--expect 'reboot: Power down' \
 		--reject 'Unknown (group|user)' --reject '\[(INIT|INPUT)\] error'
 
-# Phase 10 step 1: the Wayland protocol layer. wana-compositor opens its
-# socket (libwayland-server, generated tables) and serves one real client,
-# wayland-info, whose WAYLAND_DEBUG trace must show the core round trip
-# (get_registry, sync -> delete_id, done).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--client-debug,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+# Phase 10 steps 1-2: the Wayland protocol layer and its globals.
+# wana-compositor opens its socket (libwayland-server, generated tables),
+# describes the virtio-gpu display found through wana-drm as wl_output, and
+# serves one real client, wayland-info, which must list every global with
+# its contents (shm formats, output mode, seat name).
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-compositor.img --gpu virtio --timeout 180 \
 		--log out/logs/compositor-boot.log \
 		--expect '\[COMPOSITOR\] info: protocol tables: [0-9]+ core \+ 5 xdg-shell interfaces' \
+		--expect '\[COMPOSITOR\] info: globals: wl_compositor v4, wl_shm v1, wl_output v4, wl_seat v7, xdg_wm_base v1' \
+		--expect '\[COMPOSITOR\] info: wl_output Virtual-1: [0-9]+x[0-9]+@[0-9.]+ Hz' \
 		--expect '\[COMPOSITOR\] info: listening on /run/user/0/wayland-0 ' \
-		--expect '\[COMPOSITOR\] info: running test client /usr/bin/wayland-info' \
 		--expect '\[COMPOSITOR\] info: client connected: pid [0-9]+ uid 0 gid 0' \
-		--expect '[-]> wl_display[@#]1\.get_registry\(new id wl_registry[@#]2\)' \
-		--expect 'wl_callback[@#]3\.done\(' \
-		--expect '\[COMPOSITOR\] info: client disconnected: pid [0-9]+' \
+		--expect "interface: 'wl_compositor', +version: +4," \
+		--expect "interface: 'wl_shm', +version: +1," \
+		--expect "0 = 'AR24'" --expect "1 = 'XR24'" \
+		--expect "interface: 'wl_output', +version: +4," \
+		--expect 'name: Virtual-1' \
+		--expect 'width: [0-9]+ px, height: [0-9]+ px, refresh: [0-9.]+ Hz,' \
+		--expect 'flags: current preferred' \
+		--expect "interface: 'wl_seat', +version: +7," \
+		--expect 'name: seat0' \
+		--expect "interface: 'xdg_wm_base', +version: +1," \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
+		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
-		--reject '\[(INIT|COMPOSITOR)\] error'
+		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
 
 br-%: buildroot-src
 	$(BR_MAKE) $*

@@ -113,6 +113,102 @@ library).
 - The same client round trip on the real `disk.img`, with libwayland 1.24.0 and tables generated from its XML.
 - Actual: *pending*
 
+## Step 2: globals
+
+Components:
+- `wana-wayland/src/server.rs`, extended into the dispatch layer:
+  - one dispatcher (`wl_resource_set_dispatcher`) routes every request of every interface into the compositor's
+    `Handler` trait (`bind`, `request`, `destroyed`); no per-interface C function tables;
+  - request arguments are decoded into owned Rust values. Received fds become `OwnedFd`, so an unhandled fd is
+    closed, not leaked;
+  - events are checked before marshalling (`Ctx::post`): the opcode exists, argument kinds and count match the
+    signature, NULL only where the protocol allows it, and the object's version has the event;
+  - `Resource` is only an identity, and every use goes through `Ctx`, which refuses destroyed objects. Destroyed
+    objects are reported to `Handler::destroyed` after the current callback, never re-entrantly;
+  - destructor requests (a new `DESTRUCTORS` table from the scanner) destroy their object automatically;
+  - a panic in the handler aborts the process instead of unwinding into C;
+  - `request_name` gives readable log and error messages (`wl_compositor.create_surface`).
+- `wana-compositor/src/globals.rs`, which advertises:
+
+  | Global | Version | Content now | Later |
+  |---|---|---|---|
+  | `wl_compositor` | 4 | | surfaces and regions: step 3 |
+  | `wl_shm` | 1 | formats ARGB8888, XRGB8888 | pools and buffers: step 3 |
+  | `wl_output` | 4 | geometry, mode (current, preferred), scale 1, name, description, done | |
+  | `wl_seat` | 7 | name `seat0`, capabilities none | pointer and keyboard: step 4 |
+  | `xdg_wm_base` | 1 | pong, destroy | xdg surfaces: step 3 |
+
+  - Versions are capped at the protocol XML's.
+  - `wl_output` describes the display found through wana-drm (connector name, selected mode, physical size,
+    driver). `--headless WxH@HZ` stands in on machines without one.
+  - A request that belongs to a later step ends the client with `wl_display.error` (implementation) naming the
+    step, instead of being ignored.
+
+### T6: Unit tests (local)
+
+- 57 tests (`make check`), also on Rust 1.88.
+- New: signature parsing, fixed-point conversion, and request names from the tables. In `wana-compositor`, the
+  versions stay within the XML's and later-step requests are refused.
+- The raw-client test now covers the whole global path, byte by byte:
+  - the registry advertises `wl_shm`;
+  - the client binds it (untyped `new_id`: interface string plus version) and then sends `sync`;
+  - it receives `format(0)`, `format(1)`, then `wl_callback.done`, then `delete_id`, in that order. The initial
+    events precede the sync reply, which is what clients rely on;
+  - bad events are refused before marshalling: wrong kind, wrong count, no such event;
+  - on disconnect the bound object is reported destroyed, and a post to it is refused.
+- Result: **PASS**
+
+### T7: wayland-info lists the globals (local, host and QEMU)
+
+- On the host (`--headless 1280x800@74.99`), `wayland-info` prints:
+  ```
+  interface: 'wl_compositor',   version:  4, name:  1
+  interface: 'wl_shm',          version:  1, name:  2
+          formats (fourcc):
+                   1 = 'XR24'
+                   0 = 'AR24'
+  interface: 'wl_output',       version:  4, name:  3
+          name: HEADLESS-1
+          description: Wana OS headless output
+          ...
+          mode:
+                  width: 1280 px, height: 800 px, refresh: 74.990 Hz,
+                  flags: current preferred
+  interface: 'wl_seat',         version:  7, name:  4
+          name: seat0
+          capabilities:
+  interface: 'xdg_wm_base',     version:  1, name:  5
+  ```
+- In a QEMU boot with virtio-gpu, all 21 expectations of `make compositor-boot-test` are found, and no
+  `[INIT|COMPOSITOR|DRM]` warning or error appears. The output comes from DRM:
+  ```
+  [DRM] info: selected Virtual-1 on CRTC 37: 1280x800@74.99 (preferred)
+  [COMPOSITOR] info: globals: wl_compositor v4, wl_shm v1, wl_output v4, wl_seat v7, xdg_wm_base v1
+  [COMPOSITOR] info: wl_output Virtual-1: 1280x800@74.99 Hz, 320x200 mm (Virtual-1 on virtio_gpu)
+  [COMPOSITOR] info: bound wl_shm version 1 (object 4)
+  [COMPOSITOR] info: bound wl_output version 4 (object 5)
+  [COMPOSITOR] info: bound wl_seat version 4 (object 6)
+  [COMPOSITOR] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0
+  ```
+  `wayland-info` binds `wl_seat` at version 4, the highest it knows, and `wl_output` at 4.
+- Result: **PASS**
+
+### T8: A request from a later step is refused clearly (local)
+
+- A raw client binds `wl_compositor` and calls `create_surface`:
+  ```
+  [COMPOSITOR] warn: wl_compositor.create_surface (object 4) not implemented yet: surfaces and regions arrive in Phase 10 step 3
+  wl_display.error(object 1, code 3): wl_compositor.create_surface: surfaces and regions arrive in Phase 10 step 3
+  ```
+  Code 3 is `implementation`. The client is disconnected, and the compositor keeps running and shuts down
+  cleanly.
+- Result: **PASS**
+
+### T9: Buildroot image + `make compositor-boot-test` (steps 1+2) in CI
+
+- Actual: *pending*
+
 ## Status
 
-**Step 1 IN PROGRESS.** T1-T4 pass locally. T5 (CI) is pending.
+- Step 1: T1-T4 pass locally; T5 (CI) is pending.
+- Step 2: T6-T8 pass locally; T9 (CI) is pending.

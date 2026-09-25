@@ -462,6 +462,19 @@ pub fn generate(protocols: &[Protocol]) -> Result<String, String> {
             writeln!(out, "    /// Opcodes and version of `{}`.", i.name).unwrap();
             writeln!(out, "    pub mod {} {{", i.name).unwrap();
             writeln!(out, "        pub const VERSION: u32 = {};", i.version).unwrap();
+            let destructors: Vec<String> = i
+                .requests
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.destructor)
+                .map(|(n, _)| n.to_string())
+                .collect();
+            writeln!(
+                out,
+                "        /// Requests that destroy the object.\n        pub const DESTRUCTORS: &[u32] = &[{}];",
+                destructors.join(", ")
+            )
+            .unwrap();
             for (kind, msgs) in [("request", &i.requests), ("event", &i.events)] {
                 writeln!(out, "        pub mod {kind} {{").unwrap();
                 for (n, m) in msgs.iter().enumerate() {
@@ -481,6 +494,18 @@ pub fn generate(protocols: &[Protocol]) -> Result<String, String> {
             "    /// Every interface of this protocol.\n    pub static INTERFACES: [&wl_interface; {}] = [{}];",
             all.len(),
             all.join(", ")
+        )
+        .unwrap();
+        let table: Vec<String> = p
+            .interfaces
+            .iter()
+            .map(|i| format!("(&{}_INTERFACE, {}::DESTRUCTORS)", upper(&i.name), i.name))
+            .collect();
+        writeln!(
+            out,
+            "    /// Destructor requests of every interface.\n    pub static DESTRUCTOR_TABLE: [(&wl_interface, &[u32]); {}] = [{}];",
+            table.len(),
+            table.join(", ")
         )
         .unwrap();
         out.push_str("}\n\n");

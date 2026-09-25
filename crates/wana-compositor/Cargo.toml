@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 wana-log = { path = "../wana-log" }
 wana-wayland = { path = "../wana-wayland" }
+wana-drm = { path = "../wana-drm" }
 
 [lints]
 workspace = true
