@@ -34,14 +34,15 @@
 
 ## T5: CI workflow runs on GitHub
 
-- Command: `git push -u origin claude/inspiring-archimedes-jybz3q`
-- Expected: push accepted; the `ci` workflow runs and is green
-- Actual: push rejected with HTTP 403 ("Claude doesn't have GitHub access to
-  Mudher84/wana-os"). The workflow file parses as valid YAML, but it has
-  never run on GitHub.
-- Result: **NOT RUN** (blocked on repository write access)
+- First attempt: `git push` was rejected with HTTP 403 (no repository access). **NOT RUN.**
+- Retry after the owner granted access: `81510e3` pushed to `claude/inspiring-archimedes-jybz3q` and `develop`.
+- Expected: the `ci` workflow runs and is green.
+- Actual: run [36104384533](https://github.com/Mudher84/wana-os/actions/runs/36104384533)
+  (`claude/...`) and run [36104384840](https://github.com/Mudher84/wana-os/actions/runs/36104384840)
+  (`develop`) both finished with conclusion `success`. The log shows the pinned toolchain
+  `1.94.1` in use and `[CHECK] repository checks: PASS`.
+- Result: **PASS**
 
 ## Phase 1 status
 
-**IN PROGRESS.** The local exit criteria pass (T1-T4). Phase 1 becomes PASS
-once T5 has run green on GitHub Actions.
+**PASS.** T1-T5 all pass.

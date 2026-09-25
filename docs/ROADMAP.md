@@ -9,7 +9,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | # | Phase | Exit test | Status | Evidence |
 |---|-------|-----------|--------|----------|
 | 0 | Repository audit | Audit written from the actual repo state | PASS | [audit 0000](audit/0000-repository-audit.md) |
-| 1 | Project architecture | Layout, docs, Rust workspace; `make check` green locally and in CI | IN PROGRESS | [phase 01 report](test-reports/phase-01.md) |
+| 1 | Project architecture | Layout, docs, Rust workspace; `make check` green locally and in CI | PASS | [phase 01 report](test-reports/phase-01.md) |
 | 2 | Build environment | CI fetches pinned Buildroot and loads `wana_x86_64_defconfig` with no errors | NOT STARTED | |
 | 3 | Linux kernel | CI builds `bzImage` from a pinned kernel and our config fragment | NOT STARTED | |
 | 4 | Minimal rootfs | rootfs with `wana-init` as PID 1 | NOT STARTED | |
