@@ -1,0 +1,64 @@
+# Wana OS Roadmap
+
+A phase is marked **PASS** only when its exit test has been run and the
+evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
+`NOT STARTED`.
+
+## Milestone 1: Native graphical output
+
+| # | Phase | Exit test | Status | Evidence |
+|---|-------|-----------|--------|----------|
+| 0 | Repository audit | Audit written from the actual repo state | PASS | [audit 0000](audit/0000-repository-audit.md) |
+| 1 | Project architecture | Layout, docs, Rust workspace; `make check` green locally and in CI | IN PROGRESS | [phase 01 report](test-reports/phase-01.md) |
+| 2 | Build environment | CI fetches pinned Buildroot and loads `wana_x86_64_defconfig` with no errors | NOT STARTED | |
+| 3 | Linux kernel | CI builds `bzImage` from a pinned kernel and our config fragment | NOT STARTED | |
+| 4 | Minimal rootfs | rootfs with `wana-init` as PID 1 | NOT STARTED | |
+| 5 | UEFI/QEMU boot | QEMU+OVMF boots; serial shows `[INIT]` ready | NOT STARTED | |
+| 6 | Reproducible build | Build manifest (commit, configs, toolchain, versions, SHA-256) produced and archived | NOT STARTED | |
+| 7 | DRM/KMS | `[DRM]` discovers device and connector, sets mode in QEMU virtio-gpu | NOT STARTED | |
+| 8 | GBM/EGL/GLES | Frame rendered via GLES; QEMU `screendump` pixel check in CI | NOT STARTED | |
+
+## Milestone 2: Interactive compositor
+
+| # | Phase | Status |
+|---|-------|--------|
+| 9 | Input stack (udev + libinput -> wana-input) | NOT STARTED |
+| 10 | Compositor MVP (surfaces, focus, z-order, pointer, keyboard) | NOT STARTED |
+| 11 | Desktop shell MVP | NOT STARTED |
+| 12 | Window management | NOT STARTED |
+
+## Milestone 3: Usable desktop
+
+| # | Phase | Status |
+|---|-------|--------|
+| 13 | Dock + launcher | NOT STARTED |
+| 14 | Settings | NOT STARTED |
+| 15 | Networking | NOT STARTED |
+| 16 | Files | NOT STARTED |
+| 17 | System services | NOT STARTED |
+
+## Milestone 4: Installable system
+
+| # | Phase | Status |
+|---|-------|--------|
+| 18 | Live ISO | NOT STARTED |
+| 19 | Installer core | NOT STARTED |
+| 20 | Installer GUI | NOT STARTED |
+| 21 | Installed-disk boot | NOT STARTED |
+
+## Milestone 5: Product quality
+
+| # | Phase | Status |
+|---|-------|--------|
+| 22 | Permissions + audit center | NOT STARTED |
+| 23 | Security hardening | NOT STARTED |
+| 24 | Notifications + control center | NOT STARTED |
+| 25 | Visual polish | NOT STARTED |
+| 26 | Motion system | NOT STARTED |
+| 27 | Performance | NOT STARTED |
+| 28 | Hardware compatibility | NOT STARTED |
+| 29 | Beta release | NOT STARTED |
+| 30 | Stable release | NOT STARTED |
+
+Audio (PipeWire), Bluetooth, Wine, and Android compatibility come after
+Milestone 4 and are not scheduled yet.

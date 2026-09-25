@@ -1,0 +1,14 @@
+# Rust
+/target/
+
+# Build outputs (never commit): kernel images, rootfs, ISOs, Buildroot output
+/out/
+/dl/
+*.iso
+*.img
+*.qcow2
+
+# Editors
+*.swp
+.vscode/
+.idea/
