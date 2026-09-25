@@ -108,3 +108,22 @@ production kernel). It is not claimed here.
 DRM/KMS code discovers the card, sets the mode and shows a frame. The frame is verified
 pixel by pixel on the Buildroot-built image, booted the way hardware boots.
 Open item carried forward: real vsync pacing (see "Known limit").
+
+## Post-PASS finding: console line split by a kernel message (PR #5, run 36157632246): **FAIL**, fixed
+
+- The `graphics-boot-test` step failed on the PR #5 head (`2d670c5`). The product worked: wana-kms did the modeset,
+  completed 120 flips, the 3/3 pixels were exact, and it exited 0. But the expectation
+  `\[INIT\] info: /usr/bin/wana-kms exited successfully` did not match, because a kernel message was printed into the
+  middle of that console line:
+  ```
+  [INIT] info: /us[    6.502726] wana-kms (78) used greatest stack depth: 12872 bytes left
+  r/bin/wana-kms exited successfully
+  ```
+- Root cause: `x86_64_defconfig` sets `CONFIG_DEBUG_STACK_USAGE=y`. `kernel/exit.c` then prints `<task> used greatest
+  stack depth` with `pr_info` whenever an exiting task sets a new stack-depth record. That happens at random moments
+  (earlier runs happened not to collide), and the serial console interleaves it with userspace output.
+- Fix: `# CONFIG_DEBUG_STACK_USAGE is not set` in `linux.fragment`. It is a debugging aid with runtime cost, not
+  wanted in Wana images. The kernel config check now verifies 50 options.
+- Remaining risk, recorded rather than hidden: any asynchronous kernel message can still split a userspace console
+  line. The durable fix is to give userspace logs their own channel (for example a second serial port or `/dev/kmsg`
+  records). That is planned with the service/logging work, not in this PR.
