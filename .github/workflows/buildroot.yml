@@ -111,6 +111,12 @@ jobs:
       - name: Boot disk image (OVMF -> GRUB -> kernel -> ext4 root)
         run: make disk-boot-test
 
+      - name: Graphics (disk boot, virtio-gpu, wana-kms, screenshot pixel check)
+        run: make graphics-boot-test
+
+      - name: GPU rendering (disk boot, GBM + EGL + GLES via wana-gl, screenshot pixel check)
+        run: make gl-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
@@ -127,4 +133,5 @@ jobs:
             out/build/wana_x86_64/images/disk.img
             out/build/wana_x86_64/images/build-manifest.json
             out/build/wana_x86_64/images/SHA256SUMS
+            out/test/*.png
           retention-days: 14

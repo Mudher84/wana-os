@@ -1,0 +1,12 @@
+config BR2_PACKAGE_WANA_RENDER
+	bool "wana-render"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HAS_LIBEGL && BR2_PACKAGE_HAS_LIBGLES && BR2_PACKAGE_HAS_LIBGBM
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_WANA_DRM
+	help
+	  Wana OS renderer: GBM + EGL + OpenGL ES on top of wana-drm,
+	  and the wana-gl bring-up tool.
+
+comment "wana-render needs EGL, OpenGL ES and GBM (mesa3d)"
+	depends on !(BR2_PACKAGE_HAS_LIBEGL && BR2_PACKAGE_HAS_LIBGLES && BR2_PACKAGE_HAS_LIBGBM)

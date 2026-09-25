@@ -8,6 +8,7 @@
 //! | `wana.log=error\|warn\|info\|debug` | init log level (default `info`) |
 //! | `wana.test=poweroff\|reboot` | automated test boot: stop the machine once init is ready |
 //! | `wana.shell=0` | do not start the debug shell on the console |
+//! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
 
 use wana_log::Level;
 
@@ -24,6 +25,8 @@ pub struct Options {
     pub log_level: Level,
     pub test: Option<TestAction>,
     pub shell: bool,
+    /// Program (absolute path) and arguments to run once after `ready`.
+    pub run: Option<Vec<String>>,
     /// Unknown `wana.*` options or bad values, reported as warnings.
     pub warnings: Vec<String>,
 }
@@ -34,6 +37,7 @@ impl Default for Options {
             log_level: Level::Info,
             test: None,
             shell: true,
+            run: None,
             warnings: Vec::new(),
         }
     }
@@ -67,6 +71,15 @@ pub fn parse(cmdline: &str) -> Options {
                     .warnings
                     .push(format!("wana.shell: unknown value {other:?}")),
             },
+            "run" => {
+                let argv: Vec<String> = value.split(',').map(str::to_owned).collect();
+                if argv[0].starts_with('/') {
+                    opts.run = Some(argv);
+                } else {
+                    opts.warnings
+                        .push(format!("wana.run: {value:?} is not an absolute path"));
+                }
+            }
             other => opts.warnings.push(format!("unknown option wana.{other}")),
         }
     }
@@ -106,6 +119,27 @@ mod tests {
             parse("wana.test=poweroff wana.test=reboot").test,
             Some(TestAction::Reboot)
         );
+    }
+
+    #[test]
+    fn run_splits_program_and_arguments() {
+        let o = parse("wana.run=/usr/bin/wana-kms,--hold,3 wana.test=poweroff");
+        assert_eq!(
+            o.run,
+            Some(vec![
+                "/usr/bin/wana-kms".into(),
+                "--hold".into(),
+                "3".into()
+            ])
+        );
+        assert!(o.warnings.is_empty());
+    }
+
+    #[test]
+    fn run_requires_absolute_path() {
+        let o = parse("wana.run=wana-kms");
+        assert_eq!(o.run, None);
+        assert_eq!(o.warnings.len(), 1);
     }
 
     #[test]

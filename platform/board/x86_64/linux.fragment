@@ -56,6 +56,14 @@ CONFIG_OVERLAY_FS=y
 CONFIG_TMPFS=y
 CONFIG_TMPFS_POSIX_ACL=y
 
+# --- Console hygiene -------------------------------------------------------
+# x86_64_defconfig enables stack-usage debugging, which prints
+# "<task> used greatest stack depth" on process exit at random moments. On
+# the serial console that line can split a userspace log line in two
+# (CI run 36157632246: "[INIT] info: /us[ 6.50] wana-kms ... r/bin/wana-kms").
+# Stack-usage instrumentation is a debugging aid, not needed in Wana images.
+# CONFIG_DEBUG_STACK_USAGE is not set
+
 # --- Isolation primitives for services and app sandboxing -----------------
 CONFIG_CGROUPS=y
 CONFIG_NAMESPACES=y

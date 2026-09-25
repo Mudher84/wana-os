@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -40,6 +40,8 @@ help:
 	@echo "    make repro-compare A=<manifest> B=<manifest>  compare two builds artifact by artifact"
 	@echo "    make system-boot-test  boot kernel + rootfs under QEMU+OVMF; wana-init must reach ready"
 	@echo "    make disk-boot-test    boot images/disk.img via firmware -> GRUB -> kernel -> ext4 root"
+	@echo "    make graphics-boot-test  boot disk.img with virtio-gpu, run wana-kms, check screenshot pixels"
+	@echo "    make gl-boot-test        boot disk.img with virtio-gpu, run wana-gl (GBM/EGL/GLES), check pixels"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -149,6 +151,46 @@ disk-boot-test:
 		--expect 'Run /sbin/init as init process' \
 		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
+
+# Phase 7: native graphical output. Boots the disk image with a virtio-gpu
+# display, runs wana-kms (DRM/KMS modeset + page flips), screenshots the
+# virtual screen while the frame is held and checks the test-pattern pixels.
+GFX_ARGS := wana.run=/usr/bin/wana-kms,--hold,5 wana.test=poweroff wana.shell=0
+graphics-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-gfx.img "$(GFX_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-gfx.img --gpu virtio --timeout 180 \
+		--log out/logs/graphics-boot.log \
+		--screendump-on 'holding frame' --screendump out/test/wana-kms.ppm \
+		--pixel 0.5,0.5=4f8cff --pixel 0.1,0.5=16213e --pixel 0,0=ffffff \
+		--expect '\[DRM\] info: found card[0-9]+' \
+		--expect '\[DRM\] info: selected .* on CRTC [0-9]+' \
+		--expect '\[DRM\] info: modeset done' \
+		--expect '\[DRM\] info: page flip: [0-9]+ flips completed' \
+		--expect '\[INIT\] info: /usr/bin/wana-kms exited successfully' \
+		--expect 'reboot: Power down'
+
+# Phase 8: GPU rendering. Same boot path as graphics-boot-test, but the frame
+# is drawn by an OpenGL ES shader through GBM + EGL (Mesa) and scanned out
+# by wana-drm. The scene uses the same palette, so the same pixels are checked.
+GL_MEMORY ?= 1024
+GL_ARGS := wana.run=/usr/bin/wana-gl,--frames,10,--hold,5 wana.test=poweroff wana.shell=0
+gl-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-gl.img "$(GL_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-gl.img --gpu virtio --timeout 300 --memory $(GL_MEMORY) \
+		--log out/logs/gl-boot.log \
+		--screendump-on 'holding frame' --screendump out/test/wana-gl.ppm \
+		--pixel 0.5,0.5=4f8cff --pixel 0.1,0.5=16213e --pixel 0,0=ffffff \
+		--expect '\[GBM\] info: surface [0-9]+x[0-9]+ XRGB8888' \
+		--expect '\[EGL\] info: EGL 1\.[0-9]+' \
+		--expect '\[EGL\] info: OpenGL ES context current' \
+		--expect '\[RENDER\] info: GL_VENDOR=' \
+		--expect '\[RENDER\] info: shaders compiled and linked' \
+		--expect '\[DRM\] info: modeset done: .* first GPU frame on screen' \
+		--expect '\[RENDER\] info: [0-9]+ frames rendered' \
+		--expect '\[INIT\] info: /usr/bin/wana-gl exited successfully' \
 		--expect 'reboot: Power down'
 
 br-%: buildroot-src

@@ -1,0 +1,20 @@
+[package]
+name = "wana-drm"
+description = "Wana OS DRM/KMS backend: device discovery, modesetting, page flipping"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# No crates.io dependencies: the kernel DRM uAPI is used directly (see
+# src/sys.rs), and Buildroot builds local Cargo packages with --offline.
+[dependencies]
+wana-log = { path = "../wana-log" }
+
+[[bin]]
+name = "wana-kms"
+path = "src/bin/wana-kms.rs"
+
+[lints]
+workspace = true

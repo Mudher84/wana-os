@@ -1,0 +1,8 @@
+config BR2_PACKAGE_WANA_DRM
+	bool "wana-drm"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  Wana OS DRM/KMS backend and the wana-kms bring-up tool:
+	  display discovery, modesetting and page flipping through
+	  the kernel DRM uAPI.
