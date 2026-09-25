@@ -9,6 +9,7 @@ pub mod card;
 pub mod connector;
 pub mod discover;
 pub mod mode;
+pub mod output;
 pub mod sys;
 
 pub use card::{Card, ConnectorInfo, DumbBuffer, FlipEvent, Resources};

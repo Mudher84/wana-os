@@ -16,7 +16,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 5 | UEFI boot with bootloader | GRUB (x86_64-efi) on an EFI System Partition boots kernel + rootfs in QEMU+OVMF (no `-kernel` shortcut) | PASS | [phase 05 report](test-reports/phase-05.md) |
 | 6 | Reproducible build | Build manifest (commit, configs, toolchain, versions, SHA-256) per image; two independent CI builds of one commit produce identical artifacts | PASS | [phase 06 report](test-reports/phase-06.md) |
 | 7 | DRM/KMS | `[DRM]` discovers device and connector, sets mode in QEMU virtio-gpu; screenshot pixels verified | PASS | [phase 07 report](test-reports/phase-07.md) |
-| 8 | GBM/EGL/GLES | Frame rendered via GLES; QEMU `screendump` pixel check in CI | NOT STARTED | |
+| 8 | GBM/EGL/GLES | Frame rendered via GLES (GBM + EGL on wana-drm), scanned out, QEMU `screendump` pixel check in CI | IN PROGRESS | [phase 08 report](test-reports/phase-08.md) |
 
 ## Milestone 2: Interactive compositor
 

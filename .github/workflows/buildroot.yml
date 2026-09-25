@@ -114,6 +114,9 @@ jobs:
       - name: Graphics (disk boot, virtio-gpu, wana-kms, screenshot pixel check)
         run: make graphics-boot-test
 
+      - name: GPU rendering (disk boot, GBM + EGL + GLES via wana-gl, screenshot pixel check)
+        run: make gl-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

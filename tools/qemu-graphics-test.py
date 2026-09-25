@@ -98,6 +98,7 @@ def main():
     ap.add_argument("--append", default="")
     ap.add_argument("--gpu", choices=["virtio", "std"], default="virtio")
     ap.add_argument("--timeout", type=int, default=180)
+    ap.add_argument("--memory", default="1024", help="guest RAM in MiB")
     ap.add_argument("--log", default="qemu-graphics.log")
     ap.add_argument("--expect", action="append", default=[])
     ap.add_argument("--screendump-on", help="regex; take the screenshot when a log line matches")
@@ -116,7 +117,7 @@ def main():
     mon = os.path.join(tmp, "monitor.sock")
     accel = "kvm" if os.access("/dev/kvm", os.W_OK) else "tcg"
 
-    cmd = ["qemu-system-x86_64", "-machine", f"q35,accel={accel}", "-m", "1024", "-smp", "2",
+    cmd = ["qemu-system-x86_64", "-machine", f"q35,accel={accel}", "-m", args.memory, "-smp", "2",
            "-no-reboot", "-display", "none", "-serial", "stdio",
            "-monitor", f"unix:{mon},server,nowait",
            "-drive", f"if=pflash,format=raw,readonly=on,file={ovmf}",

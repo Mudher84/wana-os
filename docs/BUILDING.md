@@ -22,6 +22,7 @@ current list of targets.
 | `make system-boot-test` | Boots `bzImage` + `rootfs.cpio.zst` under QEMU+OVMF with `wana.test=poweroff`; `wana-init` must print `ready` | `qemu-system-x86`, `ovmf` |
 | `make disk-boot-test` | Boots `images/disk.img` (GPT: ESP with GRUB + kernel, ext4 root) through OVMF with no `-kernel`; `wana-init` must reach `ready` | `qemu-system-x86`, `ovmf`, `mtools` |
 | `make graphics-boot-test` | Boots `disk.img` with a virtio-gpu display, runs `wana-kms` (modeset + page flips), screenshots the virtual screen and checks pixel colors | `qemu-system-x86`, `ovmf`, `mtools`, python3 |
+| `make gl-boot-test` | Boots `disk.img` with virtio-gpu, runs `wana-gl` (GBM + EGL + OpenGL ES shader, scanout via wana-drm), checks screenshot pixels | as `graphics-boot-test` |
 | `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
 
 The ISO target does not exist yet (Phase 18).
@@ -46,6 +47,7 @@ grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y
 - Linux x86_64 host
 - `rustup` (it installs the toolchain pinned in `rust-toolchain.toml`)
 - GNU make, git
+- For `cargo test`/`clippy` on the host: GBM/EGL/GLES development files (`libgbm-dev libegl-dev libgles-dev` on Ubuntu)
 
 ## Network note
 

@@ -73,6 +73,11 @@ impl Card {
         self.file.as_raw_fd()
     }
 
+    /// The raw file descriptor, for APIs that take a DRM fd (e.g. gbm_create_device).
+    pub fn raw_fd(&self) -> RawFd {
+        self.fd()
+    }
+
     /// Kernel driver name (e.g. `virtio_gpu`) and version.
     pub fn driver(&self) -> io::Result<(String, String)> {
         let mut v = DrmVersion::default();
@@ -244,13 +249,25 @@ impl Card {
 
     /// Registers `buf` as an XRGB8888 framebuffer (depth 24, 32 bpp).
     pub fn add_fb(&self, buf: &DumbBuffer) -> io::Result<u32> {
+        self.add_fb_handle(buf.width, buf.height, buf.pitch, buf.handle)
+    }
+
+    /// Registers any XRGB8888 buffer object (GEM handle) as a framebuffer,
+    /// e.g. a GBM buffer rendered by the GPU.
+    pub fn add_fb_handle(
+        &self,
+        width: u32,
+        height: u32,
+        pitch: u32,
+        handle: u32,
+    ) -> io::Result<u32> {
         let mut f = DrmModeFbCmd {
-            width: buf.width,
-            height: buf.height,
-            pitch: buf.pitch,
+            width,
+            height,
+            pitch,
             bpp: 32,
             depth: 24,
-            handle: buf.handle,
+            handle,
             ..Default::default()
         };
         // SAFETY: no pointers in DrmModeFbCmd.

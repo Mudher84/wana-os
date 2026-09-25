@@ -10,8 +10,9 @@
 
 use std::process::ExitCode;
 use std::time::Duration;
-use wana_drm::{discover, sys, Card, CardInfo, Connection, ConnectorInfo, DumbBuffer, Mode};
-use wana_log::{debug, error, info, warn, Subsystem};
+use wana_drm::output::{self, Output};
+use wana_drm::{sys, DumbBuffer};
+use wana_log::{error, info, warn, Subsystem};
 
 const DRM: Subsystem = Subsystem::Drm;
 
@@ -50,14 +51,6 @@ fn parse_args() -> Result<Args, String> {
     Ok(a)
 }
 
-/// Selected output: card, connector, mode and CRTC.
-struct Output {
-    card: Card,
-    conn: ConnectorInfo,
-    mode: Mode,
-    crtc: u32,
-}
-
 fn main() -> ExitCode {
     wana_log::init_from_env();
     let args = match parse_args() {
@@ -77,106 +70,8 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &Args) -> Result<(), String> {
-    let cards: Vec<CardInfo> = match &args.card {
-        Some(path) => vec![CardInfo {
-            name: path.clone(),
-            index: 0,
-            devnode: path.into(),
-            driver: None,
-            connectors: vec![],
-        }],
-        None => discover::cards().map_err(|e| format!("cannot list /sys/class/drm: {e}"))?,
-    };
-    if cards.is_empty() {
-        return Err("no DRM devices found (is a KMS driver loaded?)".into());
-    }
-    for c in &cards {
-        info!(
-            DRM,
-            "found {} ({}) device-driver={} connectors=[{}]",
-            c.name,
-            c.devnode.display(),
-            c.driver.as_deref().unwrap_or("?"),
-            c.connectors.join(", ")
-        );
-    }
-
-    let mut out = None;
-    for c in &cards {
-        match probe(c) {
-            Ok(Some(o)) => {
-                out = Some(o);
-                break;
-            }
-            Ok(None) => info!(DRM, "{}: no connected display, trying next card", c.name),
-            Err(e) => warn!(DRM, "{}: {e}", c.name),
-        }
-    }
-    let out = out.ok_or("no card has a connected display")?;
+    let out = output::find(args.card.as_deref())?;
     show(&out, args)
-}
-
-/// Opens a card and looks for a connected connector with a usable mode and CRTC.
-fn probe(info: &CardInfo) -> Result<Option<Output>, String> {
-    let card =
-        Card::open(&info.devnode).map_err(|e| format!("open {}: {e}", info.devnode.display()))?;
-    let (driver, version) = card
-        .driver()
-        .map_err(|e| format!("DRM_IOCTL_VERSION: {e}"))?;
-    info!(DRM, "{}: opened, driver {driver} {version}", info.name);
-    if card.cap(sys::DRM_CAP_DUMB_BUFFER).unwrap_or(0) == 0 {
-        return Err("no dumb buffer support".into());
-    }
-    let res = card.resources().map_err(|e| format!("GETRESOURCES: {e}"))?;
-    info!(
-        DRM,
-        "{}: {} connector(s), {} encoder(s), {} CRTC(s), max {}x{}",
-        info.name,
-        res.connectors.len(),
-        res.encoders.len(),
-        res.crtcs.len(),
-        res.max_width,
-        res.max_height
-    );
-    for &id in &res.connectors {
-        let conn = card
-            .connector(id)
-            .map_err(|e| format!("GETCONNECTOR {id}: {e}"))?;
-        info!(
-            DRM,
-            "connector {} (id {id}): {:?}, {} mode(s), {}x{} mm",
-            conn.name,
-            conn.connection,
-            conn.modes.len(),
-            conn.mm_width,
-            conn.mm_height
-        );
-        for m in &conn.modes {
-            debug!(DRM, "  mode {m}");
-        }
-        if conn.connection != Connection::Connected {
-            continue;
-        }
-        let Some(mode) = wana_drm::mode::select(&conn.modes) else {
-            warn!(DRM, "{}: connected but reports no modes", conn.name);
-            continue;
-        };
-        let Some(crtc) = card
-            .crtc_for(&res, &conn)
-            .map_err(|e| format!("GETENCODER: {e}"))?
-        else {
-            warn!(DRM, "{}: no CRTC available", conn.name);
-            continue;
-        };
-        info!(DRM, "selected {} on CRTC {crtc}: {mode}", conn.name);
-        return Ok(Some(Output {
-            card,
-            conn,
-            mode,
-            crtc,
-        }));
-    }
-    Ok(None)
 }
 
 /// Draws the Wana test pattern: background, centered accent square, border.

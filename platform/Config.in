@@ -1,4 +1,5 @@
 menu "Wana OS"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-init/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-drm/Config.in"
+source "$BR2_EXTERNAL_WANA_PATH/package/wana-render/Config.in"
 endmenu

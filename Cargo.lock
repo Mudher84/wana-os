@@ -19,3 +19,11 @@ dependencies = [
 [[package]]
 name = "wana-log"
 version = "0.1.0"
+
+[[package]]
+name = "wana-render"
+version = "0.1.0"
+dependencies = [
+ "wana-drm",
+ "wana-log",
+]
