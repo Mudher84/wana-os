@@ -126,4 +126,38 @@ Local end-to-end re-test, run twice: Buildroot's touch step, `mke2fs` 1.47.3 wit
 - `rootfs.ext2` 720359a0…, `esp.vfat` 322b5ef3… and `disk.img` 5c7bf551… are **identical** across both runs.
 - The disk boots: `EXT4-fs (vda2): mounted filesystem 5d9f6a52-7e1b-4c3a-9b8e-0a1a57a0a0f5`, then `[INIT] info: ready`, then power off.
 
-### Attempt 2: *pending*
+### Attempt 2: run [36135286543](https://github.com/Mudher84/wana-os/actions/runs/36135286543), commit `5b79d7a`: **PASS**
+
+Build A (ccache, 44m33s) and build B (`CCACHE_DISABLE=1`, full recompilation, 52m22s), on two different runners:
+
+```
+identical  bzImage
+identical  disk.img
+identical  efi-part/EFI/BOOT/bootx64.efi
+identical  efi-part/EFI/BOOT/grub.cfg
+identical  efi-part/wana/bzImage
+identical  esp.vfat
+identical  genimage.cfg
+identical  rootfs.cpio
+identical  rootfs.cpio.zst
+identical  rootfs.ext2
+identical  rootfs.ext4
+identical  rootfs.tar
+[BUILD] reproducibility: PASS (12/12 artifacts identical)
+```
+
+The `buildroot` workflow on the same commit ([36135286549](https://github.com/Mudher84/wana-os/actions/runs/36135286549)) also
+passed, including the disk boot with the new ext4 options.
+
+- Result: **PASS**
+
+## Phase 6 status
+
+**PASS.** T1-T5 all pass. Every artifact of a Wana OS image is traceable to a
+commit through its manifest, and two independent builds of that commit, one of them
+with no compiler cache, produce bit-identical output: kernel, root filesystems
+(cpio, tar, ext4), GRUB, ESP and the complete disk image.
+
+Scope: reproducibility is verified on the same build path (`/home/runner/work/wana-os/wana-os`) and the
+same host OS image (GitHub `ubuntu-24.04`). Building from a different directory or host
+distribution has not been tested yet.
