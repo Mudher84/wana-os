@@ -50,5 +50,29 @@
 
 ## T4: Buildroot-built disk image in CI
 
-- Workflow `buildroot`: `make image` (now also GRUB, ext4 rootfs, genimage), then `make disk-boot-test`
-- Actual: *pending*
+- Run: [36115622561](https://github.com/Mudher84/wana-os/actions/runs/36115622561) (PR Mudher84/wana-os#2, commit `a2bfbd3`), job `toolchain, image, UEFI boot`, 21m50s
+- `make image` now also builds GRUB 2 (x86_64-efi), `rootfs.ext4`, host genimage/mtools/dosfstools, and runs `post-image.sh`: success
+- The earlier boot tests still pass: kernel config (49 options), kernel alone, kernel + initramfs
+- `make disk-boot-test` (QEMU accel=kvm, OVMF, Buildroot `disk.img`, test copy with `wana.test=poweroff`):
+  ```
+  [BOOT] info: out/test/disk-test.img: /wana/test.cfg -> wana_args="wana.test=poweroff"
+  [BOOT] info: found: BdsDxe: starting Boot
+  [BOOT] info: found: \[BOOT\] info: loading Wana OS kernel
+  [BOOT] info: found: Linux version 6\.18\.33-wana
+  [BOOT] info: found: root=PARTUUID=5d9f6a52-7e1b-4c3a-9b8e-0a1a57a0a001
+  [BOOT] info: found: Run /sbin/init as init process
+  [BOOT] info: found: \[INIT\] info: early mounts: 7 ok, 0 failed
+  [BOOT] info: found: \[INIT\] info: ready
+  [BOOT] info: found: reboot: Power down
+  [BOOT] boot test: PASS (log: out/logs/disk-boot.log)
+  ```
+- Artifact: `wana-image-<sha>` now includes `disk.img` (37.6 MB zipped), 14 days
+- Result: **PASS**
+
+## Phase 5 status
+
+**PASS.** T1-T4 all pass. Wana OS boots from a disk the way real hardware
+does: UEFI firmware, then GRUB on the ESP, then the kernel, then the ext4 root, then wana-init.
+
+Not covered yet: real hardware (Phase 28), Secure Boot (Phase 23), a
+writable root / A-B updates (later), the ISO (Phase 18).
