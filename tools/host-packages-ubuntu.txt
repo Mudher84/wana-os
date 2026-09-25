@@ -1,0 +1,14 @@
+# Host packages for Buildroot on Ubuntu 24.04 (CI: grep -v ^# | xargs apt-get install -y)
+build-essential
+bc
+bzip2
+cpio
+file
+git
+patch
+perl
+rsync
+unzip
+wget
+xz-utils
+mtools

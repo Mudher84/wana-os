@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-2.0-or-later"
 repository = "https://github.com/Mudher84/wana-os"
-rust-version = "1.94"
+rust-version = "1.88"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

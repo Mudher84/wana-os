@@ -12,10 +12,12 @@ the phase that implements it.
 
 ```
 Firmware (UEFI)
-  -> Bootloader (GRUB, x86_64-efi)                 platform/board/x86_64/
+  -> Bootloader (GRUB, x86_64-efi, /EFI/BOOT/bootx64.efi on the ESP)
+                                                   platform/board/x86_64/grub.cfg
   -> Linux kernel (+ initramfs for live ISO)       platform/board/x86_64/linux.fragment
   -> wana-init (PID 1)                             crates/wana-init
-       -> early mounts, /dev, cgroups, hostname
+       -> early mounts (proc, sys, devtmpfs, devpts, shm, run, tmp), hostname
+       -> reaps orphans; supervises the console debug shell (Phase 4)
        -> device manager (udev)                    eudev, from Buildroot
        -> system services (supervised by wana-init)
             display/session   -> wana-compositor   crates/wana-compositor
@@ -63,6 +65,18 @@ system. Proposed answer: Wana ships as an **immutable, image-based system**
 (read-only root, A/B root partitions for updates, writable `/home` and
 `/var`). This is a feature for stability and security. User-installable
 applications will need their own mechanism, which is decided in a later phase.
+
+## 2a. Disk layout (**Decided**, Phase 5)
+
+GPT. Partition 1 is the EFI System Partition (vfat, `WANA-ESP`): GRUB at
+`/EFI/BOOT/bootx64.efi` (the removable-media path, so no NVRAM boot entry
+is needed), `grub.cfg` next to it, and the kernel at `/wana/bzImage`.
+Partition 2 is the root filesystem (ext4, GPT type
+`4f68bce3-e8cd-4db1-96e7-fbcaf984b709`, "Linux root x86-64"). The kernel
+finds it by `root=PARTUUID=`, mounted read-only. GRUB sources an optional
+`/wana/test.cfg` so automated tests can add kernel arguments to a copy of
+the image without rebuilding it. GRUB stays replaceable: only `grub.cfg`,
+the `BR2_TARGET_GRUB2*` symbols and `post-image.sh` know about it.
 
 ## 3. C library: glibc (**Proposed**, Phase 2)
 
@@ -142,6 +156,21 @@ compositor.
 - Permission audit: `wana-permd` records (app, permission, action, decision,
   timestamp) in a bounded ring buffer that only the `wana-permd` user can
   write. Applications have no write path to it.
+
+## 8a. wana-init (**Decided**, Phase 4)
+
+- PID 1 is our own Rust program, not BusyBox init or systemd. It has no
+  crates.io dependencies: PID 1 keeps a small, auditable surface, and
+  Buildroot builds local Cargo packages with `--offline`. The few libc
+  calls std lacks (`mount`, `sethostname`, `reboot`, `waitpid`) are wrapped
+  in `crates/wana-init/src/sys.rs`.
+- It is `/init` in the initramfs and `/sbin/init` on disk (same binary).
+- It never exits. Failures are logged as `[INIT] error` and the boot
+  continues degraded, so the console shows the first broken step.
+- Kernel command line options: `wana.log=`, `wana.test=poweroff|reboot`
+  (automated test boots), `wana.shell=0`.
+- MSRV = the Rust version shipped by the pinned Buildroot (1.88 for
+  2026.02.3). CI checks it.
 
 ## 9. Logging (**Decided**)
 

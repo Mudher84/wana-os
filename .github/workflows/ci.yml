@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, develop, "feature/**", "claude/**"]
+    branches: [main, develop, "feature/**"]
   pull_request:
 
 concurrency:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # rustup (preinstalled on the runner) installs the toolchain pinned in
       # rust-toolchain.toml on first use.
@@ -32,3 +32,15 @@ jobs:
         run: make test
       - name: Repository checks
         run: make repo-check
+
+  msrv:
+    name: build + test with Buildroot's Rust (MSRV)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install MSRV toolchain
+        run: rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - name: Test with MSRV
+        run: make msrv
