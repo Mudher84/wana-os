@@ -144,14 +144,16 @@ kernel evdev  ->  udev (eudev)  ->  libinput  ->  xkbcommon  ->  wana-input  -> 
   mouse DPI) is disabled to keep the image small. It becomes necessary for
   real laptops (Phase 27).
 
-## 7. Compositor, shell, and applications (**Proposed**, Phases 10-13)
+## 7. Compositor, shell, and applications (protocol layer **Decided**, Phase 10; rest **Proposed**, Phases 10-13)
 
 - The client protocol is **Wayland**, so ordinary Linux applications (GTK,
   Qt, SDL, Chromium, and later Xwayland and Wine) can run without dictating
   our desktop. The implementation is our own Rust code. Whether we build on
   the Smithay protocol library or on bare `wayland-server` is decided at the
   start of Phase 10, with written reasons: see
-  [decision 0001](decisions/0001-wayland-protocol-layer.md) (proposed).
+  [decision 0001](decisions/0001-wayland-protocol-layer.md) (**accepted**:
+  `libwayland-server`, the freedesktop C reference library, through our own
+  FFI and protocol generator; no Smithay, no crates).
 - `wana-shell` is a separate process: a privileged client that uses
   Wana-specific protocols for its surfaces (desktop, dock, launcher, status
   area, control center). A shell crash must not take down the compositor or

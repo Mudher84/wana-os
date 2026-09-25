@@ -1,6 +1,7 @@
 # Decision 0001: Wayland protocol layer for the compositor (Phase 10)
 
-- Status: **Proposed**, awaiting the project owner's decision
+- Status: **Accepted** (2026-09-25, by the project owner): option C, `libwayland-server` through Wana's own FFI
+  and in-tree protocol generator
 - Date: 2026-09-25
 - Context: [ARCHITECTURE.md §7](../ARCHITECTURE.md) says the client protocol is Wayland, the implementation is our own
   Rust code, and the choice between "the Smithay protocol library" and "bare `wayland-server`" is made at the start
@@ -142,7 +143,7 @@ tested against.
 messages for security reasons. The compositor logic written for C carries over to B, because only the protocol
 layer changes. **Not recommended:** A.
 
-## If accepted: Phase 10 plan (each step with its own test)
+## Phase 10 plan (each step with its own test)
 
 1. **Build:** Buildroot `wayland` and `wayland-protocols` packages. `crates/wana-wayland`: FFI to
    libwayland-server core, and the protocol generator. Unit tests: generated tables match the XML; the socket
