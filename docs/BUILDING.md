@@ -21,6 +21,7 @@ current list of targets.
 | `make repro-compare A=… B=…` | Compares two manifests artifact by artifact; exit 1 on any difference | python3 |
 | `make system-boot-test` | Boots `bzImage` + `rootfs.cpio.zst` under QEMU+OVMF with `wana.test=poweroff`; `wana-init` must print `ready` | `qemu-system-x86`, `ovmf` |
 | `make disk-boot-test` | Boots `images/disk.img` (GPT: ESP with GRUB + kernel, ext4 root) through OVMF with no `-kernel`; `wana-init` must reach `ready` | `qemu-system-x86`, `ovmf`, `mtools` |
+| `make graphics-boot-test` | Boots `disk.img` with a virtio-gpu display, runs `wana-kms` (modeset + page flips), screenshots the virtual screen and checks pixel colors | `qemu-system-x86`, `ovmf`, `mtools`, python3 |
 | `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
 
 The ISO target does not exist yet (Phase 18).

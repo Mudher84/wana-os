@@ -62,6 +62,10 @@ fn main() {
         );
     }
 
+    if let Some(argv) = &opts.run {
+        run_once(argv);
+    }
+
     if let Some(action) = opts.test {
         stop(action);
     }
@@ -107,6 +111,23 @@ fn set_identity() {
 fn read_first_field(path: &str) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
     text.split_whitespace().next().map(str::to_owned)
+}
+
+/// Runs one program to completion (`wana.run=`), for bring-up and tests.
+/// Its output goes to the console; its exit status is logged.
+fn run_once(argv: &[String]) {
+    info!(INIT, "running {}", argv.join(" "));
+    match Command::new(&argv[0])
+        .args(&argv[1..])
+        .env_clear()
+        .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
+        .current_dir("/")
+        .status()
+    {
+        Ok(status) if status.success() => info!(INIT, "{} exited successfully", argv[0]),
+        Ok(status) => error!(INIT, "{} failed: {status}", argv[0]),
+        Err(e) => error!(INIT, "cannot run {}: {e}", argv[0]),
+    }
 }
 
 /// Stops the machine for an automated test boot. Returns only on failure.

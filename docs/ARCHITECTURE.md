@@ -95,7 +95,7 @@ and requirement 35 says Wana must be able to run normal Linux applications.
 - **Shell / Make / Kconfig** for build glue: Buildroot configuration,
   post-build and post-image scripts, and the top-level `Makefile`.
 
-## 5. Graphics stack (**Proposed**, Phases 7-8)
+## 5. Graphics stack (DRM/KMS layer **Decided**, Phase 7; GBM/EGL/GLES **Proposed**, Phase 8)
 
 ```
 Linux DRM/KMS  ->  GBM  ->  EGL  ->  OpenGL ES 3  ->  wana-compositor  ->  wana-shell
@@ -104,7 +104,8 @@ Linux DRM/KMS  ->  GBM  ->  EGL  ->  OpenGL ES 3  ->  wana-compositor  ->  wana-
 - Device discovery enumerates the `drm` subsystem through udev (sysfs
   fallback) and picks the card with a connected connector. It never
   hard-codes `/dev/dri/card0`.
-- `wana-drm`: opens the device and becomes DRM master. It enumerates
+- `wana-drm` (implemented): uses the kernel DRM uAPI directly, with no libdrm. `repr(C)`
+  structs and ioctl numbers are checked against `<drm/drm_mode.h>` in unit tests. It opens the device and becomes DRM master. It enumerates
   connectors, encoders, CRTCs and modes, picks a mode (preferred first, then
   highest refresh at native resolution), does atomic modesetting (legacy as
   fallback), and page flipping driven by vblank events. It never uses a fixed
