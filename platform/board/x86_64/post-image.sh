@@ -16,7 +16,17 @@ done
 mkdir -p "$out/efi-part/wana"
 cp "$out/bzImage" "$out/efi-part/wana/bzImage"
 sed "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" "$board/grub.cfg" > "$out/efi-part/EFI/BOOT/grub.cfg"
-sed "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" "$board/genimage.cfg" > "$out/genimage.cfg"
+sed -e "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" \
+    -e "s/__ESP_PARTUUID__/$WANA_ESP_PARTUUID/g" \
+    -e "s/__DISK_GUID__/$WANA_DISK_GUID/g" \
+    -e "s/__ESP_VOLID__/$WANA_ESP_VOLID/g" \
+    "$board/genimage.cfg" > "$out/genimage.cfg"
+
+# Reproducibility: FAT stores file times, so pin every ESP file to
+# SOURCE_DATE_EPOCH (exported by Buildroot; the build's reference time).
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    find "$out/efi-part" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

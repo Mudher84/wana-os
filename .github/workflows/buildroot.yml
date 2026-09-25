@@ -3,7 +3,7 @@ name: buildroot
 # Stage 4: Buildroot. Runs only when the platform or build glue changes.
 on:
   push:
-    branches: [main, develop, "feature/**"]
+    branches: [main, develop, "feature/**", "claude/**"]
     paths:
       - "platform/**"
       - "crates/**"
@@ -90,6 +90,11 @@ jobs:
           set -o pipefail
           make image 2>&1 | tee image-build.log | { grep -E '^>>>' || true; }
 
+      - name: Build manifest
+        run: |
+          cat out/build/wana_x86_64/images/SHA256SUMS
+          python3 -c "import json,sys; m=json.load(open('out/build/wana_x86_64/images/build-manifest.json')); print(json.dumps({k: m[k] for k in ('git','buildroot','kernel','toolchain','source_date_epoch')}, indent=1))"
+
       - name: Check kernel config
         run: make kernel-config-check
 
@@ -116,4 +121,6 @@ jobs:
             out/build/wana_x86_64/images/bzImage
             out/build/wana_x86_64/images/rootfs.cpio.zst
             out/build/wana_x86_64/images/disk.img
+            out/build/wana_x86_64/images/build-manifest.json
+            out/build/wana_x86_64/images/SHA256SUMS
           retention-days: 14

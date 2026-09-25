@@ -1,0 +1,83 @@
+name: reproducibility
+
+# Phase 6: build the same commit twice on two runners and compare every
+# artifact's SHA-256. Build B disables ccache so each object is really
+# recompiled, not served from the cache that build A filled.
+# Expensive (two full builds), so it runs on main/develop, weekly, and on demand.
+on:
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: reproducibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: A
+            ccache_disable: ""
+          - name: B
+            ccache_disable: "1"
+    env:
+      CCACHE_DISABLE: ${{ matrix.ccache_disable }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y -qq
+
+      - name: Cache downloads
+        uses: actions/cache@v6
+        with:
+          path: dl
+          key: br-dl-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}
+          restore-keys: br-dl-
+
+      - name: Cache ccache (build A only)
+        if: matrix.ccache_disable == ''
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.buildroot-ccache
+          key: br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-${{ github.sha }}
+          restore-keys: |
+            br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-
+            br-ccache-
+
+      - name: Build image
+        shell: bash
+        run: |
+          set -o pipefail
+          make image 2>&1 | tee image-build.log | { grep -E '^>>>|\[BUILD\]' || true; }
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: manifest-${{ matrix.name }}
+          path: |
+            out/build/wana_x86_64/images/build-manifest.json
+            out/build/wana_x86_64/images/SHA256SUMS
+          retention-days: 30
+
+  compare:
+    name: compare A vs B
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          path: manifests
+      - name: Compare artifacts
+        run: tools/compare-manifests.py manifests/manifest-A/build-manifest.json manifests/manifest-B/build-manifest.json
