@@ -88,7 +88,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          make image 2>&1 | tee image-build.log | { grep -E '^>>>' || true; }
+          make image 2>&1 | tee image-build.log | { grep -E '^>>>|\[BUILD\]' || true; }
+
+      - name: Show end of build log (on failure)
+        if: failure()
+        run: tail -n 80 image-build.log toolchain-build.log 2>/dev/null || true
 
       - name: Build manifest
         run: |

@@ -112,9 +112,9 @@ image: config
 # SHA-256 of every artifact (Phase 6).
 manifest:
 	mkdir -p out
-	$(BR_MAKE) -s show-info > out/show-info.json
+	$(BR_MAKE) -s --no-print-directory show-info > out/show-info.json
 	tools/build-manifest.py --br-out $(BR_OUT) --show-info out/show-info.json \
-		--source-date-epoch "$$($(BR_MAKE) -s printvars VARS=SOURCE_DATE_EPOCH | sed -n 's/^SOURCE_DATE_EPOCH=//p')"
+		--source-date-epoch "$$($(BR_MAKE) -s --no-print-directory printvars VARS=SOURCE_DATE_EPOCH | sed -n 's/^SOURCE_DATE_EPOCH=//p')"
 
 repro-compare:
 	tools/compare-manifests.py $(A) $(B)

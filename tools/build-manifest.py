@@ -102,7 +102,12 @@ def packages(show_info: Path) -> dict:
     """name -> version for every target and host package in the build."""
     if not show_info or not show_info.is_file():
         return {}
-    info = json.loads(show_info.read_text())
+    text = show_info.read_text()
+    try:
+        info = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"[BUILD] error: {show_info} is not valid JSON ({e}); "
+                         f"starts with: {text[:80]!r}")
     return {name: pkg.get("version", "") for name, pkg in sorted(info.items())
             if pkg.get("type") in ("target", "host", "toolchain", "bootloader", "linux")}
 

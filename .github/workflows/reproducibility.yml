@@ -61,6 +61,10 @@ jobs:
           set -o pipefail
           make image 2>&1 | tee image-build.log | { grep -E '^>>>|\[BUILD\]' || true; }
 
+      - name: Show end of build log (on failure)
+        if: failure()
+        run: tail -n 80 image-build.log toolchain-build.log 2>/dev/null || true
+
       - name: Upload manifest
         uses: actions/upload-artifact@v7
         with:

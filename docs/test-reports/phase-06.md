@@ -59,8 +59,18 @@ Buildroot release.
 
 ## T4: Buildroot build with manifest in CI
 
-- Workflow `buildroot` on the Phase 6 commit: `make image` now ends with the manifest; boot tests unchanged
-- Actual: *pending*
+- Workflow `buildroot`: `make image` now ends with `make manifest`; boot tests unchanged
+- Attempt 1, run [36120779779](https://github.com/Mudher84/wana-os/actions/runs/36120779779), commit `5a9e8f8`: **FAIL**. The
+  `Build image` step exited 2 right after `Executing post-image script`. The console filter showed only `>>>` lines, and
+  the log artifact could not be fetched from the development sandbox (blob storage blocked).
+  - Isolation, first layer: `post-image.sh` run with Buildroot's genimage version (19, built from source): succeeds. Not the cause.
+  - Isolation, second layer: `make manifest` run as a sub-make, as `make image` does: **reproduced**, exit 2.
+    `out/show-info.json` started with `make[2]: Entering directory '…'`. GNU make prints that line in sub-makes, so the JSON was invalid.
+  - Why the local test missed it: T1 ran `make manifest` at the top level, not through `make image`.
+  - Fix: `--no-print-directory` on the Buildroot calls in `manifest`. The generator now reports invalid show-info with a
+    clear `[BUILD] error` instead of a traceback. CI prints the last 80 log lines on failure and shows `[BUILD]` lines.
+  - Re-test through a sub-make locally: exit 0, valid JSON, `source_date_epoch` 1781643700.
+- Attempt 2: *pending*
 
 ## T5: Two independent builds produce identical artifacts (CI)
 
