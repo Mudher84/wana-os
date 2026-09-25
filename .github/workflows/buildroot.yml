@@ -3,7 +3,7 @@ name: buildroot
 # Stage 4: Buildroot. Runs only when the platform or build glue changes.
 on:
   push:
-    branches: [main, develop, "feature/**", "claude/**"]
+    branches: [main, develop, "feature/**"]
     paths:
       - "platform/**"
       - "tools/**"
