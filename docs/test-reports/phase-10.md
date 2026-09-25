@@ -265,10 +265,17 @@ Components:
        were needed.
 - The durable fix is still a separate channel for userspace logs (service/logging phase). Until then the harness
   matches whole lines even when the kernel interrupts them.
-- Result: **PASS** locally; the CI run follows.
+- CI: buildroot run [36195465287](https://github.com/Mudher84/wana-os/actions/runs/36195465287) and `ci` run
+  36195465285 on `66af093` are both green:
+  - all boot tests pass, including input and compositor;
+  - in every boot shown in the log tail (graphics, GPU rendering, input, compositor),
+    `[INIT] info: udev: /sbin/udevd started (pid N)` arrived whole, and eudev's `starting version` notice no
+    longer appears in any of those lines;
+  - the harness reported no repairs in these boots.
+- Result: **PASS**
 
 ## Status
 
 - Step 1: **PASS** (T1-T5).
 - Step 2: **PASS** (T6-T9).
-- T10: a console-split robustness fix, verified locally; its CI run is pending.
+- T10: console-split robustness fix: **PASS** (local and CI).
