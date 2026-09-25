@@ -14,7 +14,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 3 | Linux kernel | CI builds `bzImage` (6.18.33 + fragment); all fragment options verified; boots under QEMU+OVMF to the root mount | PASS | [phase 03 report](test-reports/phase-03.md) |
 | 4 | Minimal rootfs | Buildroot initramfs with `wana-init` (Rust) as PID 1; UEFI boot reaches `[INIT] info: ready` and powers off | PASS | [phase 04 report](test-reports/phase-04.md) |
 | 5 | UEFI boot with bootloader | GRUB (x86_64-efi) on an EFI System Partition boots kernel + rootfs in QEMU+OVMF (no `-kernel` shortcut) | PASS | [phase 05 report](test-reports/phase-05.md) |
-| 6 | Reproducible build | Build manifest (commit, configs, toolchain, versions, SHA-256) produced and archived | NOT STARTED | |
+| 6 | Reproducible build | Build manifest (commit, configs, toolchain, versions, SHA-256) per image; two independent CI builds of one commit produce identical artifacts | PASS | [phase 06 report](test-reports/phase-06.md) |
 | 7 | DRM/KMS | `[DRM]` discovers device and connector, sets mode in QEMU virtio-gpu | NOT STARTED | |
 | 8 | GBM/EGL/GLES | Frame rendered via GLES; QEMU `screendump` pixel check in CI | NOT STARTED | |
 

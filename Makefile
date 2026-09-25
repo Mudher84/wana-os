@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image msrv system-boot-test disk-boot-test br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -35,7 +35,9 @@ help:
 	@echo "    make kernel         build the Linux kernel (bzImage) with the Wana fragment"
 	@echo "    make kernel-config-check  verify every fragment option reached the kernel .config"
 	@echo "    make kernel-boot-test     boot bzImage under QEMU+OVMF, check the serial log"
-	@echo "    make image          full build: toolchain, kernel, Wana packages, rootfs (cpio)"
+	@echo "    make image          full build (toolchain, kernel, Wana packages, rootfs, disk.img) + manifest"
+	@echo "    make manifest       write images/build-manifest.json and images/SHA256SUMS"
+	@echo "    make repro-compare A=<manifest> B=<manifest>  compare two builds artifact by artifact"
 	@echo "    make system-boot-test  boot kernel + rootfs under QEMU+OVMF; wana-init must reach ready"
 	@echo "    make disk-boot-test    boot images/disk.img via firmware -> GRUB -> kernel -> ext4 root"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
@@ -104,6 +106,18 @@ kernel-boot-test:
 
 image: config
 	$(BR_MAKE)
+	$(MAKE) manifest
+
+# Traceability: which commit, configs, versions produced this image, and the
+# SHA-256 of every artifact (Phase 6).
+manifest:
+	mkdir -p out
+	$(BR_MAKE) -s --no-print-directory show-info > out/show-info.json
+	tools/build-manifest.py --br-out $(BR_OUT) --show-info out/show-info.json \
+		--source-date-epoch "$$($(BR_MAKE) -s --no-print-directory printvars VARS=SOURCE_DATE_EPOCH | sed -n 's/^SOURCE_DATE_EPOCH=//p')"
+
+repro-compare:
+	tools/compare-manifests.py $(A) $(B)
 
 # Phase 4: kernel + initramfs; wana-init must reach ready and power off.
 system-boot-test:

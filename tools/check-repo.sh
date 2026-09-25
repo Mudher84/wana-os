@@ -24,6 +24,13 @@ big=$(git ls-files -z | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk '$1 > 1048
 [ -z "$big" ] || err "tracked files over 1 MiB:
 $big"
 
+# The ext4 identifiers used by the defconfig must match disk.env.
+. platform/board/x86_64/disk.env
+for id in "-U $WANA_ROOT_FS_UUID" "hash_seed=$WANA_ROOT_FS_HASH_SEED"; do
+    grep -q -- "BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS=.*$id" platform/configs/wana_x86_64_defconfig ||
+        err "defconfig ext4 options do not contain '$id' from disk.env"
+done
+
 # Shell scripts must be executable.
 for f in $(git ls-files 'tools/*.sh'); do
     [ -x "$f" ] || err "not executable: $f"
