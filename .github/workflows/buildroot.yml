@@ -34,7 +34,7 @@ jobs:
         run: make config-check
 
   toolchain:
-    name: cross toolchain
+    name: toolchain, kernel, UEFI boot
     needs: config
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -45,6 +45,12 @@ jobs:
         run: |
           sudo apt-get update -qq
           grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y -qq
+          sudo apt-get install -y -qq qemu-system-x86 ovmf
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
 
       - name: Cache downloads
         uses: actions/cache@v4
@@ -72,12 +78,28 @@ jobs:
       - name: Smoke-test toolchain
         run: tools/smoke-toolchain.sh out/build/wana_x86_64
 
-      - name: Upload build log
+      - name: Build kernel
+        shell: bash
+        run: |
+          set -o pipefail
+          make kernel 2>&1 | tee kernel-build.log | { grep -E '^>>>' || true; }
+
+      - name: Check kernel config
+        run: make kernel-config-check
+
+      - name: Boot kernel under QEMU + OVMF (UEFI)
+        run: make kernel-boot-test
+
+      - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: toolchain-build-log
+          name: wana-kernel-${{ github.sha }}
           path: |
             toolchain-build.log
+            kernel-build.log
+            out/logs/
             out/build/wana_x86_64/.config
+            out/build/wana_x86_64/build/linux-*/.config
+            out/build/wana_x86_64/images/bzImage
           retention-days: 14

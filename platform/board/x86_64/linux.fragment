@@ -1,0 +1,68 @@
+# Wana OS kernel configuration fragment, applied on top of x86_64_defconfig.
+# Every line here is verified against the final .config by
+# tools/check-kernel-config.sh, because Kconfig silently drops options whose
+# dependencies are not met.
+
+CONFIG_LOCALVERSION="-wana"
+# CONFIG_LOCALVERSION_AUTO is not set
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
+
+# --- Boot: UEFI stub, early devtmpfs, serial console --------------------
+CONFIG_EFI=y
+CONFIG_EFI_STUB=y
+CONFIG_EFI_PARTITION=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_ZSTD=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+
+# --- Virtualization targets (QEMU/KVM bring-up and CI) -------------------
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_VIRTIO_INPUT=y
+CONFIG_HW_RANDOM_VIRTIO=y
+
+# --- Graphics: DRM/KMS (Phase 7) -----------------------------------------
+# simpledrm drives the firmware (UEFI GOP) framebuffer until a native
+# driver takes over; virtio-gpu is the native KMS driver under QEMU.
+CONFIG_DRM=y
+CONFIG_DRM_SIMPLEDRM=y
+CONFIG_SYSFB_SIMPLEFB=y
+CONFIG_DRM_VIRTIO_GPU=y
+CONFIG_DRM_BOCHS=y
+CONFIG_DRM_FBDEV_EMULATION=y
+
+# --- Input (Phase 9): evdev for libinput, USB/virtio HID ------------------
+CONFIG_INPUT_EVDEV=y
+CONFIG_HID_GENERIC=y
+CONFIG_USB_HID=y
+CONFIG_USB_XHCI_HCD=y
+
+# --- Storage and filesystems: installed disk, ESP, live ISO ---------------
+CONFIG_BLK_DEV_NVME=y
+CONFIG_SATA_AHCI=y
+CONFIG_EXT4_FS=y
+CONFIG_VFAT_FS=y
+CONFIG_ISO9660_FS=y
+CONFIG_SQUASHFS=y
+CONFIG_SQUASHFS_XZ=y
+CONFIG_SQUASHFS_ZSTD=y
+CONFIG_OVERLAY_FS=y
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+
+# --- Isolation primitives for services and app sandboxing -----------------
+CONFIG_CGROUPS=y
+CONFIG_NAMESPACES=y
+CONFIG_USER_NS=y
+CONFIG_PID_NS=y
+CONFIG_NET_NS=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_SECURITY=y
+CONFIG_SECURITY_LANDLOCK=y
