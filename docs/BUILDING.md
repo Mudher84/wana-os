@@ -18,10 +18,10 @@ current list of targets.
 | `make msrv` | Unit tests with Buildroot's Rust version (`rust-version` in `Cargo.toml`) | `rustup toolchain install 1.88` |
 | `make image` | Full Buildroot build: toolchain, kernel, `wana-init`, rootfs (`images/rootfs.cpio.zst`) | as `make toolchain` |
 | `make system-boot-test` | Boots `bzImage` + `rootfs.cpio.zst` under QEMU+OVMF with `wana.test=poweroff`; `wana-init` must print `ready` | `qemu-system-x86`, `ovmf` |
+| `make disk-boot-test` | Boots `images/disk.img` (GPT: ESP with GRUB + kernel, ext4 root) through OVMF with no `-kernel`; `wana-init` must reach `ready` | `qemu-system-x86`, `ovmf`, `mtools` |
 | `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
 
-The bootloader, disk image and ISO targets do not exist yet. They are added in
-Phases 5-6 and 18.
+The ISO target does not exist yet (Phase 18).
 
 Build layout:
 

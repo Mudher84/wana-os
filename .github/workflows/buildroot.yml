@@ -99,6 +99,9 @@ jobs:
       - name: Boot system (kernel + rootfs, wana-init) under QEMU + OVMF
         run: make system-boot-test
 
+      - name: Boot disk image (OVMF -> GRUB -> kernel -> ext4 root)
+        run: make disk-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
@@ -112,4 +115,5 @@ jobs:
             out/build/wana_x86_64/build/linux-*/.config
             out/build/wana_x86_64/images/bzImage
             out/build/wana_x86_64/images/rootfs.cpio.zst
+            out/build/wana_x86_64/images/disk.img
           retention-days: 14

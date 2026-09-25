@@ -4,15 +4,17 @@
 # (extended regex) appears before QEMU exits or the timeout hits.
 #
 # Usage:
-#   tools/qemu-boot-test.sh --kernel bzImage [--initrd file] [--append "args"]
+#   tools/qemu-boot-test.sh (--kernel bzImage [--initrd file] [--append "args"] | --disk disk.img)
 #                           [--timeout secs] [--log file]
 #                           [--input-after SECS TEXT] --expect REGEX...
 #
+# --disk boots a whole disk image through the firmware (virtio-blk,
+# snapshot mode: the image is never written).
 # --input-after types TEXT (printf escapes allowed, e.g. 'exit\n') on the
 # serial console SECS seconds after QEMU starts.
 set -eu
 
-kernel= initrd= append= timeout=120 log=qemu-serial.log
+kernel= disk= initrd= append= timeout=120 log=qemu-serial.log
 input_delay= input_text=
 expects=$(mktemp)
 trap 'rm -f "$expects" "${vars:-}"' EXIT
@@ -20,6 +22,7 @@ trap 'rm -f "$expects" "${vars:-}"' EXIT
 while [ $# -gt 0 ]; do
     case "$1" in
         --kernel) kernel=$2; shift 2 ;;
+        --disk) disk=$2; shift 2 ;;
         --initrd) initrd=$2; shift 2 ;;
         --append) append=$2; shift 2 ;;
         --timeout) timeout=$2; shift 2 ;;
@@ -29,7 +32,11 @@ while [ $# -gt 0 ]; do
         *) echo "[BOOT] error: unknown argument $1" >&2; exit 2 ;;
     esac
 done
-[ -f "$kernel" ] || { echo "[BOOT] error: kernel not found: $kernel" >&2; exit 2; }
+if [ -n "$disk" ]; then
+    [ -f "$disk" ] || { echo "[BOOT] error: disk image not found: $disk" >&2; exit 2; }
+else
+    [ -f "$kernel" ] || { echo "[BOOT] error: kernel not found: $kernel" >&2; exit 2; }
+fi
 [ -s "$expects" ] || { echo "[BOOT] error: at least one --expect is required" >&2; exit 2; }
 
 ovmf_code=
@@ -44,12 +51,16 @@ cp "$ovmf_vars_src" "$vars"
 accel=tcg
 [ -w /dev/kvm ] && accel=kvm
 
-echo "[BOOT] info: qemu accel=$accel firmware=$ovmf_code kernel=$kernel timeout=${timeout}s"
+echo "[BOOT] info: qemu accel=$accel firmware=$ovmf_code ${disk:+disk=$disk}${kernel:+kernel=$kernel} timeout=${timeout}s"
 set -- -machine q35,accel=$accel -m 1024 -smp 2 -nographic -no-reboot \
     -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
-    -drive if=pflash,format=raw,file="$vars" \
-    -kernel "$kernel" -append "console=ttyS0 panic=-1 $append"
-[ -n "$initrd" ] && set -- "$@" -initrd "$initrd"
+    -drive if=pflash,format=raw,file="$vars"
+if [ -n "$disk" ]; then
+    set -- "$@" -drive file="$disk",if=virtio,format=raw,snapshot=on
+else
+    set -- "$@" -kernel "$kernel" -append "console=ttyS0 panic=-1 $append"
+    [ -n "$initrd" ] && set -- "$@" -initrd "$initrd"
+fi
 
 rc=0
 if [ -n "$input_delay" ]; then

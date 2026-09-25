@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image msrv system-boot-test br-%
+	kernel-config-check kernel-boot-test image msrv system-boot-test disk-boot-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -37,6 +37,7 @@ help:
 	@echo "    make kernel-boot-test     boot bzImage under QEMU+OVMF, check the serial log"
 	@echo "    make image          full build: toolchain, kernel, Wana packages, rootfs (cpio)"
 	@echo "    make system-boot-test  boot kernel + rootfs under QEMU+OVMF; wana-init must reach ready"
+	@echo "    make disk-boot-test    boot images/disk.img via firmware -> GRUB -> kernel -> ext4 root"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -116,6 +117,23 @@ system-boot-test:
 		--expect '\[INIT\] info: wana-init [0-9.]+ starting' \
 		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
+
+# Phase 5: the full disk image, booted the way hardware boots it:
+# OVMF -> GRUB (ESP) -> kernel -> ext4 root by PARTUUID -> /sbin/init.
+disk-boot-test:
+	mkdir -p out/logs out/test
+	. $(BR_EXTERNAL)/board/x86_64/disk.env; \
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-test.img "wana.test=poweroff" && \
+	tools/qemu-boot-test.sh --disk out/test/disk-test.img \
+		--log out/logs/disk-boot.log --timeout 180 \
+		--expect 'BdsDxe: starting Boot' \
+		--expect '\[BOOT\] info: loading Wana OS kernel' \
+		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
+		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
+		--expect 'Run /sbin/init as init process' \
+		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
