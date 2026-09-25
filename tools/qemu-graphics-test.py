@@ -164,6 +164,13 @@ def main():
 
     fail = False
     out = text.decode(errors="replace")
+    # Echo the guest's subsystem-tagged lines so CI consoles carry the
+    # evidence (renderer, modes, timings) without downloading artifacts.
+    tagged = re.findall(r"^\[(?:INIT|DRM|GBM|EGL|RENDER|INPUT|COMPOSITOR|SHELL)\] .*$", out, re.M)
+    if tagged:
+        print("[BOOT] guest log (tagged lines):")
+        for line in tagged:
+            print("    " + line.rstrip())
     for pattern in args.expect:
         if re.search(pattern, out, re.M):
             log("info", f"found: {pattern}")

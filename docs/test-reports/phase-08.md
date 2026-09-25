@@ -72,4 +72,37 @@ Mesa `softpipe` (no LLVM, to keep build times down); `llvmpipe` and real GPU dri
 
 ## T6: Buildroot image (Mesa 26.0.1, softpipe) + `make gl-boot-test` in CI
 
-- Actual: *pending*
+- Run [36149735380](https://github.com/Mudher84/wana-os/actions/runs/36149735380), commit `91d10a3`, job `toolchain, image, UEFI boot` (29m26s).
+  `Build image` took 15m48s, including Mesa 26.0.1 and its host tools built from source for the first time.
+- The earlier tests still pass in the same job: kernel config, kernel alone, initramfs, disk through GRUB, Phase 7 `wana-kms` graphics
+- `make gl-boot-test` (KVM, OVMF → GRUB → kernel → ext4 → wana-init → wana-gl, virtio-gpu, Buildroot Mesa), 16 s:
+  ```
+  [BOOT] info: found: \[GBM\] info: surface [0-9]+x[0-9]+ XRGB8888
+  [BOOT] info: found: \[EGL\] info: EGL 1\.[0-9]+
+  [BOOT] info: found: \[EGL\] info: OpenGL ES context current
+  [BOOT] info: found: \[RENDER\] info: GL_VENDOR=
+  [BOOT] info: found: \[RENDER\] info: shaders compiled and linked
+  [BOOT] info: found: \[DRM\] info: modeset done: .* first GPU frame on screen
+  [BOOT] info: found: \[RENDER\] info: [0-9]+ frames rendered
+  [BOOT] info: found: \[INIT\] info: /usr/bin/wana-gl exited successfully
+  [BOOT] info: found: reboot: Power down
+  [BOOT] info: pixel (640,400) = #4f8cff expected #4f8cff
+  [BOOT] info: pixel (128,400) = #16213e expected #16213e
+  [BOOT] info: pixel (0,0) = #ffffff expected #ffffff
+  [BOOT] graphics test: PASS
+  ```
+- `ci` workflow (fmt, clippy, tests, MSRV with libgbm/libegl/libgles dev packages): success
+- Result: **PASS**
+- Gap in the evidence: the exact `GL_RENDERER`/`GL_VERSION` strings of the Buildroot Mesa are in the guest log
+  artifact only (not downloadable from the development sandbox). softpipe is the only software rasterizer in the
+  image and virgl needs QEMU virgl, which the runner does not use, so the renderer should be softpipe. This is not yet
+  shown. Fix: `qemu-graphics-test.py` now echoes the guest's tagged lines to the console, so the next CI run
+  prints the renderer.
+
+## Phase 8 status
+
+**PASS.** T1-T6 all pass. The frame is drawn by an OpenGL ES shader through Mesa (GBM + EGL) on the
+Buildroot-built image and scanned out by Wana's own DRM/KMS code. It is verified pixel by pixel.
+
+**Milestone 1 is complete:** GitHub repository → reproducible build → Linux kernel → minimal rootfs
+(wana-init) → UEFI boot through GRUB → DRM/KMS → GBM/EGL/GLES → native graphical output.
