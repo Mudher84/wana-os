@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -43,6 +43,7 @@ help:
 	@echo "    make graphics-boot-test  boot disk.img with virtio-gpu, run wana-kms, check screenshot pixels"
 	@echo "    make gl-boot-test        boot disk.img with virtio-gpu, run wana-gl (GBM/EGL/GLES), check pixels"
 	@echo "    make input-boot-test     boot disk.img, inject keys + mouse via QEMU, wana-input must see them"
+	@echo "    make compositor-boot-test  boot disk.img, wana-compositor serves wayland-info over its socket"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -218,6 +219,29 @@ input-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-input exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject 'Unknown (group|user)' --reject '\[(INIT|INPUT)\] error'
+
+# Phase 10 step 1: the Wayland protocol layer. wana-compositor opens its
+# socket (libwayland-server, generated tables) and serves one real client,
+# wayland-info, whose WAYLAND_DEBUG trace must show the core round trip
+# (get_registry, sync -> delete_id, done).
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--client-debug,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+compositor-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-compositor.img --gpu virtio --timeout 180 \
+		--log out/logs/compositor-boot.log \
+		--expect '\[COMPOSITOR\] info: protocol tables: [0-9]+ core \+ 5 xdg-shell interfaces' \
+		--expect '\[COMPOSITOR\] info: listening on /run/user/0/wayland-0 ' \
+		--expect '\[COMPOSITOR\] info: running test client /usr/bin/wayland-info' \
+		--expect '\[COMPOSITOR\] info: client connected: pid [0-9]+ uid 0 gid 0' \
+		--expect '[-]> wl_display[@#]1\.get_registry\(new id wl_registry[@#]2\)' \
+		--expect 'wl_callback[@#]3\.done\(' \
+		--expect '\[COMPOSITOR\] info: client disconnected: pid [0-9]+' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
+		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR)\] error'
 
 br-%: buildroot-src
 	$(BR_MAKE) $*

@@ -120,6 +120,9 @@ jobs:
       - name: Input (disk boot, udev + libinput + xkbcommon via wana-input, QEMU-injected keys and mouse)
         run: make input-boot-test
 
+      - name: Compositor protocol layer (disk boot, wana-compositor socket served to wayland-info)
+        run: make compositor-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

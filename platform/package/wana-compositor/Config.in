@@ -1,0 +1,11 @@
+config BR2_PACKAGE_WANA_COMPOSITOR
+	bool "wana-compositor"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on !BR2_STATIC_LIBS # wayland
+	depends on BR2_TOOLCHAIN_HAS_THREADS # wayland
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_WAYLAND_PROTOCOLS # build time: protocol XML
+	help
+	  Wana OS Wayland compositor, on libwayland-server (decision
+	  0001) with protocol tables generated from the protocol XML.
