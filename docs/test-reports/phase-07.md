@@ -81,5 +81,30 @@ production kernel). It is not claimed here.
 
 ## T7: Buildroot image + graphics test in CI
 
-- `wana-drm` Buildroot package (`/usr/bin/wana-kms`), `make graphics-boot-test` on the Buildroot `disk.img`
-- Actual: *pending*
+- Run [36142568529](https://github.com/Mudher84/wana-os/actions/runs/36142568529), commit `0e69d35`, job `toolchain, image, UEFI boot` (20m35s)
+- `make image` built the new `wana-drm` package with Buildroot's toolchain and Rust 1.88. The earlier tests still pass:
+  kernel config, kernel alone, kernel + initramfs, disk through GRUB.
+- `make graphics-boot-test` on the Buildroot `disk.img` (OVMF → GRUB → kernel → ext4 → wana-init → wana-kms,
+  virtio-gpu, KVM):
+  ```
+  [BOOT] info: found: \[DRM\] info: found card[0-9]+
+  [BOOT] info: found: \[DRM\] info: selected .* on CRTC [0-9]+
+  [BOOT] info: found: \[DRM\] info: modeset done
+  [BOOT] info: found: \[DRM\] info: page flip: [0-9]+ flips completed
+  [BOOT] info: found: \[INIT\] info: /usr/bin/wana-kms exited successfully
+  [BOOT] info: found: reboot: Power down
+  [BOOT] info: screenshot 1280x800 -> out/test/wana-kms.png
+  [BOOT] info: pixel (640,400) = #4f8cff expected #4f8cff
+  [BOOT] info: pixel (128,400) = #16213e expected #16213e
+  [BOOT] info: pixel (0,0) = #ffffff expected #ffffff
+  [BOOT] graphics test: PASS
+  ```
+- Artifact `wana-image-<sha>` includes the screenshot PNG
+- Result: **PASS**
+
+## Phase 7 status
+
+**PASS.** T1-T7 all pass. Wana OS drives the display natively: its own Rust
+DRM/KMS code discovers the card, sets the mode and shows a frame. The frame is verified
+pixel by pixel on the Buildroot-built image, booted the way hardware boots.
+Open item carried forward: real vsync pacing (see "Known limit").
