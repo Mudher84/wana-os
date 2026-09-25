@@ -7,12 +7,30 @@ current list of targets.
 
 | Target | What it does | Needs |
 |--------|--------------|-------|
-| `make check` | rustfmt check, clippy (warnings are errors), unit tests, repository layout check | Rust toolchain (installed automatically from `rust-toolchain.toml` by rustup) |
-| `make fmt` | Formats all Rust code | Rust |
-| `make test` | Unit tests only | Rust |
+| `make check` | rustfmt check, clippy (warnings are errors), unit tests, repository checks | Rust (rustup installs the version pinned in `rust-toolchain.toml`) |
+| `make buildroot-src` | Clones the pinned Buildroot (`platform/buildroot.env`) into `out/` and verifies the commit hash | git, github.com |
+| `make config` | Loads `wana_x86_64_defconfig` into `out/build/wana_x86_64` | host gcc, make |
+| `make config-check` | Checks that the defconfig loads and round-trips through `savedefconfig` unchanged | host gcc, make |
+| `make toolchain` | Builds the cross toolchain: gcc 14.3, glibc, Linux 6.18 headers, C++ | Host packages in `tools/host-packages-ubuntu.txt`, unrestricted network, about 30 min |
+| `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
 
 The kernel, rootfs, and ISO targets do not exist yet. They are added in
-Phases 2-6 and documented here when they work.
+Phases 3-6.
+
+Build layout:
+
+```
+out/buildroot-<version>/   pinned Buildroot source (fetched)
+out/build/wana_x86_64/     Buildroot output (O=)
+dl/                        source tarball cache (BR2_DL_DIR)
+~/.buildroot-ccache        compiler cache (BR2_CCACHE)
+```
+
+## Host packages (Ubuntu 24.04)
+
+```sh
+grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y
+```
 
 ## Host requirements
 

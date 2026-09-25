@@ -1,0 +1,83 @@
+name: buildroot
+
+# Stage 4: Buildroot. Runs only when the platform or build glue changes.
+on:
+  push:
+    branches: [main, develop, "feature/**", "claude/**"]
+    paths:
+      - "platform/**"
+      - "tools/**"
+      - "Makefile"
+      - ".github/workflows/buildroot.yml"
+  pull_request:
+    paths:
+      - "platform/**"
+      - "tools/**"
+      - "Makefile"
+      - ".github/workflows/buildroot.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: buildroot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    name: defconfig loads and round-trips
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch pinned Buildroot
+        run: make buildroot-src
+      - name: Check defconfig
+        run: make config-check
+
+  toolchain:
+    name: cross toolchain
+    needs: config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y -qq
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: br-dl-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}
+          restore-keys: br-dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildroot-ccache
+          key: br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-${{ github.sha }}
+          restore-keys: |
+            br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-
+            br-ccache-
+
+      - name: Build toolchain
+        # Full log goes to the artifact; the console shows one line per package step.
+        shell: bash
+        run: |
+          set -o pipefail
+          make toolchain 2>&1 | tee toolchain-build.log | { grep -E '^>>>' || true; }
+
+      - name: Smoke-test toolchain
+        run: tools/smoke-toolchain.sh out/build/wana_x86_64
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolchain-build-log
+          path: |
+            toolchain-build.log
+            out/build/wana_x86_64/.config
+          retention-days: 14

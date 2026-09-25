@@ -9,7 +9,8 @@ fail=0
 err() { echo "[CHECK] error: $*" >&2; fail=1; }
 
 for f in README.md docs/ARCHITECTURE.md docs/ROADMAP.md docs/BUILDING.md \
-         docs/CONTRIBUTING.md Cargo.toml Cargo.lock rust-toolchain.toml; do
+         docs/CONTRIBUTING.md Cargo.toml Cargo.lock rust-toolchain.toml \
+         platform/buildroot.env platform/external.desc platform/configs/wana_x86_64_defconfig; do
     [ -f "$f" ] || err "required file missing: $f"
 done
 
