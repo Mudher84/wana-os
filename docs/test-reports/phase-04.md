@@ -78,6 +78,31 @@
 
 ## T8: Full Buildroot image and system boot in CI
 
-- Workflow `buildroot`, job `toolchain, image, UEFI boot`: `make image`, `make kernel-config-check`,
-  `make kernel-boot-test`, `make system-boot-test`
-- Actual: *pending*. This cannot run in the development sandbox (the toolchain sources are blocked there).
+- Run: [36110220726](https://github.com/Mudher84/wana-os/actions/runs/36110220726) (PR Mudher84/wana-os#2, commit `8d3d7e7`), job `toolchain, image, UEFI boot`, 19m07s with warm caches
+- Build order from the log: `linux 6.18.33` → `host-rustc` (rust-bin 1.88) → `wana-init 0.1.0` Syncing/Building/Installing → post-build script → `rootfs.cpio` → `rootfs.tar`
+- `make kernel-config-check`: `[KERNEL] kernel config check: 49 options verified: PASS`
+- `make kernel-boot-test`: PASS (unchanged Phase 3 test)
+- `make system-boot-test` (QEMU accel=kvm, OVMF, Buildroot `bzImage` + `rootfs.cpio.zst`, `wana.test=poweroff`):
+  ```
+  [BOOT] info: found: Linux version 6\.18\.33-wana
+  [BOOT] info: found: Run /init as init process
+  [BOOT] info: found: \[INIT\] info: wana-init [0-9.]+ starting
+  [BOOT] info: found: \[INIT\] info: early mounts: 7 ok, 0 failed
+  [BOOT] info: found: \[INIT\] info: hostname: wana
+  [BOOT] info: found: \[INIT\] info: ready
+  [BOOT] info: found: reboot: Power down
+  [BOOT] boot test: PASS (log: out/logs/system-boot.log)
+  ```
+- MSRV job (`make msrv` on Rust 1.88): success
+- Artifact: `wana-image-<sha>` (bzImage, rootfs.cpio.zst, configs, build and boot logs), 14 days
+- Result: **PASS**
+
+## Phase 4 status
+
+**PASS.** T1-T8 all pass. The Buildroot-built system boots under UEFI into
+`wana-init`, which reaches `ready` in the initramfs.
+
+Known limits, deliberately outside Phase 4:
+- The kernel is still loaded with QEMU `-kernel`, not by a bootloader. Phase 5 adds GRUB on an ESP.
+- The root filesystem is an initramfs only. A disk root filesystem comes with the installer (Phase 19).
+- The debug shell is a root shell on the console, with no login. It is a bring-up tool, and it must be gated before any release (Phase 23).
