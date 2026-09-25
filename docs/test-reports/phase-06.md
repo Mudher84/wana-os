@@ -70,7 +70,15 @@ Buildroot release.
   - Fix: `--no-print-directory` on the Buildroot calls in `manifest`. The generator now reports invalid show-info with a
     clear `[BUILD] error` instead of a traceback. CI prints the last 80 log lines on failure and shows `[BUILD]` lines.
   - Re-test through a sub-make locally: exit 0, valid JSON, `source_date_epoch` 1781643700.
-- Attempt 2: *pending*
+- Attempt 2, run [36124722997](https://github.com/Mudher84/wana-os/actions/runs/36124722997), commit `4dff4d5`: **PASS**
+  - `[BUILD] info: manifest: 11 artifacts, commit 4dff4d5, 61 packages`
+  - Manifest summary: `dirty: false`; Buildroot `commit_used == commit_pinned` (679b9ead…);
+    gcc `x86_64-buildroot-linux-gnu-gcc.br_real (Buildroot 2026.02.3) 14.3.0`; rustc `1.88.0 (6b00bc388 2025-06-23)`;
+    headers 6.18.33; glibc; kernel config sha256 `837bb6cf…`; `source_date_epoch` 1781643700
+  - SHA256SUMS (excerpt): `bzImage 469b6182…`, `disk.img 01dc4fdd…`, `esp.vfat 003431fc…`, `rootfs.cpio.zst 3f049803…`,
+    `efi-part/EFI/BOOT/grub.cfg 9e851875…`. The last one equals the hash from the local T1 run, because the same template produces the same file.
+  - All boot tests still pass: kernel config (49), kernel alone, kernel + initramfs, disk through GRUB
+- Result: **PASS** (after 1 failed attempt, root-caused and fixed)
 
 ## T5: Two independent builds produce identical artifacts (CI)
 
