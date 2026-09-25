@@ -93,11 +93,18 @@ Mesa `softpipe` (no LLVM, to keep build times down); `llvmpipe` and real GPU dri
   ```
 - `ci` workflow (fmt, clippy, tests, MSRV with libgbm/libegl/libgles dev packages): success
 - Result: **PASS**
-- Gap in the evidence: the exact `GL_RENDERER`/`GL_VERSION` strings of the Buildroot Mesa are in the guest log
-  artifact only (not downloadable from the development sandbox). softpipe is the only software rasterizer in the
-  image and virgl needs QEMU virgl, which the runner does not use, so the renderer should be softpipe. This is not yet
-  shown. Fix: `qemu-graphics-test.py` now echoes the guest's tagged lines to the console, so the next CI run
-  prints the renderer.
+- Renderer (closes the earlier evidence gap). PR #5 CI, buildroot run 36161352345, job 108158506737, commit
+  229457b, "GPU rendering" step. The guest's tagged lines are echoed by `qemu-graphics-test.py`:
+  ```
+  [EGL] info: EGL 1.5 vendor=Mesa Project version="1.5" apis="OpenGL OpenGL_ES "
+  [RENDER] info: GL_VENDOR=Mesa GL_RENDERER=softpipe
+  [RENDER] info: GL_VERSION=OpenGL ES 3.1 Mesa 26.0.1 GLSL=OpenGL ES GLSL ES 3.10
+  [RENDER] info: 10 frames rendered, GPU frame time mean 591.53 ms, max 595.81 ms (1.7 fps possible)
+  ```
+  As expected, the renderer is Mesa 26.0.1 softpipe, a CPU rasterizer, because the runner's QEMU has no virgl.
+  About 590 ms per 1280x800 frame is softpipe speed, not a Wana limit.
+- Reproducibility with Mesa in the image. Reproducibility run 36161345806 on 229457b: build A (ccache) and
+  build B (`CCACHE_DISABLE=1`) produced identical artifacts: `[BUILD] reproducibility: PASS (12/12 artifacts identical)`.
 
 ## Phase 8 status
 
