@@ -127,3 +127,5 @@ Open item carried forward: real vsync pacing (see "Known limit").
 - Remaining risk, recorded rather than hidden: any asynchronous kernel message can still split a userspace console
   line. The durable fix is to give userspace logs their own channel (for example a second serial port or `/dev/kmsg`
   records). That is planned with the service/logging work, not in this PR.
+- Update (Phase 10, T10): it happened again with eudev's `/dev/kmsg` notice. The boot-test harnesses now repair
+  lines split by kernel messages (`tools/console_lines.py`) before matching, and eudev logs errors only.

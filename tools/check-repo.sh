@@ -36,6 +36,9 @@ for f in $(git ls-files 'tools/*.sh'); do
     [ -x "$f" ] || err "not executable: $f"
 done
 
+# The boot-test console line repair must keep behaving as specified.
+python3 tools/console_lines.py --self-test >/dev/null || err "tools/console_lines.py --self-test failed"
+
 if [ "$fail" -ne 0 ]; then
     echo "[CHECK] FAIL" >&2
     exit 1

@@ -72,9 +72,15 @@ else
 fi
 [ "$rc" -eq 124 ] && echo "[BOOT] info: timeout reached after ${timeout}s"
 
+# Match against the console with lines split by kernel messages repaired
+# (tools/console_lines.py); the raw log is kept as captured.
+lines=$(mktemp)
+trap 'rm -f "$expects" "${vars:-}" "$lines"' EXIT
+"$(dirname "$0")/console_lines.py" "$log" > "$lines"
+
 fail=0
 while IFS= read -r pattern; do
-    if grep -Eq -- "$pattern" "$log"; then
+    if grep -Eq -- "$pattern" "$lines"; then
         echo "[BOOT] info: found: $pattern"
     else
         echo "[BOOT] error: missing: $pattern" >&2

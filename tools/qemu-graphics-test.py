@@ -32,6 +32,9 @@ import tempfile
 import time
 import zlib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import console_lines  # noqa: E402
+
 OVMF_CANDIDATES = ["/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd",
                    "/usr/share/edk2/x64/OVMF_CODE.4m.fd"]
 
@@ -190,7 +193,11 @@ def main():
     shutil.rmtree(tmp, ignore_errors=True)
 
     fail = False
-    out = text.decode(errors="replace")
+    # Match whole lines: repair lines split by kernel messages (the raw log
+    # file is kept as captured).
+    out, repairs = console_lines.repair(text.decode(errors="replace"))
+    if repairs:
+        log("info", f"repaired {repairs} console line(s) split by kernel messages")
     # Echo the guest's subsystem-tagged lines so CI consoles carry the
     # evidence (renderer, modes, timings) without downloading artifacts.
     tagged = re.findall(r"^\[(?:INIT|DRM|GBM|EGL|RENDER|INPUT|COMPOSITOR|SHELL)\] .*$", out, re.M)

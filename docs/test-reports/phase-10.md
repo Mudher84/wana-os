@@ -110,8 +110,12 @@ library).
 
 ### T5: Buildroot image + `make compositor-boot-test` in CI
 
-- The same client round trip on the real `disk.img`, with libwayland 1.24.0 and tables generated from its XML.
-- Actual: *pending*
+- Covered by the combined run in T9. The step-1-only run on `697ce89` was superseded when step 2 was pushed.
+- libwayland 1.24.0's `wayland.xml` has **23** core interfaces (it adds `wl_fixes`), against 22 in the host's
+  1.22. The generator needed no change:
+  `[COMPOSITOR] info: protocol tables: 23 core + 5 xdg-shell interfaces (generated from XML)`.
+- `ci` run 36189717968 on `697ce89`: `core_tables_match_libwayland` passes against the runner's libwayland too.
+- Result: **PASS** (with T9)
 
 ## Step 2: globals
 
@@ -206,9 +210,65 @@ Components:
 
 ### T9: Buildroot image + `make compositor-boot-test` (steps 1+2) in CI
 
-- Actual: *pending*
+- Buildroot run [36191209030](https://github.com/Mudher84/wana-os/actions/runs/36191209030), commit `9cd4982`:
+  - `Build image` took 13m40s, including libwayland 1.24.0, wayland-protocols, wayland-utils, and Mesa rebuilt
+    with its Wayland platform;
+  - every earlier boot test still passes: kernel, initramfs, disk, graphics, GPU rendering, input.
+- `make compositor-boot-test` (KVM, disk.img, virtio-gpu), 4 s:
+  ```
+  [COMPOSITOR] info: protocol tables: 23 core + 5 xdg-shell interfaces (generated from XML)
+  [DRM] info: selected Virtual-1 on CRTC 37: 1280x800@74.99 (preferred)
+  [COMPOSITOR] info: globals: wl_compositor v4, wl_shm v1, wl_output v4, wl_seat v7, xdg_wm_base v1
+  [COMPOSITOR] info: wl_output Virtual-1: 1280x800@74.99 Hz, 320x200 mm (Virtual-1 on virtio_gpu)
+  [COMPOSITOR] info: listening on /run/user/0/wayland-0 (WAYLAND_DISPLAY=wayland-0)
+  [COMPOSITOR] info: client connected: pid 100 uid 0 gid 0
+  [COMPOSITOR] info: bound wl_shm version 1 (object 4)
+  [COMPOSITOR] info: bound wl_output version 4 (object 5)
+  [COMPOSITOR] info: bound wl_seat version 4 (object 6)
+  [COMPOSITOR] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0
+  [COMPOSITOR] info: shut down; socket removed
+  [BOOT] info: absent as required: \[(INIT|COMPOSITOR|DRM)\] (warn|error)
+  [BOOT] graphics test: PASS
+  ```
+  All 21 expectations were found, including `wayland-info`'s own listing: both shm formats, `name: Virtual-1`,
+  `flags: current preferred`, `name: seat0`.
+- `ci` run 36191209015 (57 unit tests, MSRV): success.
+- Result: **PASS**
+
+### T10: Console line split by a kernel message (found in the T9 run): fixed
+
+- In the same run, the console showed:
+  ```
+  [INIT] info: udev: /sbin[    1.637959] udevd[77]: starting version 3.2.14
+  ```
+  eudev wrote a notice to `/dev/kmsg`, and the console printed it in the middle of wana-init's
+  `udev: /sbin/udevd started` line. `make input-boot-test` expects that exact line. It passed in this run only
+  because of timing, so it could fail at random. This is the class of problem Phase 7 recorded as a remaining
+  risk, not a flake.
+- Reproduced locally with eudev 3.2.14 built from the Buildroot-pinned tarball (sha256 matches `eudev.hash`) in
+  a test initramfs. At the default level, udevd writes 2 lines to the console: `starting version 3.2.14` and
+  `starting eudev-3.2.14`.
+- Fix, in two parts:
+  1. Image: `udev_log="err"` in `/etc/udev/udev.conf`, set by `post-build.sh` and idempotent. Locally this
+     removes `starting version`; errors are still logged. The second line is written by `udevd.c` unconditionally
+     (`fprintf(f, "<30>udevd[%u]: starting eudev-" VERSION ...)`), so configuration cannot remove it.
+  2. Test harness: `tools/console_lines.py`, used by both `qemu-boot-test.sh` and `qemu-graphics-test.py`.
+     - A kernel console line always starts with `[ seconds.microseconds] `. When one appears after the start of
+       a line, it is moved to its own line and the interrupted text is joined with its continuation.
+     - Nothing is dropped, the raw log is kept as captured, and the number of repairs is printed.
+     - `--self-test` (run by `make repo-check`) covers both real splits from CI, two kernel lines inside one user
+       line, untouched lines, and non-timestamps.
+     - First version bug, caught locally: the firmware's screen-control codes before the first kernel line were
+       taken as interrupted text and carried forward through all 424 kernel lines. A prefix of only control
+       codes and whitespace is now not a split; that case is in the self-test.
+     - Checked against all 24 console logs from earlier local runs: every tagged line survives, and 0 repairs
+       were needed.
+- The durable fix is still a separate channel for userspace logs (service/logging phase). Until then the harness
+  matches whole lines even when the kernel interrupts them.
+- Result: **PASS** locally; the CI run follows.
 
 ## Status
 
-- Step 1: T1-T4 pass locally; T5 (CI) is pending.
-- Step 2: T6-T8 pass locally; T9 (CI) is pending.
+- Step 1: **PASS** (T1-T5).
+- Step 2: **PASS** (T6-T9).
+- T10: a console-split robustness fix, verified locally; its CI run is pending.
