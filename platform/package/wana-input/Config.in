@@ -1,0 +1,15 @@
+config BR2_PACKAGE_WANA_INPUT
+	bool "wana-input"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HAS_UDEV
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_LIBINPUT
+	select BR2_PACKAGE_LIBXKBCOMMON
+	select BR2_PACKAGE_XKEYBOARD_CONFIG # runtime: keymap data
+	help
+	  Wana OS input: devices and events from udev + libinput,
+	  keyboard layouts from xkbcommon, and the wana-input
+	  bring-up tool.
+
+comment "wana-input needs udev (/dev management: eudev)"
+	depends on !BR2_PACKAGE_HAS_UDEV

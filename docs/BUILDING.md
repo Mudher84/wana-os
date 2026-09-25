@@ -47,7 +47,8 @@ grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y
 - Linux x86_64 host
 - `rustup` (it installs the toolchain pinned in `rust-toolchain.toml`)
 - GNU make, git
-- For `cargo test`/`clippy` on the host: GBM/EGL/GLES development files (`libgbm-dev libegl-dev libgles-dev` on Ubuntu)
+- For `cargo test`/`clippy` on the host: GBM/EGL/GLES and udev/libinput/xkbcommon development files plus keymap data
+  (`libgbm-dev libegl-dev libgles-dev libudev-dev libinput-dev libxkbcommon-dev xkb-data` on Ubuntu)
 
 ## Network note
 

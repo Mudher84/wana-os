@@ -118,14 +118,31 @@ Linux DRM/KMS  ->  GBM  ->  EGL  ->  OpenGL ES 3  ->  wana-compositor  ->  wana-
 - Weston is not used, not even for bring-up. The first graphical milestone
   draws directly through our own stack.
 
-## 6. Input (**Proposed**, Phase 9)
+## 6. Input (**Decided**, Phase 9)
 
-udev -> libinput -> `wana-input` -> compositor seat -> focused client.
-`wana-input` turns libinput events into Wana input events. Pointer, keyboard
-and touchpad come first. Touch, gesture and tablet event types are in the
-event model from the start. No component other than `wana-input` touches
-`/dev/input/event*`. The shell and applications receive input only from the
-compositor.
+```
+kernel evdev  ->  udev (eudev)  ->  libinput  ->  xkbcommon  ->  wana-input  ->  compositor seat (Phase 10)
+```
+
+- `/dev` is created by the kernel (devtmpfs) and managed by **eudev**.
+  `wana-init` starts `udevd` as its own child before `ready`, replays the
+  boot-time device events (`udevadm trigger` + `settle`) and restarts
+  `udevd` if it dies. `wana.udev=0` turns this off for debugging.
+- libinput (1.31) is used through a small Rust FFI in `wana-input`, with
+  no crates. It gets devices from udev on `seat0` and handles pointer
+  acceleration, scrolling and buttons.
+- Keyboard layouts come from xkbcommon (1.9) and the xkeyboard-config data
+  (`evdev` rules, `pc105`, layout per user; `us` by default). Key codes
+  become keysyms and text before anything above sees them.
+- `wana-input` turns libinput events into owned Wana events that carry
+  the source device. Pointer, keyboard, buttons and wheel are handled now.
+  Touch, gesture, tablet and switch events are already in the event model
+  (`Other`) and get handled when hardware and tests need them.
+- No component other than `wana-input` touches `/dev/input/event*`. The
+  shell and applications receive input only from the compositor.
+- Not yet: the udev hardware database (hwdb: per-device keymap fixes,
+  mouse DPI) is disabled to keep the image small. It becomes necessary for
+  real laptops (Phase 27).
 
 ## 7. Compositor, shell, and applications (**Proposed**, Phases 10-13)
 

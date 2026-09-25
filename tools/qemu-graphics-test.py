@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Boot Wana OS under QEMU + OVMF with a real display device, take a
 screenshot when a log line appears, and check pixel colors in it.
+It can also inject keyboard/mouse input through the QEMU monitor.
 
 This is the graphical counterpart of qemu-boot-test.sh: the serial log is
 checked for --expect patterns as usual, and in addition the *displayed
@@ -12,6 +13,11 @@ Example:
       --append "wana.run=/usr/bin/wana-kms,--hold,5 wana.test=poweroff" \\
       --gpu virtio --screendump-on 'holding frame' --screendump shot.ppm \\
       --pixel 0.5,0.5=4f8cff --expect '\\[DRM\\] info: modeset done'
+
+Input (Phase 9): --input virtio adds a virtio keyboard and tablet; when a
+log line matches --send-on, each --send monitor command is sent in order:
+  --input virtio --send-on 'waiting for input' \\
+      --send 'sendkey w' --send 'mouse_move 40 30' --send 'mouse_button 1'
 """
 
 import argparse
@@ -75,17 +81,25 @@ def parse_pixel(spec):
     return fx, fy, ((c >> 16) & 255, (c >> 8) & 255, c & 255)
 
 
-def monitor(sock_path, command, timeout=10):
+def monitor(sock_path, commands, timeout=10, gap=0.5):
+    """Send HMP commands over one monitor connection, `gap` seconds apart."""
+    if isinstance(commands, str):
+        commands = [commands]
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     s.connect(sock_path)
     s.recv(4096)  # banner
-    s.sendall(command.encode() + b"\n")
-    time.sleep(0.5)
-    try:
-        s.recv(4096)
-    except socket.timeout:
-        pass
+    for command in commands:
+        try:
+            s.sendall(command.encode() + b"\n")
+        except OSError as e:
+            log("error", f"monitor command {command!r} failed: {e}", sys.stderr)
+            break
+        time.sleep(gap)
+        try:
+            s.recv(4096)
+        except socket.timeout:
+            pass
     s.close()
 
 
@@ -105,6 +119,10 @@ def main():
     ap.add_argument("--screendump", help="output .ppm path (a .png is written next to it)")
     ap.add_argument("--pixel", action="append", default=[], help="fx,fy=RRGGBB (repeatable)")
     ap.add_argument("--tolerance", type=int, default=8)
+    ap.add_argument("--input", choices=["virtio", "ps2"], default="ps2",
+                    help="input devices: q35 built-in PS/2 only, or also virtio keyboard + tablet")
+    ap.add_argument("--send-on", help="regex; send the --send monitor commands when a log line matches")
+    ap.add_argument("--send", action="append", default=[], help="QEMU monitor command (repeatable)")
     args = ap.parse_args()
 
     ovmf = next((p for p in OVMF_CANDIDATES if os.path.isfile(p)), None)
@@ -123,6 +141,8 @@ def main():
            "-drive", f"if=pflash,format=raw,readonly=on,file={ovmf}",
            "-drive", f"if=pflash,format=raw,file={vars_fd}"]
     cmd += ["-vga", "none", "-device", "virtio-gpu-pci"] if args.gpu == "virtio" else ["-vga", "std"]
+    if args.input == "virtio":
+        cmd += ["-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"]
     if args.disk:
         cmd += ["-drive", f"file={args.disk},if=virtio,format=raw,snapshot=on"]
     else:
@@ -130,13 +150,14 @@ def main():
         if args.initrd:
             cmd += ["-initrd", args.initrd]
 
-    log("info", f"qemu accel={accel} gpu={args.gpu} firmware={ovmf} timeout={args.timeout}s")
+    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} firmware={ovmf} timeout={args.timeout}s")
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
     os.set_blocking(proc.stdout.fileno(), False)
     deadline = time.time() + args.timeout
-    text, pending, shot_taken = b"", b"", False
+    text, pending, shot_taken, sent = b"", b"", False, False
     trigger = re.compile(args.screendump_on.encode()) if args.screendump_on else None
+    send_trigger = re.compile(args.send_on.encode()) if args.send_on else None
     with open(args.log, "wb") as logf:
         while proc.poll() is None and time.time() < deadline:
             chunk = proc.stdout.read() or b""
@@ -154,6 +175,10 @@ def main():
                     monitor(mon, f"screendump {os.path.abspath(args.screendump)}")
                     shot_taken = True
                     log("info", f"screendump taken -> {args.screendump}")
+                if send_trigger and not sent and send_trigger.search(line):
+                    monitor(mon, args.send)
+                    sent = True
+                    log("info", f"sent {len(args.send)} monitor command(s): {'; '.join(args.send)}")
         if proc.poll() is None:
             log("info", f"timeout reached after {args.timeout}s")
             proc.kill()
@@ -177,6 +202,10 @@ def main():
         else:
             log("error", f"missing: {pattern}", sys.stderr)
             fail = True
+
+    if send_trigger and not sent:
+        log("error", "input was never sent (--send-on line never appeared)", sys.stderr)
+        fail = True
 
     if args.screendump:
         if not shot_taken or not os.path.isfile(args.screendump):

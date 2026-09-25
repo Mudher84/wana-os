@@ -22,7 +22,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 
 | # | Phase | Status |
 |---|-------|--------|
-| 9 | Input stack (udev + libinput -> wana-input) | NOT STARTED |
+| 9 | Input stack (udev + libinput -> wana-input): QEMU-injected keys, pointer and click decoded by `wana-input` in the Buildroot image, in CI ([phase 09 report](test-reports/phase-09.md)) | IN PROGRESS |
 | 10 | Compositor MVP (surfaces, focus, z-order, pointer, keyboard) | NOT STARTED |
 | 11 | Desktop shell MVP | NOT STARTED |
 | 12 | Window management | NOT STARTED |

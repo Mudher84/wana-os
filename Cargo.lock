@@ -17,6 +17,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-input"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
 name = "wana-log"
 version = "0.1.0"
 

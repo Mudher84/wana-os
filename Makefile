@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -42,6 +42,7 @@ help:
 	@echo "    make disk-boot-test    boot images/disk.img via firmware -> GRUB -> kernel -> ext4 root"
 	@echo "    make graphics-boot-test  boot disk.img with virtio-gpu, run wana-kms, check screenshot pixels"
 	@echo "    make gl-boot-test        boot disk.img with virtio-gpu, run wana-gl (GBM/EGL/GLES), check pixels"
+	@echo "    make input-boot-test     boot disk.img, inject keys + mouse via QEMU, wana-input must see them"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -191,6 +192,30 @@ gl-boot-test:
 		--expect '\[DRM\] info: modeset done: .* first GPU frame on screen' \
 		--expect '\[RENDER\] info: [0-9]+ frames rendered' \
 		--expect '\[INIT\] info: /usr/bin/wana-gl exited successfully' \
+		--expect 'reboot: Power down'
+
+# Phase 9: input. Boots disk.img with a virtio keyboard + tablet (plus the
+# q35 PS/2 ones); wana-init starts udevd and coldplugs, then wana-input
+# (udev -> libinput -> xkbcommon) waits for input. The QEMU monitor types
+# "wana", moves the mouse and clicks; wana-input exits 0 only if all of it
+# arrived, decoded with the US layout.
+INPUT_ARGS := wana.run=/usr/bin/wana-input,--timeout,60,--expect-text,wana,--expect-pointer,--expect-button wana.test=poweroff wana.shell=0
+input-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-input.img "$(INPUT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-input.img --gpu virtio --input virtio --timeout 180 \
+		--log out/logs/input-boot.log \
+		--send-on '\[INPUT\] info: waiting for input' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'mouse_move 40 30' --send 'mouse_button 1' --send 'mouse_button 0' \
+		--expect '\[INIT\] info: udev: .*udevd started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: udev: coldplug done in [0-9]+ ms: [0-9]+ devices initialized, [1-9][0-9]* input' \
+		--expect '\[INPUT\] info: keymap compiled: English \(US\)' \
+		--expect '\[INPUT\] info: device added: QEMU Virtio Keyboard .*\[keyboard\]' \
+		--expect '\[INPUT\] info: device added: QEMU Virtio Tablet .*\[pointer\]' \
+		--expect '\[INPUT\] info: typed text "wana" matches' \
+		--expect '\[INPUT\] info: done: 4 key presses, [1-9][0-9]* pointer events, 1 left clicks' \
+		--expect '\[INIT\] info: /usr/bin/wana-input exited successfully' \
 		--expect 'reboot: Power down'
 
 br-%: buildroot-src

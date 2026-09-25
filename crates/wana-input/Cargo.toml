@@ -1,0 +1,20 @@
+[package]
+name = "wana-input"
+description = "Wana OS input: libinput devices and events, xkbcommon keymaps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Links the system libudev, libinput and libxkbcommon directly through small
+# FFI declarations (src/ffi.rs); no crates.io dependencies.
+[dependencies]
+wana-log = { path = "../wana-log" }
+
+[[bin]]
+name = "wana-input"
+path = "src/bin/wana-input.rs"
+
+[lints]
+workspace = true
