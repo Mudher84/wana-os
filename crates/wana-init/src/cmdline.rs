@@ -8,6 +8,7 @@
 //! | `wana.log=error\|warn\|info\|debug` | init log level (default `info`) |
 //! | `wana.test=poweroff\|reboot` | automated test boot: stop the machine once init is ready |
 //! | `wana.shell=0` | do not start the debug shell on the console |
+//! | `wana.udev=0` | do not start udevd (static `/dev` from devtmpfs only) |
 //! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
 
 use wana_log::Level;
@@ -25,6 +26,8 @@ pub struct Options {
     pub log_level: Level,
     pub test: Option<TestAction>,
     pub shell: bool,
+    /// Start udevd and coldplug devices (when udevd is installed).
+    pub udev: bool,
     /// Program (absolute path) and arguments to run once after `ready`.
     pub run: Option<Vec<String>>,
     /// Unknown `wana.*` options or bad values, reported as warnings.
@@ -37,6 +40,7 @@ impl Default for Options {
             log_level: Level::Info,
             test: None,
             shell: true,
+            udev: true,
             run: None,
             warnings: Vec::new(),
         }
@@ -64,12 +68,12 @@ pub fn parse(cmdline: &str) -> Options {
                     .warnings
                     .push(format!("wana.test: unknown action {other:?}")),
             },
-            "shell" => match value {
-                "0" | "off" | "no" => opts.shell = false,
-                "1" | "on" | "yes" => opts.shell = true,
-                other => opts
+            "shell" | "udev" => match parse_bool(value) {
+                Some(on) if key == "shell" => opts.shell = on,
+                Some(on) => opts.udev = on,
+                None => opts
                     .warnings
-                    .push(format!("wana.shell: unknown value {other:?}")),
+                    .push(format!("wana.{key}: unknown value {value:?}")),
             },
             "run" => {
                 let argv: Vec<String> = value.split(',').map(str::to_owned).collect();
@@ -84,6 +88,14 @@ pub fn parse(cmdline: &str) -> Options {
         }
     }
     opts
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value {
+        "0" | "off" | "no" => Some(false),
+        "1" | "on" | "yes" => Some(true),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -111,6 +123,16 @@ mod tests {
         assert_eq!(o.test, None);
         assert!(o.shell);
         assert_eq!(o.warnings.len(), 4);
+    }
+
+    #[test]
+    fn udev_can_be_disabled() {
+        assert!(parse("").udev);
+        let o = parse("wana.udev=0");
+        assert!(!o.udev);
+        assert!(o.shell);
+        assert!(o.warnings.is_empty());
+        assert_eq!(parse("wana.udev=later").warnings.len(), 1);
     }
 
     #[test]

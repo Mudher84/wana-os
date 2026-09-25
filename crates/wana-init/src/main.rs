@@ -1,9 +1,10 @@
 //! wana-init: PID 1 of Wana OS.
 //!
-//! Phase 4 scope: mount the early kernel filesystems, set the system
-//! identity, report `[INIT] info: ready`, then supervise: reap every orphaned
-//! process and keep a debug shell on the console. Service management
-//! (dependencies, per-service users, restart policies) comes in Phase 17.
+//! Scope: mount the early kernel filesystems, set the system identity, start
+//! udevd and coldplug devices (Phase 9), report `[INIT] info: ready`, then
+//! supervise: reap every orphaned process, keep udevd and a debug shell on the
+//! console alive. Service management (dependencies, per-service users,
+//! restart policies) comes in Phase 17.
 //!
 //! PID 1 must never exit. Every failure here is logged and the boot
 //! continues in a degraded state, so the console shows what broke.
@@ -11,6 +12,7 @@
 mod cmdline;
 mod mounts;
 mod sys;
+mod udev;
 
 use cmdline::TestAction;
 use mounts::Outcome;
@@ -18,13 +20,14 @@ use std::fs;
 use std::path::Path;
 use std::process::{Child, Command};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sys::{Halt, Reaped};
 use wana_log::{debug, error, info, warn, Subsystem};
 
 const INIT: Subsystem = Subsystem::Init;
 const SHELL: &str = "/bin/sh";
 const SHELL_RESTART_DELAY: Duration = Duration::from_secs(1);
+const UDEVD_RESTART_DELAY: Duration = Duration::from_secs(1);
 
 fn main() {
     let pid = std::process::id();
@@ -36,7 +39,11 @@ fn main() {
 
     info!(INIT, "wana-init {} starting", env!("CARGO_PKG_VERSION"));
 
+    let mut problems = Vec::new();
     let failed = early_mounts();
+    if failed > 0 {
+        problems.push(format!("{failed} early mount(s) failed"));
+    }
 
     let opts = match fs::read_to_string("/proc/cmdline") {
         Ok(line) => cmdline::parse(&line),
@@ -52,13 +59,21 @@ fn main() {
 
     set_identity();
 
+    let udevd = if opts.udev {
+        start_udev(&mut problems)
+    } else {
+        info!(INIT, "udev: disabled (wana.udev=0)");
+        None
+    };
+
     let uptime = read_first_field("/proc/uptime").unwrap_or_else(|| "?".into());
-    if failed == 0 {
+    if problems.is_empty() {
         info!(INIT, "ready ({uptime}s after kernel start)");
     } else {
         error!(
             INIT,
-            "degraded: {failed} early mount(s) failed ({uptime}s after kernel start)"
+            "degraded: {} ({uptime}s after kernel start)",
+            problems.join("; ")
         );
     }
 
@@ -69,7 +84,7 @@ fn main() {
     if let Some(action) = opts.test {
         stop(action);
     }
-    supervise(opts.shell)
+    supervise(opts.shell, udevd)
 }
 
 /// Performs the early mounts. Returns the number of failures.
@@ -107,6 +122,70 @@ fn set_identity() {
     }
 }
 
+/// Starts udevd and coldplugs the devices present at boot. Returns the
+/// udevd child to supervise. Failures are added to `problems`; the boot goes
+/// on without udev.
+fn start_udev(problems: &mut Vec<String>) -> Option<Child> {
+    let Some(daemon) = udev::find(udev::DAEMONS) else {
+        info!(INIT, "udev: not installed; /dev from devtmpfs only");
+        return None;
+    };
+    let Some(adm) = udev::find(udev::ADMS) else {
+        error!(INIT, "udev: {daemon} present but udevadm is missing");
+        problems.push("udevadm missing".into());
+        return None;
+    };
+    if let Err(e) = udev::disable_hotplug_helper() {
+        warn!(INIT, "udev: cannot disable the kernel hotplug helper: {e}");
+    }
+    let start = Instant::now();
+    let Some(child) = spawn_udevd(daemon) else {
+        problems.push("udevd failed to start".into());
+        return None;
+    };
+    if !udev::wait_for_control(udev::CONTROL_TIMEOUT) {
+        error!(
+            INIT,
+            "udev: {} did not appear within {:?}",
+            udev::CONTROL,
+            udev::CONTROL_TIMEOUT
+        );
+        problems.push("udevd not responding".into());
+        return Some(child);
+    }
+    if let Err(e) = udev::coldplug(adm) {
+        error!(INIT, "udev: coldplug: {e}");
+        problems.push("udev coldplug failed".into());
+        return Some(child);
+    }
+    let ms = start.elapsed().as_millis();
+    match udev::count_db(Path::new(udev::DATA)) {
+        Ok(n) => info!(
+            INIT,
+            "udev: coldplug done in {ms} ms: {} devices initialized, {} input", n.devices, n.input
+        ),
+        Err(e) => warn!(
+            INIT,
+            "udev: coldplug done in {ms} ms; cannot read {}: {e}",
+            udev::DATA
+        ),
+    }
+    Some(child)
+}
+
+fn spawn_udevd(daemon: &str) -> Option<Child> {
+    match udev::spawn_daemon(daemon) {
+        Ok(child) => {
+            info!(INIT, "udev: {daemon} started (pid {})", child.id());
+            Some(child)
+        }
+        Err(e) => {
+            error!(INIT, "udev: spawn {daemon}: {e}");
+            None
+        }
+    }
+}
+
 /// First whitespace-separated field of a small text file.
 fn read_first_field(path: &str) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
@@ -141,13 +220,21 @@ fn stop(action: TestAction) {
     error!(INIT, "{how:?} failed: {err}; continuing to supervise");
 }
 
-/// Reaps children forever and keeps the console shell alive.
-fn supervise(want_shell: bool) -> ! {
+/// Reaps children forever and keeps udevd and the console shell alive.
+fn supervise(want_shell: bool, mut udevd: Option<Child>) -> ! {
     let mut shell = if want_shell { spawn_shell() } else { None };
     loop {
         match sys::reap_any(true) {
             Ok(Reaped::Child { pid, status }) => {
-                if shell.as_ref().map(Child::id) == Some(pid as u32) {
+                if udevd.as_ref().map(Child::id) == Some(pid as u32) {
+                    error!(
+                        INIT,
+                        "udev: udevd exited (wait status {status}), restarting"
+                    );
+                    sleep(UDEVD_RESTART_DELAY);
+                    // Same as the shell below: already reaped, just replace.
+                    udevd = udev::find(udev::DAEMONS).and_then(spawn_udevd);
+                } else if shell.as_ref().map(Child::id) == Some(pid as u32) {
                     info!(
                         INIT,
                         "console shell exited (wait status {status}), restarting"
