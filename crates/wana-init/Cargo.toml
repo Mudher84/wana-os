@@ -1,0 +1,16 @@
+[package]
+name = "wana-init"
+description = "Wana OS init (PID 1): early mounts, system identity, service supervision"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# No crates.io dependencies on purpose: PID 1 keeps a small, auditable
+# surface, and Buildroot builds local Cargo packages with --offline.
+[dependencies]
+wana-log = { path = "../wana-log" }
+
+[lints]
+workspace = true

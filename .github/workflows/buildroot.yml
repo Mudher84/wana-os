@@ -6,12 +6,18 @@ on:
     branches: [main, develop, "feature/**"]
     paths:
       - "platform/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "tools/**"
       - "Makefile"
       - ".github/workflows/buildroot.yml"
   pull_request:
     paths:
       - "platform/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "tools/**"
       - "Makefile"
       - ".github/workflows/buildroot.yml"
@@ -34,7 +40,7 @@ jobs:
         run: make config-check
 
   toolchain:
-    name: toolchain, kernel, UEFI boot
+    name: toolchain, image, UEFI boot
     needs: config
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -78,28 +84,32 @@ jobs:
       - name: Smoke-test toolchain
         run: tools/smoke-toolchain.sh out/build/wana_x86_64
 
-      - name: Build kernel
+      - name: Build image (kernel, Wana packages, rootfs)
         shell: bash
         run: |
           set -o pipefail
-          make kernel 2>&1 | tee kernel-build.log | { grep -E '^>>>' || true; }
+          make image 2>&1 | tee image-build.log | { grep -E '^>>>' || true; }
 
       - name: Check kernel config
         run: make kernel-config-check
 
-      - name: Boot kernel under QEMU + OVMF (UEFI)
+      - name: Boot kernel alone under QEMU + OVMF (UEFI)
         run: make kernel-boot-test
+
+      - name: Boot system (kernel + rootfs, wana-init) under QEMU + OVMF
+        run: make system-boot-test
 
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: wana-kernel-${{ github.sha }}
+          name: wana-image-${{ github.sha }}
           path: |
             toolchain-build.log
-            kernel-build.log
+            image-build.log
             out/logs/
             out/build/wana_x86_64/.config
             out/build/wana_x86_64/build/linux-*/.config
             out/build/wana_x86_64/images/bzImage
+            out/build/wana_x86_64/images/rootfs.cpio.zst
           retention-days: 14

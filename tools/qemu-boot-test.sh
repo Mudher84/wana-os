@@ -5,10 +5,15 @@
 #
 # Usage:
 #   tools/qemu-boot-test.sh --kernel bzImage [--initrd file] [--append "args"]
-#                           [--timeout secs] [--log file] --expect REGEX...
+#                           [--timeout secs] [--log file]
+#                           [--input-after SECS TEXT] --expect REGEX...
+#
+# --input-after types TEXT (printf escapes allowed, e.g. 'exit\n') on the
+# serial console SECS seconds after QEMU starts.
 set -eu
 
 kernel= initrd= append= timeout=120 log=qemu-serial.log
+input_delay= input_text=
 expects=$(mktemp)
 trap 'rm -f "$expects" "${vars:-}"' EXIT
 
@@ -20,6 +25,7 @@ while [ $# -gt 0 ]; do
         --timeout) timeout=$2; shift 2 ;;
         --log) log=$2; shift 2 ;;
         --expect) printf '%s\n' "$2" >> "$expects"; shift 2 ;;
+        --input-after) input_delay=$2; input_text=$3; shift 3 ;;
         *) echo "[BOOT] error: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -46,7 +52,13 @@ set -- -machine q35,accel=$accel -m 1024 -smp 2 -nographic -no-reboot \
 [ -n "$initrd" ] && set -- "$@" -initrd "$initrd"
 
 rc=0
-timeout "$timeout" qemu-system-x86_64 "$@" > "$log" 2>&1 < /dev/null || rc=$?
+if [ -n "$input_delay" ]; then
+    # Keep stdin open until the timeout so QEMU does not see EOF early.
+    { sleep "$input_delay"; printf "$input_text"; sleep "$timeout"; } |
+        timeout "$timeout" qemu-system-x86_64 "$@" > "$log" 2>&1 || rc=$?
+else
+    timeout "$timeout" qemu-system-x86_64 "$@" > "$log" 2>&1 < /dev/null || rc=$?
+fi
 [ "$rc" -eq 124 ] && echo "[BOOT] info: timeout reached after ${timeout}s"
 
 fail=0

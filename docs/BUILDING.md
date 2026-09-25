@@ -15,10 +15,13 @@ current list of targets.
 | `make kernel` | Builds Linux 6.18.33 (`x86_64_defconfig` + `platform/board/x86_64/linux.fragment`) into `out/build/wana_x86_64/images/bzImage` | as `make toolchain` |
 | `make kernel-config-check` | Checks every fragment option reached the kernel `.config` | a built kernel |
 | `make kernel-boot-test` | Boots `bzImage` under QEMU + OVMF (UEFI) and checks the serial log | `qemu-system-x86`, `ovmf` |
+| `make msrv` | Unit tests with Buildroot's Rust version (`rust-version` in `Cargo.toml`) | `rustup toolchain install 1.88` |
+| `make image` | Full Buildroot build: toolchain, kernel, `wana-init`, rootfs (`images/rootfs.cpio.zst`) | as `make toolchain` |
+| `make system-boot-test` | Boots `bzImage` + `rootfs.cpio.zst` under QEMU+OVMF with `wana.test=poweroff`; `wana-init` must print `ready` | `qemu-system-x86`, `ovmf` |
 | `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
 
-The rootfs, bootloader and ISO targets do not exist yet. They are added in
-Phases 4-6 and 18.
+The bootloader, disk image and ISO targets do not exist yet. They are added in
+Phases 5-6 and 18.
 
 Build layout:
 

@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test br-%
+	kernel-config-check kernel-boot-test image msrv system-boot-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -23,6 +23,7 @@ help:
 	@echo "    make check          fmt-check + lint + test + repo-check (run before every push)"
 	@echo "    make fmt            format Rust code"
 	@echo "    make lint           clippy, warnings are errors"
+	@echo "    make msrv           build + test with Buildroot's Rust ($(RUST_MSRV))"
 	@echo "    make test           unit tests"
 	@echo "    make repo-check     repository hygiene"
 	@echo "  System image (Buildroot $(BUILDROOT_VERSION))"
@@ -34,6 +35,8 @@ help:
 	@echo "    make kernel         build the Linux kernel (bzImage) with the Wana fragment"
 	@echo "    make kernel-config-check  verify every fragment option reached the kernel .config"
 	@echo "    make kernel-boot-test     boot bzImage under QEMU+OVMF, check the serial log"
+	@echo "    make image          full build: toolchain, kernel, Wana packages, rootfs (cpio)"
+	@echo "    make system-boot-test  boot kernel + rootfs under QEMU+OVMF; wana-init must reach ready"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -54,6 +57,11 @@ test:
 
 repo-check:
 	tools/check-repo.sh
+
+# Buildroot compiles Wana crates with its own rustc; keep the code building there.
+RUST_MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+msrv:
+	$(CARGO) +$(RUST_MSRV) test --workspace --locked
 
 buildroot-src:
 	tools/fetch-buildroot.sh $(BR_SRC)
@@ -92,6 +100,24 @@ kernel-boot-test:
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
 		--expect 'efi: EFI v[0-9]' \
 		--expect 'VFS: Unable to mount root fs'
+
+image: config
+	$(BR_MAKE)
+
+# Phase 4: kernel + initramfs; wana-init must reach ready and power off.
+system-boot-test:
+	mkdir -p out/logs
+	tools/qemu-boot-test.sh --kernel $(BR_OUT)/images/bzImage \
+		--initrd $(BR_OUT)/images/rootfs.cpio.zst \
+		--append "wana.test=poweroff" \
+		--log out/logs/system-boot.log --timeout 180 \
+		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
+		--expect 'Run /init as init process' \
+		--expect '\[INIT\] info: wana-init [0-9.]+ starting' \
+		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: hostname: wana' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
 
 br-%: buildroot-src
 	$(BR_MAKE) $*
