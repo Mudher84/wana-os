@@ -29,6 +29,7 @@ pub fn start(
     display: &mut Display<Compositor>,
     argv: &[String],
     runtime_dir: &Path,
+    public_display: &str,
 ) -> Result<Child, String> {
     let mut sv = [-1i32; 2];
     // SAFETY: sv is a valid out array; both fds are close-on-exec so no
@@ -44,7 +45,9 @@ pub fn start(
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
         .env("XDG_RUNTIME_DIR", runtime_dir)
-        .env("WAYLAND_SOCKET", shell_fd.to_string());
+        .env("WAYLAND_SOCKET", shell_fd.to_string())
+        // The public socket, for the programs the shell starts.
+        .env("WAYLAND_DISPLAY", public_display);
     // SAFETY: runs in the child between fork and exec; fcntl is
     // async-signal-safe. It clears close-on-exec on the shell's end only.
     unsafe {

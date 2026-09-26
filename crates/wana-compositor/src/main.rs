@@ -240,7 +240,7 @@ fn run(args: &Args) -> Result<(), String> {
     );
 
     let mut shell = match &args.shell {
-        Some(argv) => Some(shell::start(&mut display, argv, &dir)?),
+        Some(argv) => Some(shell::start(&mut display, argv, &dir, &name)?),
         None => None,
     };
     let mut child = match &args.run {

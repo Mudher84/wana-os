@@ -443,6 +443,78 @@ Components:
 
 - Actual: *pending*
 
+## Shell step 3a: wana-shell with the desktop and the top bar
+
+Components:
+- `crates/wana-client` (new), shared by the shell and the test client:
+  - the libwayland-client binding, moved from `wana-wl-test`, plus `wait(timeout)`: the shell redraws its clock
+    between events;
+  - `shm::Buffer`: memfd-backed XRGB8888 buffers. The compositor copies at commit, so a buffer is destroyed right
+    after the commit that uses it;
+  - `layer::LayerSurface`: create, set the state, initial commit, wait for the configure, ack.
+- `crates/wana-shell` (new):
+  - it binds `zwlr_layer_shell_v1`, which only works on the private connection; anywhere else it fails with "not
+    started as the shell";
+  - the desktop is a background layer surface (all edges, zone -1) with a vertical gradient;
+  - the top bar is a top layer surface, 40 px, zone 40, RTL: "وانا" at the start (right) and the time at the end
+    (left) in Arabic-Indic digits, laid out and drawn with wana-text;
+  - the time is UTC until time zones become configurable (Settings), and the bar is redrawn when the minute
+    changes. `--clock HH:MM` fixes it for tests;
+  - `draw.rs` is pure (state to pixels) and unit-tested; every rendering is logged with its SHA-256.
+- Autostart (`--autostart PROGRAM [--autostart-arg ARG]... [--exit-with-autostart]`), after the shell's
+  surfaces are mapped:
+  - the program starts with a clean environment and the public socket (`WAYLAND_DISPLAY`, which the compositor now
+    passes to the shell);
+  - the shell marks its privileged descriptor close-on-exec itself, in addition to libwayland doing so, so no
+    started program can hold it;
+  - starting programs from the shell also removes a race: the test's window cannot map before the bar reserves its
+    zone.
+- `wana-wl-test --no-inherited-fds`: fails if the process received any descriptor besides 0, 1 and 2.
+  - Its first version picked the wrong descriptor to ignore: it assumed the listing's own descriptor was the
+    highest, but it is the lowest free one.
+  - Checked with a deliberately inherited descriptor, it now reports `5 -> /dev/null` and exits 1. On a clean
+    process it passes.
+- Buildroot: `wana-compositor` builds and installs `/usr/bin/wana-shell`.
+
+### T24: Unit tests (local)
+
+- The gradient's end colors, and its interpolation rounding.
+- Arabic-Indic digits (`16:20` becomes `١٦:٢٠`).
+- The clock (UTC hours and minutes).
+- The bar:
+  - ink only at the right (the brand) and at the left (the time), none in the middle, the padding kept;
+  - the same inputs give the same pixels, and another minute gives different ones.
+- 126 tests in the workspace.
+- Result: **PASS**
+
+### T25: The shell on the host (headless) and in a QEMU boot (local, the exact `make shell-boot-test` expectations)
+
+- `make wayland-host-test`: 9 of 9. The new scenario checks the desktop and bar hashes, the autostarted client
+  with no inherited descriptors, and its window below the bar.
+- QEMU:
+  ```
+  [SHELL] info: wana-shell 0.1.0 starting
+  [COMPOSITOR] info: client connected: the shell (private connection)
+  [SHELL] info: desktop mapped: 1280x800, sha256 c203532a708e005885a04bb854150ee8b4ed80eeef930d613d377756e9bf4839
+  [SHELL] info: bar mapped: 1280x40, time ١٦:٢٠, sha256 1359d3bd16029f7e54f4b04c42f0a23df6c55d872ffea676aad584f10a39b5a8
+  [COMPOSITOR] info: usable area for windows: 0,40 1280x760
+  [SHELL] info: ready
+  [SHELL] info: autostart: /usr/bin/wana-wl-test --no-inherited-fds --hold 3 (pid …)
+  [COMPOSITOR] info: client: inherited descriptors: 0 1 2 only
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260 (surface …)
+  [BOOT] info: pixel (640,20) = #0b0f1a expected #0b0f1a
+  [BOOT] info: pixel (640,262) = #ffffff expected #ffffff
+  [BOOT] info: pixel (640,420) = #4f8cff expected #4f8cff
+  ```
+- All 13 expectations and 3 pixels passed, and no `[INIT|COMPOSITOR|DRM|RENDER|SHELL]` warning or error appeared.
+  The screenshot shows the gradient desktop, the bar with "وانا" at the right and "١٦:٢٠" at the left, and the
+  window below the bar.
+- Result: **PASS**
+
+### T26: Buildroot image + `make shell-boot-test` in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
@@ -453,4 +525,6 @@ Components:
 - Shell step 1 (layer-shell protocol + privilege, [decision 0003](../decisions/0003-shell-surfaces.md) accepted):
   T18-T19 pass locally; T20 (CI) is pending.
 - Shell step 2 (layer surfaces): T21-T22 pass locally; T23 (CI) is pending.
-- Shell step 3 (wana-shell MVP: background, top bar with time via wana-text, launcher, dock; shell restart): next.
+- Shell step 3a (wana-shell: desktop, Arabic top bar, autostart): T24-T25 pass locally; T26 (CI) is pending.
+- Shell step 3b (launcher: an overlay with exclusive keyboard that lists apps and starts one) and 3c (dock via
+  ext-foreign-toplevel-list; restarting a crashed shell): next.

@@ -24,7 +24,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 |---|-------|--------|
 | 9 | Input stack (udev + libinput -> wana-input): QEMU-injected keys, pointer and click decoded by `wana-input` in the Buildroot image, in CI ([phase 09 report](test-reports/phase-09.md)) | PASS |
 | 10 | Compositor MVP (surfaces, focus, z-order, pointer, keyboard) on libwayland-server ([decision 0001](decisions/0001-wayland-protocol-layer.md), [phase 10 report](test-reports/phase-10.md)): client windows composited with GLES, input routed to the focused client, click-to-raise, client cursors; CI boot tests with screenshot pixels; reproducible 12/12 | PASS |
-| 11 | Desktop shell MVP; first the text stack with Arabic ([decision 0002](decisions/0002-text-stack.md), [phase 11 report](test-reports/phase-11.md)): text steps 1-4 (fonts, shaping + BiDi, layout, Arabic on screen) PASS; reproducibility re-check in CI; shell steps 1 (layer-shell + privileged shell connection, [decision 0003](decisions/0003-shell-surfaces.md)) and 2 (layer surfaces) in CI | IN PROGRESS |
+| 11 | Desktop shell MVP; first the text stack with Arabic ([decision 0002](decisions/0002-text-stack.md), [phase 11 report](test-reports/phase-11.md)): text steps 1-4 (fonts, shaping + BiDi, layout, Arabic on screen) PASS; reproducibility re-check in CI; shell steps 1 (layer-shell + privileged shell connection, [decision 0003](decisions/0003-shell-surfaces.md)), 2 (layer surfaces) and 3a (wana-shell: desktop, Arabic top bar, autostart) in CI | IN PROGRESS |
 | 12 | Window management | NOT STARTED |
 
 ## Milestone 3: Usable desktop

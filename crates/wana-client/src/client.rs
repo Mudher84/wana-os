@@ -47,6 +47,20 @@ extern "C" {
         data: *mut c_void,
     ) -> c_int;
     fn wl_proxy_get_version(proxy: *mut wl_proxy) -> u32;
+    fn wl_display_get_fd(display: *mut wl_proxy) -> c_int;
+    fn wl_display_flush(display: *mut wl_proxy) -> c_int;
+    fn wl_display_dispatch_pending(display: *mut wl_proxy) -> c_int;
+}
+
+#[repr(C)]
+struct PollFd {
+    fd: c_int,
+    events: i16,
+    revents: i16,
+}
+
+extern "C" {
+    fn poll(fds: *mut PollFd, nfds: u64, timeout: c_int) -> c_int;
 }
 
 const WL_MARSHAL_FLAG_DESTROY: u32 = 1;
@@ -246,6 +260,32 @@ impl Connection {
             return Err(self.error());
         }
         Ok(())
+    }
+
+    /// Sends queued requests, then waits up to `timeout_ms` for events and
+    /// queues them (a shell redraws its clock between events). Returns true
+    /// if events arrived.
+    pub fn wait(&self, timeout_ms: i32) -> Result<bool, String> {
+        // SAFETY: connected display; one valid pollfd.
+        unsafe {
+            if wl_display_dispatch_pending(self.display.as_ptr()) < 0 {
+                return Err(self.error());
+            }
+            wl_display_flush(self.display.as_ptr());
+            let mut p = PollFd {
+                fd: wl_display_get_fd(self.display.as_ptr()),
+                events: 1, // POLLIN
+                revents: 0,
+            };
+            let n = poll(&mut p, 1, timeout_ms);
+            if n > 0 && p.revents != 0 {
+                if wl_display_dispatch(self.display.as_ptr()) < 0 {
+                    return Err(self.error());
+                }
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn next_event(&self) -> Option<Event> {

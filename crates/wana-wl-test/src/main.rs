@@ -44,19 +44,22 @@
 //! `--layers` / `--layer-invalid-size` (as the shell): layer surfaces, see
 //! `layers.rs`.
 //!
+//! `--no-inherited-fds` (with any mode): first checks that this process
+//! received no descriptor besides stdin/stdout/stderr, e.g. that a program
+//! started by the shell does not hold the shell's privileged connection.
+//!
 //! Keys are decoded with the compositor's keymap and modifier state.
 //! Lines are tagged `[COMPOSITOR] info: client: ...`.
 
-mod client;
 mod input;
 mod layers;
 mod text;
 mod window;
 
-use client::{Connection, Proxy, Req, Val};
 use input::{Devices, Goal};
 use std::process::ExitCode;
 use std::time::Duration;
+use wana_client::client::{self, Connection, Proxy, Req, Val};
 use wana_log::{error, info, Subsystem};
 use wana_render::scene::{ACCENT, BORDER};
 use wana_wayland::protocols::{wayland, xdg_shell};
@@ -94,12 +97,14 @@ fn main() -> ExitCode {
     let mut mode = Mode::Window;
     let mut hold = 0u64;
     let mut fonts_dir = std::path::PathBuf::from(text::DEFAULT_DIR);
+    let mut check_fds = false;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
             "--text" => mode = Mode::Text,
+            "--no-inherited-fds" => check_fds = true,
             "--layers" => mode = Mode::Layers,
             "--layer-invalid-size" => mode = Mode::LayerInvalidSize,
             "--try-bind-hidden" => match it.next() {
@@ -143,6 +148,12 @@ fn main() -> ExitCode {
                 error!(LOG, "client: unknown argument {other}");
                 return ExitCode::from(2);
             }
+        }
+    }
+    if check_fds {
+        if let Err(e) = inherited_fds() {
+            error!(LOG, "client: {e}");
+            return ExitCode::FAILURE;
         }
     }
     match run(&mode, hold, &fonts_dir) {
@@ -407,6 +418,32 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
     conn.roundtrip()?;
     info!(LOG, "client: done");
     Ok(())
+}
+
+/// Fails if any descriptor other than 0, 1 and 2 was inherited.
+fn inherited_fds() -> Result<(), String> {
+    let mut fds: Vec<i32> = std::fs::read_dir("/proc/self/fd")
+        .map_err(|e| format!("/proc/self/fd: {e}"))?
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    fds.sort_unstable();
+    // The listing had a descriptor of its own (the lowest free one, not
+    // necessarily the highest); it is closed now, so only descriptors that
+    // still resolve are real.
+    let extra: Vec<String> = fds
+        .iter()
+        .filter(|&&fd| fd > 2)
+        .filter_map(|fd| {
+            let target = std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()?;
+            Some(format!("{fd} -> {}", target.display()))
+        })
+        .collect();
+    if extra.is_empty() {
+        info!(LOG, "client: inherited descriptors: 0 1 2 only");
+        Ok(())
+    } else {
+        Err(format!("inherited descriptors: {}", extra.join(", ")))
+    }
 }
 
 /// Binds the first registry name after the advertised ones as `iface`.

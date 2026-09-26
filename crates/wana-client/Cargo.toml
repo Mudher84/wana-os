@@ -1,0 +1,16 @@
+[package]
+name = "wana-client"
+description = "Wana OS Wayland client side: libwayland-client binding shared by wana-shell and wana-wl-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Links the system libwayland-client through small FFI declarations and uses
+# wana-wayland's generated protocol tables. No crates.io dependencies.
+[dependencies]
+wana-wayland = { path = "../wana-wayland" }
+
+[lints]
+workspace = true

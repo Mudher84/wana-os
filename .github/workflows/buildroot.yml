@@ -138,6 +138,9 @@ jobs:
       - name: Shell layer surfaces (disk boot, background + top bar through wlr-layer-shell, window placed below the bar, screenshot pixel check)
         run: make layer-boot-test
 
+      - name: wana-shell (disk boot, desktop + Arabic top bar by hash, autostarted app below the bar with no inherited descriptors, screenshot pixel check)
+        run: make shell-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

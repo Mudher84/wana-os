@@ -6,17 +6,10 @@ use crate::client::{Connection, Proxy, Req, Val};
 use crate::input::Devices;
 use crate::wait_for;
 use std::fs::File;
-use std::io::Write;
-use std::os::unix::io::{AsRawFd, FromRawFd};
 use wana_log::info;
 use wana_wayland::protocols::{wayland, xdg_shell};
 
-const FORMAT_XRGB8888: u32 = 1;
 pub const BORDER_PX: i32 = 8;
-
-extern "C" {
-    fn memfd_create(name: *const std::os::raw::c_char, flags: u32) -> i32;
-}
 
 /// The globals a window needs.
 #[derive(Debug, Clone, Copy)]
@@ -165,43 +158,9 @@ impl Window {
         height: i32,
         bytes: &[u8],
     ) -> Result<(Proxy, File), String> {
-        // SAFETY: NUL-terminated name; the fd is owned by the File below.
-        let fd = unsafe { memfd_create(c"wana-wl-test".as_ptr(), 0) };
-        if fd < 0 {
-            return Err(format!("memfd_create: {}", std::io::Error::last_os_error()));
-        }
-        // SAFETY: fresh fd from memfd_create.
-        let mut file = unsafe { File::from_raw_fd(fd) };
-        file.write_all(bytes)
-            .map_err(|e| format!("pool write: {e}"))?;
-        let pool = conn
-            .request(
-                shell.shm,
-                wayland::wl_shm::request::CREATE_POOL,
-                Some((&wayland::WL_SHM_POOL_INTERFACE, 1)),
-                &[
-                    Req::NewId,
-                    Req::Fd(file.as_raw_fd()),
-                    Req::Int(bytes.len() as i32),
-                ],
-            )?
-            .expect("pool");
-        let buffer = conn
-            .request(
-                pool,
-                wayland::wl_shm_pool::request::CREATE_BUFFER,
-                Some((&wayland::WL_BUFFER_INTERFACE, 1)),
-                &[
-                    Req::NewId,
-                    Req::Int(0),
-                    Req::Int(width),
-                    Req::Int(height),
-                    Req::Int(width * 4),
-                    Req::Uint(FORMAT_XRGB8888),
-                ],
-            )?
-            .expect("buffer");
-        Ok((buffer, file))
+        let b = wana_client::shm::Buffer::new(conn, shell.shm, width, height, bytes)?;
+        let file = b.file().try_clone().map_err(|e| format!("memfd: {e}"))?;
+        Ok((b.buffer, file))
     }
 
     /// Attaches the buffer (damaging all of it) and commits, optionally
