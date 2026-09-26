@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test wayland-host-test br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -24,7 +24,7 @@ help:
 	@echo "    make fmt            format Rust code"
 	@echo "    make lint           clippy, warnings are errors"
 	@echo "    make msrv           build + test with Buildroot's Rust ($(RUST_MSRV))"
-	@echo "    make test           unit tests"
+	@echo "    make test           unit tests (fetches the pinned fonts first: make fonts)"
 	@echo "    make repo-check     repository hygiene"
 	@echo "  System image (Buildroot $(BUILDROOT_VERSION))"
 	@echo "    make buildroot-src  fetch and verify pinned Buildroot into out/"
@@ -47,6 +47,7 @@ help:
 	@echo "    make window-boot-test    boot disk.img, a client window must appear (screenshot pixel check)"
 	@echo "    make seat-boot-test      boot disk.img, QEMU click raises + focuses a window, typed keys reach it"
 	@echo "    make wayland-host-test   headless compositor + test client on this host (3 protocol scenarios)"
+	@echo "    make text-boot-test      boot disk.img, wana-text must verify and load the pinned fonts"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -62,7 +63,11 @@ fmt-check:
 lint:
 	$(CARGO) clippy --workspace --all-targets --locked -- -D warnings
 
-test:
+# Unit tests of wana-text shape with the pinned fonts (same files as the image).
+fonts:
+	tools/fetch-fonts.sh
+
+test: fonts
 	$(CARGO) test --workspace --locked
 
 repo-check:
@@ -70,7 +75,7 @@ repo-check:
 
 # Buildroot compiles Wana crates with its own rustc; keep the code building there.
 RUST_MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
-msrv:
+msrv: fonts
 	$(CARGO) +$(RUST_MSRV) test --workspace --locked
 
 buildroot-src:
@@ -328,6 +333,26 @@ seat-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|INPUT)\] (warn|error)'
+
+# Decision 0002 step 1: the pinned UI fonts in the image. wana-text checks
+# /usr/share/fonts/wana against its SHA256SUMS, loads each font through
+# HarfBuzz, and requires Arabic and Latin coverage.
+TEXT_ARGS := wana.run=/usr/bin/wana-text wana.test=poweroff wana.shell=0
+text-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-text.img "$(TEXT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-text.img --gpu virtio --timeout 180 \
+		--log out/logs/text-boot.log \
+		--expect '\[RENDER\] info: font verified: NotoNaskhArabic-VF.ttf \(329920 bytes, sha256 02d9310b6b55b3bf8a5084fced9106ccd914650d730cbe8ff3b57f691d2931f6\)' \
+		--expect '\[RENDER\] info: font verified: NotoSansArabic-VF.ttf \(844676 bytes, sha256 63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e\)' \
+		--expect '\[RENDER\] info: font verified: NotoSans-VF.ttf \(2493792 bytes, sha256 e0890ec6da515d47b9d7cdb8b4ded1d9255fc4e5254ae03f9a579da6cb354717\)' \
+		--expect '\[RENDER\] info: font loaded: NotoNaskhArabic-VF.ttf: "Noto Naskh Arabic", 1726 glyphs, 1000 units/em, axes \[wght 400..700 \(default 400\)\], covers \[Arabic, Latin\]' \
+		--expect '\[RENDER\] info: font loaded: NotoSansArabic-VF.ttf: "Noto Sans Arabic", 1711 glyphs, 1000 units/em' \
+		--expect '\[RENDER\] info: font loaded: NotoSans-VF.ttf: "Noto Sans", 4671 glyphs, 1000 units/em, .*covers \[Latin\]' \
+		--expect '\[RENDER\] info: fonts ok: 3 verified and loaded, Arabic and Latin covered' \
+		--expect '\[INIT\] info: /usr/bin/wana-text exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|RENDER)\] (warn|error)'
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.

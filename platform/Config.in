@@ -4,4 +4,6 @@ source "$BR2_EXTERNAL_WANA_PATH/package/wana-drm/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-render/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-input/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-compositor/Config.in"
+source "$BR2_EXTERNAL_WANA_PATH/package/wana-fonts/Config.in"
+source "$BR2_EXTERNAL_WANA_PATH/package/wana-text/Config.in"
 endmenu

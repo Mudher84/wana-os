@@ -1,0 +1,20 @@
+[package]
+name = "wana-text"
+description = "Wana OS text: pinned fonts, shaping (HarfBuzz), BiDi, layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Links the system libharfbuzz through small FFI declarations (src/ffi.rs);
+# no crates.io dependencies (decision 0002).
+[dependencies]
+wana-log = { path = "../wana-log" }
+
+[[bin]]
+name = "wana-text"
+path = "src/bin/wana-text.rs"
+
+[lints]
+workspace = true

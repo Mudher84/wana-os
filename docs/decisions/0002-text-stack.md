@@ -1,6 +1,7 @@
 # Decision 0002: Text stack (shaping, BiDi, fonts) for the shell and Wana apps
 
-- Status: **Proposed** (2026-09-26); waiting for the project owner
+- Status: **Accepted** (2026-09-26, by the project owner): option B, FreeType + HarfBuzz + FriBidi through Wana's
+  own FFI (`wana-text`), with layout and drawing in Rust
 - Date: 2026-09-26
 - Context: Phase 11 (desktop shell MVP) is the first Wana component that draws text: labels, menus, the
   launcher's search field, the clock. Arabic is a primary language for Wana, not an afterthought, so the text stack
@@ -86,9 +87,14 @@ breaking is needed for scripts without spaces. Not now.
 
 - Arabic: **Noto Naskh Arabic** (text) and **Noto Sans Arabic** (UI).
 - Latin, digits and symbols: **Noto Sans**.
-- All three are OFL-1.1, installed by `googlefontdirectory` at its pinned commit, so the image stays reproducible.
+- All three are OFL-1.1 and taken from google/fonts at the commit Buildroot's `googlefontdirectory` pins.
 - DejaVu Sans is the fallback for anything else.
-- The exact directory names in google/fonts are checked in step 1, and the choice is recorded with the file hashes.
+- Step 1 decided how the fonts reach the image:
+  - `googlefontdirectory` downloads the whole google/fonts repository archive to install a few fonts, which is far
+    too much for CI and the download cache;
+  - keeping the fonts in git is ruled out by the repository's 1 MiB file limit (Noto Sans alone is 2.4 MB);
+  - so a small package, `wana-fonts`, downloads only the three files from `raw.githubusercontent.com` at the
+    pinned commit, with their SHA-256 in `wana-fonts.hash`.
 
 ## Recommendation
 

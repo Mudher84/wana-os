@@ -47,6 +47,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-text"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
 name = "wana-wayland"
 version = "0.1.0"
 dependencies = [

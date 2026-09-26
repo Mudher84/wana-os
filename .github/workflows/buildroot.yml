@@ -129,6 +129,9 @@ jobs:
       - name: Seat input, focus and z-order (disk boot, QEMU click raises and focuses a window, keys reach it, screenshot pixel check)
         run: make seat-boot-test
 
+      - name: Text fonts (disk boot, wana-text verifies the pinned fonts and loads them through HarfBuzz)
+        run: make text-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
