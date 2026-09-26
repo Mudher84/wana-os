@@ -35,6 +35,10 @@ pub struct Credentials {
     pub pid: i32,
     pub uid: u32,
     pub gid: u32,
+    /// Added with [`Display::add_privileged_client`]. Its pid/uid/gid are
+    /// then those of whoever made the socketpair (the compositor itself):
+    /// the kernel reports the pair's creator, not the program at the end.
+    pub privileged: bool,
 }
 
 /// Something that happened to a client during a dispatch.
@@ -141,6 +145,31 @@ struct Inner {
     pending_destroyed: RefCell<Vec<Resource>>,
     client_events: RefCell<VecDeque<ClientEvent>>,
     destructors: HashMap<*const wl_interface, &'static [u32]>,
+    /// Clients allowed to see privileged globals (wl_client addresses);
+    /// a client leaves the set when it is destroyed.
+    privileged_clients: RefCell<std::collections::HashSet<usize>>,
+    /// Globals only privileged clients see (wl_global addresses).
+    privileged_globals: RefCell<std::collections::HashSet<usize>>,
+}
+
+/// libwayland asks this before advertising a global to a client and before
+/// letting it bind one: privileged globals exist only for privileged
+/// clients.
+unsafe extern "C" fn global_filter(
+    client: *const sys::wl_client,
+    global: *const sys::wl_global,
+    data: *mut c_void,
+) -> bool {
+    // SAFETY: data is the display's Inner, which outlives the display.
+    let inner = unsafe { &*(data as *const Inner) };
+    !inner
+        .privileged_globals
+        .borrow()
+        .contains(&(global as usize))
+        || inner
+            .privileged_clients
+            .borrow()
+            .contains(&(client as usize))
 }
 
 struct State<H> {
@@ -564,6 +593,7 @@ struct DestroyListener {
     listener: sys::wl_listener,
     inner: *const Inner,
     creds: Credentials,
+    client: usize,
 }
 
 fn empty_link() -> sys::wl_list {
@@ -583,6 +613,7 @@ unsafe extern "C" fn client_created(listener: *mut sys::wl_listener, data: *mut 
             pid: 0,
             uid: 0,
             gid: 0,
+            privileged: false,
         };
         sys::wl_client_get_credentials(client, &mut creds.pid, &mut creds.uid, &mut creds.gid);
         (*this.inner)
@@ -596,6 +627,7 @@ unsafe extern "C" fn client_created(listener: *mut sys::wl_listener, data: *mut 
             },
             inner: this.inner,
             creds,
+            client: client as usize,
         }));
         sys::wl_client_add_destroy_listener(client, &mut (*destroy).listener);
     }
@@ -607,10 +639,19 @@ unsafe extern "C" fn client_destroyed(listener: *mut sys::wl_listener, _data: *m
     // calling it (final emit), and calls it exactly once, so it can be freed.
     unsafe {
         let this = Box::from_raw(listener as *mut DestroyListener);
+        // The address may be reused by a later client: it must not inherit
+        // the privilege.
+        let privileged = (*this.inner)
+            .privileged_clients
+            .borrow_mut()
+            .remove(&this.client);
         (*this.inner)
             .client_events
             .borrow_mut()
-            .push_back(ClientEvent::Disconnected(this.creds));
+            .push_back(ClientEvent::Disconnected(Credentials {
+                privileged,
+                ..this.creds
+            }));
     }
 }
 
@@ -650,6 +691,7 @@ impl<H: Handler> Display<H> {
         let destructors = crate::protocols::wayland::DESTRUCTOR_TABLE
             .iter()
             .chain(crate::protocols::xdg_shell::DESTRUCTOR_TABLE.iter())
+            .chain(crate::protocols::wlr_layer_shell_unstable_v1::DESTRUCTOR_TABLE.iter())
             .map(|(iface, list)| (*iface as *const wl_interface, *list))
             .collect();
         let state = Box::new(State {
@@ -659,6 +701,8 @@ impl<H: Handler> Display<H> {
                 pending_destroyed: RefCell::default(),
                 client_events: RefCell::default(),
                 destructors,
+                privileged_clients: RefCell::default(),
+                privileged_globals: RefCell::default(),
             },
             handler: RefCell::new(handler),
         });
@@ -673,6 +717,15 @@ impl<H: Handler> Display<H> {
         // in Drop after wl_display_destroy).
         unsafe {
             sys::wl_display_add_client_created_listener(display.as_ptr(), &mut (*created).listener)
+        };
+        // SAFETY: display is valid; Inner is boxed inside `state`, which
+        // outlives the display (dropped after wl_display_destroy).
+        unsafe {
+            sys::wl_display_set_global_filter(
+                display.as_ptr(),
+                global_filter,
+                &state.inner as *const Inner as *mut c_void,
+            )
         };
         Ok(Display {
             event_loop,
@@ -694,6 +747,57 @@ impl<H: Handler> Display<H> {
         interface: &'static wl_interface,
         version: u32,
     ) -> Result<usize, String> {
+        self.create_global_raw(interface, version).map(|(i, _)| i)
+    }
+
+    /// Like [`Display::create_global`], but only clients added with
+    /// [`Display::add_privileged_client`] see it or can bind it. For every
+    /// other client it does not exist.
+    pub fn create_privileged_global(
+        &mut self,
+        interface: &'static wl_interface,
+        version: u32,
+    ) -> Result<usize, String> {
+        let (i, g) = self.create_global_raw(interface, version)?;
+        self.state
+            .inner
+            .privileged_globals
+            .borrow_mut()
+            .insert(g as usize);
+        Ok(i)
+    }
+
+    /// Serves a client on an already connected socket (the compositor's end
+    /// of a socketpair whose other end it gives to a program it starts), and
+    /// makes it privileged. Only this path creates privileged clients: no
+    /// client connecting through the public socket can become one.
+    pub fn add_privileged_client(&mut self, fd: std::os::fd::OwnedFd) -> io::Result<ClientId> {
+        use std::os::fd::IntoRawFd;
+        // SAFETY: display valid; libwayland takes ownership of the fd (it
+        // closes it with the client, or on failure).
+        let client = unsafe { sys::wl_client_create(self.display(), fd.into_raw_fd()) };
+        if client.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        self.state
+            .inner
+            .privileged_clients
+            .borrow_mut()
+            .insert(client as usize);
+        // wl_client_create reported the connection already: mark it.
+        if let Some(ClientEvent::Connected(c)) =
+            self.state.inner.client_events.borrow_mut().back_mut()
+        {
+            c.privileged = true;
+        }
+        Ok(ClientId(client as usize))
+    }
+
+    fn create_global_raw(
+        &mut self,
+        interface: &'static wl_interface,
+        version: u32,
+    ) -> Result<(usize, *mut sys::wl_global), String> {
         let name = cstr(interface.name);
         if version == 0 || version > interface.version as u32 {
             return Err(format!(
@@ -724,7 +828,7 @@ impl<H: Handler> Display<H> {
             return Err(format!("wl_global_create {name} failed"));
         }
         self.globals.push(data);
-        Ok(index)
+        Ok((index, g))
     }
 
     /// Listens on the first free `wayland-N` socket in `$XDG_RUNTIME_DIR` and

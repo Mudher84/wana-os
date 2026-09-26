@@ -1,6 +1,7 @@
 # Decision 0003: How the shell draws its surfaces, and who may
 
-- Status: **Proposed** (2026-09-26); waiting for the project owner
+- Status: **Accepted** (2026-09-26, by the project owner): option A, `wlr-layer-shell` (pinned v4 XML kept in the
+  repository) with the privilege model
 - Date: 2026-09-26
 - Context: [ARCHITECTURE.md §7](../ARCHITECTURE.md) makes `wana-shell` a separate process: a privileged Wayland client
   that draws the desktop background, the top bar, the dock and the launcher, so a shell crash cannot take down the

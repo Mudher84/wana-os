@@ -154,10 +154,12 @@ kernel evdev  ->  udev (eudev)  ->  libinput  ->  xkbcommon  ->  wana-input  -> 
   [decision 0001](decisions/0001-wayland-protocol-layer.md) (**accepted**:
   `libwayland-server`, the freedesktop C reference library, through our own
   FFI and protocol generator; no Smithay, no crates).
-- `wana-shell` is a separate process: a privileged client that uses
-  Wana-specific protocols for its surfaces (desktop, dock, launcher, status
-  area, control center). A shell crash must not take down the compositor or
-  the applications.
+- `wana-shell` is a separate process: a privileged client for its surfaces
+  (desktop, dock, launcher, status area, control center). A shell crash must
+  not take down the compositor or the applications. Decision 0003
+  (**accepted**): the surfaces use `wlr-layer-shell` (pinned XML), and the
+  compositor starts the shell on a private socketpair connection; privileged
+  globals are filtered out for every other client.
 - A design system (`design/`: tokens for color, radius, spacing, type, and
   motion curves) is shared by the shell and the apps, so screens are not
   styled one at a time.

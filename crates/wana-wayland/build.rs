@@ -7,6 +7,9 @@
 //!   (default `/usr/share/wayland-protocols`)
 //!
 //! Buildroot points both at its staging directory (package wana-compositor).
+//!
+//! Protocols that are in neither package are kept in `protocols/` of this
+//! crate, pinned (see protocols/README.md): wlr-layer-shell (decision 0003).
 
 #[allow(dead_code)]
 #[path = "src/scanner.rs"]
@@ -17,6 +20,8 @@ use std::{env, fs};
 
 /// Extension protocols, relative to the wayland-protocols directory.
 const EXTENSIONS: &[&str] = &["stable/xdg-shell/xdg-shell.xml"];
+/// Protocols kept in this crate, relative to its `protocols/` directory.
+const PINNED: &[&str] = &["wlr-layer-shell-unstable-v1.xml"];
 
 fn from_env(var: &str, default: &str) -> PathBuf {
     println!("cargo:rerun-if-env-changed={var}");
@@ -41,6 +46,9 @@ fn main() {
     let dir = from_env("WANA_WAYLAND_PROTOCOLS_DIR", "/usr/share/wayland-protocols");
     let mut protocols = vec![load(&core)];
     protocols.extend(EXTENSIONS.iter().map(|rel| load(&dir.join(rel))));
+    let pinned = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
+        .join("protocols");
+    protocols.extend(PINNED.iter().map(|rel| load(&pinned.join(rel))));
     let code = scanner::generate(&protocols)
         .unwrap_or_else(|e| panic!("[BUILD] error: protocol tables: {e}"));
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("protocols.rs");

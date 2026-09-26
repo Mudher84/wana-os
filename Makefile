@@ -234,7 +234,7 @@ input-boot-test:
 # describes the virtio-gpu display found through wana-drm as wl_output, and
 # serves one real client, wayland-info, which must list every global with
 # its contents (shm formats, output mode, seat name).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
@@ -256,10 +256,16 @@ compositor-boot-test:
 		--expect 'name: seat0' \
 		--expect "interface: 'xdg_wm_base', +version: +1," \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
-		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0' \
+		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0' \
+		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4' \
+		--expect '\[COMPOSITOR\] info: shell: started /usr/bin/wana-wl-test .* on a private connection' \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
+		--reject "interface: 'zwlr_layer_shell_v1'" \
 		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
 
 # Phase 10 step 3: a client window on screen. wana-compositor draws with
@@ -394,6 +400,9 @@ text-window-boot-test:
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
 WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
+# The same compositor with a shell on the private connection (decision 0003).
+WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1
 wayland-host-test: fonts
 	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
@@ -408,7 +417,15 @@ wayland-host-test: fonts
 		echo "[COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS" && \
 	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
 		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
-		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" || \
+		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
+		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
+		echo "[COMPOSITOR] check: layer-shell visible to the shell only: PASS" && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
+		grep -q 'binds: .*zwlr_layer_shell_v1 0' $$dir/bind.log && \
+		echo "[COMPOSITOR] check: binding the hidden global by guessing its name -> invalid_object: PASS" || \
 	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$dir/*.log >&2; exit 1; }
 
 br-%: buildroot-src

@@ -19,13 +19,18 @@
 //! `--client-debug` sets `WAYLAND_DEBUG=1` for that client so the console
 //! shows the protocol messages it exchanges.
 //!
+//! `--shell PROGRAM [--shell-arg ARG]...` starts the shell on a private,
+//! privileged connection (decision 0003, `shell.rs`).
+//!
 //! Usage: wana-compositor [--timeout SECONDS] [--headless WxH@HZ] [--layout us]
+//!                        [--shell PROGRAM [--shell-arg ARG]...]
 //!                        [--client-debug] [--run PROGRAM [ARGS...]]
 
 mod globals;
 mod input;
 mod render;
 mod seat;
+mod shell;
 mod shm;
 mod surface;
 
@@ -52,6 +57,8 @@ struct Args {
     client_debug: bool,
     headless: Option<(i32, i32, i32)>,
     run: Option<Vec<String>>,
+    /// The shell program and its arguments (`--shell`, `--shell-arg`).
+    shell: Option<Vec<String>>,
 }
 
 /// `1280x800@60` -> (1280, 800, 60000 mHz).
@@ -71,6 +78,7 @@ fn parse_args() -> Result<Args, String> {
         client_debug: false,
         headless: None,
         run: None,
+        shell: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -80,6 +88,14 @@ fn parse_args() -> Result<Args, String> {
                 a.timeout = Some(v.parse().map_err(|e| format!("--timeout: {e}"))?);
             }
             "--client-debug" => a.client_debug = true,
+            "--shell" => a.shell = Some(vec![it.next().ok_or("--shell needs a program")?]),
+            "--shell-arg" => {
+                let v = it.next().ok_or("--shell-arg needs a value")?;
+                a.shell
+                    .as_mut()
+                    .ok_or("--shell-arg must follow --shell")?
+                    .push(v);
+            }
             "--layout" => a.layout = it.next().ok_or("--layout needs a value")?,
             "--headless" => {
                 let v = it.next().ok_or("--headless needs WIDTHxHEIGHT@HZ")?;
@@ -159,10 +175,10 @@ fn run(args: &Args) -> Result<(), String> {
         "wana-compositor {} starting",
         env!("CARGO_PKG_VERSION")
     );
-    let (core, xdg) = wana_wayland::interface_count();
+    let (core, xdg, layer) = wana_wayland::interface_count();
     info!(
         COMPOSITOR,
-        "protocol tables: {core} core + {xdg} xdg-shell interfaces (generated from XML)"
+        "protocol tables: {core} core + {xdg} xdg-shell interfaces + {layer} layer-shell (generated from XML)"
     );
     let (output, drm) = find_output(args)?;
     // The screen (GL context) is created before any client can commit, so
@@ -179,12 +195,23 @@ fn run(args: &Args) -> Result<(), String> {
         Some(_) => start_input(&mut display, &args.layout)?,
         None => None,
     };
-    let mut advertised = Vec::new();
+    let (mut advertised, mut privileged) = (Vec::new(), Vec::new());
     for g in globals::globals() {
-        display.create_global(g.interface, g.version)?;
-        advertised.push(format!("{} v{}", interface_name(g.interface), g.version));
+        let entry = format!("{} v{}", interface_name(g.interface), g.version);
+        if g.privileged {
+            display.create_privileged_global(g.interface, g.version)?;
+            privileged.push(entry);
+        } else {
+            display.create_global(g.interface, g.version)?;
+            advertised.push(entry);
+        }
     }
     info!(COMPOSITOR, "globals: {}", advertised.join(", "));
+    info!(
+        COMPOSITOR,
+        "privileged globals (shell only): {}",
+        privileged.join(", ")
+    );
     info!(
         COMPOSITOR,
         "wl_output {}: {}x{}@{:.2} Hz, {}x{} mm ({})",
@@ -206,6 +233,10 @@ fn run(args: &Args) -> Result<(), String> {
         path.display()
     );
 
+    let mut shell = match &args.shell {
+        Some(argv) => Some(shell::start(&mut display, argv, &dir)?),
+        None => None,
+    };
     let mut child = match &args.run {
         Some(argv) => Some(spawn_client(argv, &name, &dir, args.client_debug)?),
         None => None,
@@ -278,6 +309,17 @@ fn run(args: &Args) -> Result<(), String> {
             }
         }
 
+        if let Some(s) = shell.as_mut() {
+            if let Ok(Some(status)) = s.try_wait() {
+                // Restarting the shell comes with the shell itself (step 3).
+                if status.success() {
+                    info!(COMPOSITOR, "shell exited successfully");
+                } else {
+                    warn!(COMPOSITOR, "shell exited: {status}");
+                }
+                shell = None;
+            }
+        }
         if let Some(c) = child.as_mut() {
             match c.try_wait() {
                 Ok(Some(status)) => {
@@ -311,6 +353,11 @@ fn run(args: &Args) -> Result<(), String> {
             break Ok(());
         }
     };
+    if let Some(mut s) = shell.take() {
+        let _ = s.kill();
+        let _ = s.wait();
+        info!(COMPOSITOR, "shell stopped");
+    }
     info!(COMPOSITOR, "{clients} client connection(s) served");
     let binds: Vec<String> = {
         let h = display.handler();
@@ -511,12 +558,24 @@ fn spawn_client(
 fn log_events(display: &mut Display<Compositor>, clients: &mut u32) {
     for ev in display.take_events() {
         match ev {
+            // The shell's connection is a socketpair the compositor made: its
+            // credentials would be the compositor's own, so it is named.
+            ClientEvent::Connected(c) if c.privileged => {
+                *clients += 1;
+                info!(
+                    COMPOSITOR,
+                    "client connected: the shell (private connection)"
+                );
+            }
             ClientEvent::Connected(c) => {
                 *clients += 1;
                 info!(
                     COMPOSITOR,
                     "client connected: pid {} uid {} gid {}", c.pid, c.uid, c.gid
                 );
+            }
+            ClientEvent::Disconnected(c) if c.privileged => {
+                info!(COMPOSITOR, "client disconnected: the shell")
             }
             ClientEvent::Disconnected(c) => {
                 info!(COMPOSITOR, "client disconnected: pid {}", c.pid)

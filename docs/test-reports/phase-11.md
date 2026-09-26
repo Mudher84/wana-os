@@ -297,6 +297,68 @@ Components (see the amendment to decision 0002: no FreeType):
   headless): success.
 - Result: **PASS**
 
+## Shell step 1: layer-shell protocol and the shell's privilege
+
+Decision 0003 (accepted: option A) chooses the protocol and the privilege model. This step builds both, before any
+layer surface exists.
+
+Components:
+- `crates/wana-wayland/protocols/wlr-layer-shell-unstable-v1.xml`: v4, unchanged from the source, with its sha256
+  in `protocols/README.md`. `build.rs` generates its tables like the others; its reference to `xdg_popup` resolves
+  to the xdg-shell tables. Its destructors (`destroy`) are applied by the protocol layer.
+- `wana-wayland`:
+  - `create_privileged_global`: a global only privileged clients can see;
+  - `add_privileged_client(fd)`: serves a client on a socket the compositor created (`wl_client_create`). Only this
+    path makes a client privileged;
+  - `wl_display_set_global_filter`: libwayland asks it both before advertising a global to a client and before
+    letting that client bind it;
+  - when a privileged client is destroyed, its mark is removed, so a later client allocated at the same address
+    cannot inherit it.
+- `wana-compositor`:
+  - `zwlr_layer_shell_v1` v4 is created as a privileged global. `get_layer_surface` ends the client with an
+    implementation error naming step 2 until layer surfaces exist;
+  - `--shell PROGRAM [--shell-arg ARG]...`: the compositor creates a socketpair, keeps its end as the shell's
+    privileged connection, and starts the shell with the other end as `WAYLAND_SOCKET`. The descriptor is
+    close-on-exec everywhere except in the shell, cleared in `pre_exec`;
+  - the log names the shell's connection, because on a socketpair the kernel reports the credentials of the pair's
+    creator (the compositor), not of the shell;
+  - if the shell exits it is logged. Restarting it comes with the shell itself (step 3).
+- `wana-wl-test`:
+  - `--expect-global NAME` / `--expect-no-global NAME`;
+  - `--try-bind-hidden INTERFACE`: binds the registry name right after the last advertised one, which is what a
+    client guessing a hidden global's number would do.
+
+### T18: Privilege on the host (headless, the real libwayland)
+
+- `make wayland-host-test`, 6 of 6. The new scenarios:
+  - the shell (private connection) sees 6 globals including `zwlr_layer_shell_v1 v4`; an ordinary client on the
+    public socket sees 5, without it;
+  - binding the hidden global by guessing its name:
+    ```
+    [COMPOSITOR] info: client: binding hidden global name 6 as zwlr_layer_shell_v1 (not advertised to this client)
+    wl_registry@2: error 0: invalid global zwlr_layer_shell_v1 (6)
+    [COMPOSITOR] info: client: got the expected protocol error: wl_registry@2 code 0
+    [COMPOSITOR] info: binds: wl_compositor 0, wl_shm 0, wl_output 0, wl_seat 0, xdg_wm_base 0, zwlr_layer_shell_v1 0
+    ```
+    libwayland refuses the bind itself, so the request never reaches the compositor's code: the global's bind
+    count stays 0.
+- Result: **PASS**
+
+### T19: Privilege in a QEMU boot (local, the extended `make compositor-boot-test`)
+
+- The compositor starts `wana-wl-test --expect-global zwlr_layer_shell_v1` as the shell, and `wayland-info` as an
+  ordinary client.
+- `wayland-info` lists exactly the five public globals (`wl_compositor`, `wl_shm`, `wl_output`, `wl_seat`,
+  `xdg_wm_base`). The reject pattern `interface: 'zwlr_layer_shell_v1'` is absent.
+- The shell logs `global zwlr_layer_shell_v1 v4 visible, as expected`, and the compositor logs
+  `client connected: the shell (private connection)`.
+- All the earlier expectations of the test still pass.
+- Result: **PASS**
+
+### T20: Buildroot image + `make compositor-boot-test` (with the shell) in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
@@ -304,5 +366,6 @@ Components (see the amendment to decision 0002: no FreeType):
 - Text step 3 (layout): **PASS** (T9-T11).
 - Text step 4 (drawing): **PASS** (T12-T16).
 - Text step 5 (reproducibility re-check with the text stack in the image): pending.
-- The shell: [decision 0003](../decisions/0003-shell-surfaces.md) (shell surfaces and privilege) is proposed and
-  waiting for the owner.
+- Shell step 1 (layer-shell protocol + privilege, [decision 0003](../decisions/0003-shell-surfaces.md) accepted):
+  T18-T19 pass locally; T20 (CI) is pending.
+- Shell step 2 (layer surfaces: configure, anchors, exclusive zones, stacking): next.

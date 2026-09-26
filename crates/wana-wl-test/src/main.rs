@@ -32,6 +32,15 @@
 //! the rendering's SHA-256 (it is deterministic) and a fully inked pixel.
 //! Fonts from `--fonts DIR` (default /usr/share/fonts/wana).
 //!
+//! `--expect-global NAME` / `--expect-no-global NAME` (repeatable): only
+//! checks which globals this client sees, then exits (0 if all as expected).
+//! Run as the shell (on its private connection) and as an ordinary client,
+//! it tests the privilege filter of decision 0003.
+//! `--try-bind-hidden INTERFACE`: binds the registry name right after the
+//! last advertised one as INTERFACE (what a malicious client guessing a
+//! hidden global would do) and expects the connection to end with
+//! wl_display.error invalid_object on the registry.
+//!
 //! Keys are decoded with the compositor's keymap and modifier state.
 //! Lines are tagged `[COMPOSITOR] info: client: ...`.
 
@@ -68,6 +77,9 @@ enum Mode {
     Input(String),
     ZOrder(String),
     Text,
+    /// (global, expected visible)
+    Globals(Vec<(String, bool)>),
+    TryBindHidden(String),
 }
 
 fn main() -> ExitCode {
@@ -81,6 +93,24 @@ fn main() -> ExitCode {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
             "--text" => mode = Mode::Text,
+            "--try-bind-hidden" => match it.next() {
+                Some(iface) => mode = Mode::TryBindHidden(iface),
+                None => {
+                    error!(LOG, "client: --try-bind-hidden needs an interface name");
+                    return ExitCode::from(2);
+                }
+            },
+            "--expect-global" | "--expect-no-global" => {
+                let Some(name) = it.next() else {
+                    error!(LOG, "client: {a} needs a global name");
+                    return ExitCode::from(2);
+                };
+                let visible = a == "--expect-global";
+                match &mut mode {
+                    Mode::Globals(v) => v.push((name, visible)),
+                    _ => mode = Mode::Globals(vec![(name, visible)]),
+                }
+            }
             "--fonts" => match it.next() {
                 Some(d) => fonts_dir = d.into(),
                 None => {
@@ -136,9 +166,13 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         .expect("registry");
     conn.roundtrip()?;
     let mut g = Globals::default();
+    let mut seen: Vec<(String, u32)> = Vec::new();
+    let mut seen_names: Vec<u32> = Vec::new();
     while let Some(ev) = conn.next_event() {
         if ev.target == registry && ev.opcode == wayland::wl_registry::event::GLOBAL {
             if let [Val::Uint(name), Val::Str(iface), Val::Uint(version)] = &ev.args[..] {
+                seen.push((iface.clone(), *version));
+                seen_names.push(*name);
                 match iface.as_str() {
                     "wl_compositor" => g.compositor = Some((*name, *version)),
                     "wl_shm" => g.shm = Some((*name, *version)),
@@ -148,6 +182,12 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
                 }
             }
         }
+    }
+    if let Mode::Globals(expect) = mode {
+        return check_globals(&seen, expect);
+    }
+    if let Mode::TryBindHidden(iface) = mode {
+        return try_bind_hidden(&conn, registry, &seen_names, iface);
     }
     let bind = |glob: Option<(u32, u32)>,
                 iface: &'static wana_wayland::sys::wl_interface,
@@ -301,6 +341,57 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
     conn.roundtrip()?;
     info!(LOG, "client: done");
     Ok(())
+}
+
+/// Binds the first registry name after the advertised ones as `iface`.
+fn try_bind_hidden(
+    conn: &Connection,
+    registry: Proxy,
+    names: &[u32],
+    iface: &str,
+) -> Result<(), String> {
+    let table: &'static wana_wayland::sys::wl_interface = match iface {
+        "zwlr_layer_shell_v1" => {
+            &wana_wayland::protocols::wlr_layer_shell_unstable_v1::ZWLR_LAYER_SHELL_V1_INTERFACE
+        }
+        other => return Err(format!("--try-bind-hidden: unknown interface {other}")),
+    };
+    let name = names.iter().max().copied().unwrap_or(0) + 1;
+    info!(
+        LOG,
+        "client: binding hidden global name {name} as {iface} (not advertised to this client)"
+    );
+    conn.request(
+        registry,
+        wayland::wl_registry::request::BIND,
+        Some((table, 1)),
+        &[Req::Uint(name), Req::Str(iface), Req::Uint(1), Req::NewId],
+    )?;
+    expect_error(conn, "wl_registry", 0)
+}
+
+/// Checks the advertised globals against `expect` (name, visible).
+fn check_globals(seen: &[(String, u32)], expect: &[(String, bool)]) -> Result<(), String> {
+    let mut wrong = Vec::new();
+    for (name, visible) in expect {
+        let found = seen.iter().find(|(n, _)| n == name);
+        match (found, visible) {
+            (Some((_, v)), true) => info!(LOG, "client: global {name} v{v} visible, as expected"),
+            (None, false) => info!(LOG, "client: global {name} not visible, as expected"),
+            (Some((_, v)), false) => wrong.push(format!("{name} v{v} is visible")),
+            (None, true) => wrong.push(format!("{name} is not visible")),
+        }
+    }
+    if wrong.is_empty() {
+        info!(
+            LOG,
+            "client: globals as expected ({} advertised)",
+            seen.len()
+        );
+        Ok(())
+    } else {
+        Err(format!("globals: {}", wrong.join("; ")))
+    }
 }
 
 /// Dispatches events until `pick` returns a value; answers pings.

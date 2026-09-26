@@ -7,6 +7,7 @@
 //! | `wl_output` | 4 | geometry, mode, scale, name, description, done from DRM | |
 //! | `wl_seat` | 7 | `seat0`: pointer (enter/leave/motion/button/axis/frame, set_cursor) and keyboard (xkb keymap, enter/leave/key/modifiers, repeat info), capabilities from the devices present (`input.rs`) | touch |
 //! | `xdg_wm_base` | 1 | xdg_surface + xdg_toplevel with the configure handshake | popups, interactive move/resize |
+//! | `zwlr_layer_shell_v1` | 4 | privileged: only the shell sees it (decision 0003) | layer surfaces: Phase 11 step 2 |
 //!
 //! A version is advertised only when every request of that version is
 //! handled or answered with a clear protocol error; it is never above the
@@ -29,7 +30,7 @@ use std::rc::Rc;
 use wana_input::keyboard::Keyboard;
 use wana_log::{debug, info, warn, Subsystem};
 use wana_render::compose::Texture;
-use wana_wayland::protocols::{wayland, xdg_shell};
+use wana_wayland::protocols::{wayland, wlr_layer_shell_unstable_v1 as layer_shell, xdg_shell};
 use wana_wayland::server::{interface_name, request_name, Arg, Ctx, Handler, ReqArg, Resource};
 use wana_wayland::sys::wl_interface;
 
@@ -76,6 +77,8 @@ pub struct OutputInfo {
 pub struct Global {
     pub interface: &'static wl_interface,
     pub version: u32,
+    /// Only privileged clients (the shell) see it.
+    pub privileged: bool,
 }
 
 /// The advertised globals, versions capped at the protocol XML's.
@@ -83,6 +86,7 @@ pub fn globals() -> Vec<Global> {
     let cap = |i: &'static wl_interface, v: u32| Global {
         interface: i,
         version: v.min(i.version as u32),
+        privileged: false,
     };
     vec![
         cap(&wayland::WL_COMPOSITOR_INTERFACE, 4),
@@ -90,6 +94,10 @@ pub fn globals() -> Vec<Global> {
         cap(&wayland::WL_OUTPUT_INTERFACE, 4),
         cap(&wayland::WL_SEAT_INTERFACE, 7),
         cap(&xdg_shell::XDG_WM_BASE_INTERFACE, 1),
+        Global {
+            privileged: true,
+            ..cap(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE, 4)
+        },
     ]
 }
 
@@ -831,6 +839,12 @@ impl Handler for Compositor {
             self.xdg_surface_request(ctx, res, opcode, &args);
         } else if is(&xdg_shell::XDG_TOPLEVEL_INTERFACE) {
             self.toplevel_request(res, opcode, &args);
+        } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE)
+            && opcode == layer_shell::zwlr_layer_shell_v1::request::GET_LAYER_SURFACE
+        {
+            let why = "layer surfaces arrive in Phase 11 step 2";
+            warn!(COMPOSITOR, "zwlr_layer_shell_v1.get_layer_surface: {why}");
+            ctx.implementation_error(res, &format!("get_layer_surface: {why}"));
         } else if is(&wayland::WL_SEAT_INTERFACE) {
             self.seat_request(ctx, res, opcode, &args);
         } else if is(&wayland::WL_POINTER_INTERFACE) {
@@ -905,7 +919,15 @@ mod tests {
     #[test]
     fn versions_are_capped_by_the_protocol_xml() {
         let g = globals();
-        assert_eq!(g.len(), 5);
+        assert_eq!(g.len(), 6);
+        assert_eq!(
+            g.iter()
+                .filter(|x| x.privileged)
+                .map(|x| interface_name(x.interface))
+                .collect::<Vec<_>>(),
+            ["zwlr_layer_shell_v1"],
+            "only layer-shell is privileged"
+        );
         for x in &g {
             assert!(x.version >= 1 && x.version <= x.interface.version as u32);
         }

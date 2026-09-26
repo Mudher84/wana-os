@@ -116,6 +116,14 @@ pub type wl_dispatcher_func_t = unsafe extern "C" fn(
     message: *const wl_message,
     args: *mut wl_argument,
 ) -> c_int;
+/// `wl_display_global_filter_func_t`: returns true if `client` may see
+/// `global`.
+pub type wl_display_global_filter_func_t = unsafe extern "C" fn(
+    client: *const wl_client,
+    global: *const wl_global,
+    data: *mut c_void,
+) -> bool;
+
 pub type wl_global_bind_func_t =
     unsafe extern "C" fn(client: *mut wl_client, data: *mut c_void, version: u32, id: u32);
 pub type wl_resource_destroy_func_t = unsafe extern "C" fn(resource: *mut wl_resource);
@@ -145,6 +153,16 @@ extern "C" {
     pub fn wl_client_add_destroy_listener(client: *mut wl_client, listener: *mut wl_listener);
     /// printf-style; always called with "%s".
     pub fn wl_client_post_implementation_error(client: *mut wl_client, fmt: *const c_char, ...);
+
+    /// Creates a client on an already connected socket; takes ownership of
+    /// `fd`.
+    pub fn wl_client_create(display: *mut wl_display, fd: c_int) -> *mut wl_client;
+    /// Decides per client which globals it sees (and can bind).
+    pub fn wl_display_set_global_filter(
+        display: *mut wl_display,
+        filter: wl_display_global_filter_func_t,
+        data: *mut c_void,
+    );
 
     pub fn wl_global_create(
         display: *mut wl_display,
