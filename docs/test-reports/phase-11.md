@@ -287,12 +287,22 @@ Components (see the amendment to decision 0002: no FreeType):
 
 ### T16: Buildroot image + `make text-boot-test` and `make text-window-boot-test` (steps 1-4) in CI
 
-- Actual: *pending*
+- Buildroot run [36250188932](https://github.com/Mudher84/wana-os/actions/runs/36250188932), commit `82b62f6`:
+  every step passed, including "Text stack" (16 expectations, with the layout of step 3) and "Text on screen".
+- "Text on screen" expects the exact rendering hash
+  `7e7cc3f09afa024bc2e3df715aae86f0cbe818d8684b7b4159196b8472342790` and 8395 ink pixels, and it passed. So the
+  image's HarfBuzz 12.3.2 gives glyph outlines and positions that our rasterizer turns into pixels bit-identical to
+  the host's (HarfBuzz 8.3). The screenshot pixels (664,343) white and (345,300) panel also matched.
+- `ci` run 36250188905: 116 unit tests, MSRV, and `make wayland-host-test` with the text scenario (the same hash,
+  headless): success.
+- Result: **PASS**
 
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
 - Text step 2 (shaping + BiDi): **PASS** (T5-T8).
-- Text step 3 (layout): T9-T10 pass locally; its CI run (T11) is covered by T16.
-- Text step 4 (drawing): T12-T15 pass locally; T16 (CI) is pending.
-- Next: text step 5 (report + reproducibility re-check), then the shell.
+- Text step 3 (layout): **PASS** (T9-T11).
+- Text step 4 (drawing): **PASS** (T12-T16).
+- Text step 5 (reproducibility re-check with the text stack in the image): pending.
+- The shell: [decision 0003](../decisions/0003-shell-surfaces.md) (shell surfaces and privilege) is proposed and
+  waiting for the owner.
