@@ -502,7 +502,9 @@ Components:
   - "back" is 1400x900, larger than the screen, so it is placed at 0,0 and covers the screen (amber);
   - "front" is 480x320 in the accent color, mapped second, so it is on top and gets keyboard focus;
   - the client then expects a click on "back" (visible only outside "front", e.g. in the top-left corner), keyboard
-    focus moving to "back", and TEXT typed into it.
+    focus moving to "back", and TEXT typed into it;
+  - on every pointer enter, the client sets a 64x64 magenta surface (no role, buffer committed) as its cursor, with
+    hotspot 0,0.
 - Buildroot: `wana-compositor` depends on udev, libinput, libxkbcommon and xkeyboard-config.
 - `make seat-boot-test` (in CI) runs the z-order scenario:
   - QEMU drives the pointer into the corner with large relative moves. The cursor clamps at the screen edge, so the
@@ -595,7 +597,18 @@ Components:
   - typing goes to the new focus.
 - Screenshot: (640,400), (384,400) and (1152,720) are all `#e0a030`. "back" is now drawn above "front", which
   covered the screen's center before the click.
-- All 18 expectations and the 3 pixel checks of `make seat-boot-test` passed, and no `[INIT|COMPOSITOR|DRM|RENDER|INPUT]`
+- Client cursor (added to the scenario after the first run):
+  ```
+  [COMPOSITOR] info: cursor: client surface 64x64, hotspot 0,0 (from "wana-wl-test back" (org.wana.test))
+  [BOOT] info: pixel (60,60) = #ff00ff expected #ff00ff
+  ```
+  - The pointer ends within 60 px of the corner, whatever the acceleration: it is clamped into the corner, then
+    moved a little. So pixel (60,60) is always under the 64x64 cursor. It is magenta: the client's surface is
+    drawn in place of the arrow.
+  - The set_cursor answering the enter on "front" was ignored as stale. By the time it arrived, the pointer had
+    already moved to "back", so its serial no longer matched the latest enter. That is the rule the compositor
+    enforces, observed with real timing.
+- All 19 expectations and the 4 pixel checks of `make seat-boot-test` passed, and no `[INIT|COMPOSITOR|DRM|RENDER|INPUT]`
   warning or error appeared.
 - Result: **PASS**
 
@@ -609,6 +622,39 @@ Components:
 ### T20: Buildroot image + `make seat-boot-test` in CI
 
 - Actual: *pending*
+
+## Step 5: phase close-out
+
+### Exit criteria (decision 0001, Phase 10 plan)
+
+| Step | Exit test | Evidence |
+|---|---|---|
+| 1 | The socket comes up, and the generated tables match the XML and the libwayland they run with | T1-T5 |
+| 2 | `wayland-info` in the image lists every global | T7, T9 |
+| 3 | The test client's color reaches the screen (screenshot pixels) | T14, T15 |
+| 4 | A QEMU click and typing reach the focused client; a click raises and focuses | T17, T18, T20 |
+| 5 | Reproducibility with the whole compositor stack | T21 |
+
+### Known limits (deliberate; later phases or decisions)
+
+- Buffers are copied at commit time: one copy and one texture upload per commit. linux-dmabuf (zero copy) comes
+  later.
+- The whole frame is redrawn on every change; damage tracking is not used yet.
+- Surfaces:
+  - popups (`xdg_popup`), subsurfaces, buffer transforms and scales other than 1 are refused with a clear
+    implementation error;
+  - opaque and input regions are ignored, so hit tests use the whole surface.
+- Window management: new windows are placed centered, then cascaded. There is no move, resize, maximize or
+  decorations yet (Phase 12).
+- Input:
+  - no touch or tablet support (`get_touch` fails with `missing_capability`);
+  - one keymap for the whole seat, chosen with `--layout` (no layout switching yet);
+  - clients do the key repeat (from `repeat_info`);
+  - the cursor is drawn in software (no hardware cursor plane yet);
+- One output only. No output hotplug, and the output scale is 1.
+- Frame callbacks also fire for surfaces that are not visible.
+- Single-threaded: protocol, input and rendering share one `poll()` loop. With softpipe (CI) a frame costs a lot of
+  CPU; the image has no GPU acceleration under QEMU.
 
 ## Status
 

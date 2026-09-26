@@ -24,7 +24,8 @@
 //!   which gets keyboard focus. Waits for a click on "back" (visible only
 //!   outside "front", e.g. at the top-left corner), keyboard focus moving
 //!   to "back", and TEXT typed into it. The compositor must also raise
-//!   "back" above "front", which a screenshot shows.
+//!   "back" above "front", which a screenshot shows. On every pointer
+//!   enter the client sets a 64x64 magenta cursor surface (hotspot 0,0).
 //!
 //! Keys are decoded with the compositor's keymap and modifier state.
 //! Lines are tagged `[COMPOSITOR] info: client: ...`.
@@ -49,6 +50,9 @@ const HEIGHT: i32 = 320;
 /// compositor clamps it to 0,0 and it covers the screen), amber.
 const BACK_SIZE: (i32, i32) = (1400, 900);
 pub const BACK_FILL: u32 = 0xE0A030;
+/// The z-order test's cursor image: a magenta square.
+const CURSOR_SIZE: i32 = 64;
+const CURSOR_RGB: u32 = 0xFF00FF;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mode {
@@ -173,6 +177,10 @@ fn run(mode: &Mode, hold: u64) -> Result<(), String> {
 
     let mut windows = Vec::new();
     if let Mode::ZOrder(_) = mode {
+        let cursor = window::solid_surface(&conn, &shell, CURSOR_SIZE, CURSOR_RGB)?;
+        if let Some(d) = devices.as_mut() {
+            d.use_cursor(cursor);
+        }
         let back = Window::new(
             &conn,
             &shell,

@@ -54,6 +54,33 @@ pub fn pattern(width: i32, height: i32, fill: u32, border: u32) -> Vec<u8> {
     px
 }
 
+/// A surface without a role showing a `size` x `size` square of `rgb`
+/// (to be used as a cursor image).
+pub fn solid_surface(
+    conn: &Connection,
+    shell: &Shell,
+    size: i32,
+    rgb: u32,
+) -> Result<Proxy, String> {
+    let w = Window::buffer(conn, shell, size, size, &pattern(size, size, rgb, rgb))?.0;
+    let surface = conn
+        .request(
+            shell.compositor,
+            wayland::wl_compositor::request::CREATE_SURFACE,
+            Some((&wayland::WL_SURFACE_INTERFACE, 4)),
+            &[Req::NewId],
+        )?
+        .expect("surface");
+    conn.request(
+        surface,
+        wayland::wl_surface::request::ATTACH,
+        None,
+        &[Req::Object(Some(w)), Req::Int(0), Req::Int(0)],
+    )?;
+    conn.request(surface, wayland::wl_surface::request::COMMIT, None, &[])?;
+    Ok(surface)
+}
+
 impl Window {
     /// Creates the pool, buffer, surface and toplevel (not yet committed).
     #[allow(clippy::too_many_arguments)]
@@ -67,43 +94,13 @@ impl Window {
         fill: u32,
         border: u32,
     ) -> Result<Window, String> {
-        let bytes = pattern(width, height, fill, border);
-        // SAFETY: NUL-terminated name; the fd is owned by the File below.
-        let fd = unsafe { memfd_create(c"wana-wl-test".as_ptr(), 0) };
-        if fd < 0 {
-            return Err(format!("memfd_create: {}", std::io::Error::last_os_error()));
-        }
-        // SAFETY: fresh fd from memfd_create.
-        let mut file = unsafe { File::from_raw_fd(fd) };
-        file.write_all(&bytes)
-            .map_err(|e| format!("pool write: {e}"))?;
-        let pool = conn
-            .request(
-                shell.shm,
-                wayland::wl_shm::request::CREATE_POOL,
-                Some((&wayland::WL_SHM_POOL_INTERFACE, 1)),
-                &[
-                    Req::NewId,
-                    Req::Fd(file.as_raw_fd()),
-                    Req::Int(bytes.len() as i32),
-                ],
-            )?
-            .expect("pool");
-        let buffer = conn
-            .request(
-                pool,
-                wayland::wl_shm_pool::request::CREATE_BUFFER,
-                Some((&wayland::WL_BUFFER_INTERFACE, 1)),
-                &[
-                    Req::NewId,
-                    Req::Int(0),
-                    Req::Int(width),
-                    Req::Int(height),
-                    Req::Int(width * 4),
-                    Req::Uint(FORMAT_XRGB8888),
-                ],
-            )?
-            .expect("buffer");
+        let (buffer, file) = Window::buffer(
+            conn,
+            shell,
+            width,
+            height,
+            &pattern(width, height, fill, border),
+        )?;
         let surface = conn
             .request(
                 shell.compositor,
@@ -150,6 +147,53 @@ impl Window {
             width,
             height,
         })
+    }
+
+    /// A wl_buffer over a new memfd pool holding `bytes` (XRGB8888).
+    fn buffer(
+        conn: &Connection,
+        shell: &Shell,
+        width: i32,
+        height: i32,
+        bytes: &[u8],
+    ) -> Result<(Proxy, File), String> {
+        // SAFETY: NUL-terminated name; the fd is owned by the File below.
+        let fd = unsafe { memfd_create(c"wana-wl-test".as_ptr(), 0) };
+        if fd < 0 {
+            return Err(format!("memfd_create: {}", std::io::Error::last_os_error()));
+        }
+        // SAFETY: fresh fd from memfd_create.
+        let mut file = unsafe { File::from_raw_fd(fd) };
+        file.write_all(bytes)
+            .map_err(|e| format!("pool write: {e}"))?;
+        let pool = conn
+            .request(
+                shell.shm,
+                wayland::wl_shm::request::CREATE_POOL,
+                Some((&wayland::WL_SHM_POOL_INTERFACE, 1)),
+                &[
+                    Req::NewId,
+                    Req::Fd(file.as_raw_fd()),
+                    Req::Int(bytes.len() as i32),
+                ],
+            )?
+            .expect("pool");
+        let buffer = conn
+            .request(
+                pool,
+                wayland::wl_shm_pool::request::CREATE_BUFFER,
+                Some((&wayland::WL_BUFFER_INTERFACE, 1)),
+                &[
+                    Req::NewId,
+                    Req::Int(0),
+                    Req::Int(width),
+                    Req::Int(height),
+                    Req::Int(width * 4),
+                    Req::Uint(FORMAT_XRGB8888),
+                ],
+            )?
+            .expect("buffer");
+        Ok((buffer, file))
     }
 
     /// Attaches the buffer (damaging all of it) and commits, optionally

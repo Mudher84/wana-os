@@ -49,6 +49,10 @@ pub struct Devices {
     at: (f64, f64),
     /// Text typed since the keyboard focus last changed.
     typed: String,
+    /// A cursor surface to set on every pointer enter (hotspot 0,0).
+    cursor: Option<Proxy>,
+    /// Serial of a pointer enter that still needs its set_cursor.
+    cursor_due: Option<u32>,
 }
 
 impl Devices {
@@ -102,7 +106,34 @@ impl Devices {
             clicks: Vec::new(),
             at: (0.0, 0.0),
             typed: String::new(),
+            cursor: None,
+            cursor_due: None,
         })
+    }
+
+    /// Sets `surface` (with a committed buffer) as the cursor image on
+    /// every pointer enter.
+    pub fn use_cursor(&mut self, surface: Proxy) {
+        self.cursor = Some(surface);
+    }
+
+    /// Answers a pending pointer enter with set_cursor.
+    fn apply_cursor(&mut self, conn: &Connection) -> Result<(), String> {
+        if let (Some(serial), Some(surface)) = (self.cursor_due.take(), self.cursor) {
+            conn.request(
+                self.pointer,
+                wayland::wl_pointer::request::SET_CURSOR,
+                None,
+                &[
+                    Req::Uint(serial),
+                    Req::Object(Some(surface)),
+                    Req::Int(0),
+                    Req::Int(0),
+                ],
+            )?;
+            debug!(LOG, "client: set_cursor (serial {serial})");
+        }
+        Ok(())
     }
 
     /// Names `surface` in the log lines.
@@ -141,7 +172,7 @@ impl Devices {
         let ready = |d: &Devices| d.keyboard_focus == Some(first_focus) && d.xkb.is_some();
         if !ready(self) {
             wait_for(conn, wm_base, None, |ev| {
-                if let Err(e) = self.event(ev) {
+                if let Err(e) = self.event(ev).and_then(|()| self.apply_cursor(conn)) {
                     return Some(Err(e));
                 }
                 ready(self).then_some(Ok(()))
@@ -153,7 +184,7 @@ impl Devices {
         );
         if !self.done(goal) {
             wait_for(conn, wm_base, None, |ev| {
-                if let Err(e) = self.event(ev) {
+                if let Err(e) = self.event(ev).and_then(|()| self.apply_cursor(conn)) {
                     return Some(Err(e));
                 }
                 self.done(goal).then_some(Ok(()))
@@ -236,8 +267,11 @@ impl Devices {
             }
         } else if ev.target == self.pointer {
             match (ev.opcode, &ev.args[..]) {
-                (pev::ENTER, [_, s, x, y]) => {
+                (pev::ENTER, [serial, s, x, y]) => {
                     let name = self.name(s)?;
+                    if let Val::Uint(serial) = serial {
+                        self.cursor_due = Some(*serial);
+                    }
                     self.pointer_focus = Some(name);
                     self.at = (fixed(x), fixed(y));
                     info!(

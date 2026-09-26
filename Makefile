@@ -292,6 +292,9 @@ window-boot-test:
 # Shift+W a n a. The click must raise "back" and move keyboard focus to it
 # (the screenshot's center turns amber), and the client must decode "Wana"
 # with the compositor's keymap (the capital W proves wl_keyboard.modifiers).
+# The client sets a 64x64 magenta cursor surface (hotspot 0,0) on every
+# pointer enter; the pointer ends within 60 px of the corner, so pixel
+# (60,60) must be magenta (client cursor drawn instead of the arrow).
 SEAT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--run,/usr/bin/wana-wl-test,--zorder,Wana,--hold,3 wana.test=poweroff wana.shell=0
 seat-boot-test:
 	mkdir -p out/logs out/test
@@ -304,7 +307,7 @@ seat-boot-test:
 		--send 'mouse_button 1' --send 'mouse_button 0' \
 		--send 'sendkey shift-w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
 		--screendump-on 'client: input received' --screendump out/test/seat.ppm \
-		--pixel 0.5,0.5=e0a030 --pixel 0.3,0.5=e0a030 --pixel 0.9,0.9=e0a030 \
+		--pixel 0.5,0.5=e0a030 --pixel 0.3,0.5=e0a030 --pixel 0.9,0.9=e0a030 --pixel 0.046875,0.075=ff00ff \
 		--expect '\[INPUT\] info: keymap English \(US\) for clients: [0-9]+ bytes, sealed memfd' \
 		--expect '\[INPUT\] info: seat0 capabilities: pointer, keyboard' \
 		--expect '\[COMPOSITOR\] info: client: seat capabilities 0x3 \(pointer \+ keyboard\)' \
@@ -313,6 +316,7 @@ seat-boot-test:
 		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 432,272' \
 		--expect '\[COMPOSITOR\] info: client: ready for input \(keyboard focus on window "front", keymap compiled\)' \
 		--expect '\[COMPOSITOR\] info: client: pointer entered window "back" at [0-9.]+,[0-9.]+' \
+		--expect '\[COMPOSITOR\] info: cursor: client surface 64x64, hotspot 0,0 \(from "wana-wl-test back" \(org.wana.test\)\)' \
 		--expect '\[COMPOSITOR\] info: window raised: "wana-wl-test back" \(org.wana.test\)' \
 		--expect '\[COMPOSITOR\] info: client: keyboard focus left window "front"' \
 		--expect '\[COMPOSITOR\] info: client: keyboard focus on window "back" \(0 key\(s\) held\)' \

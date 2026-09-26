@@ -707,6 +707,22 @@ impl Compositor {
             }
         };
         if cursor != self.seat.cursor {
+            match cursor {
+                Cursor::Surface { surface, hx, hy } => {
+                    let size = self
+                        .surfaces
+                        .get(&surface)
+                        .and_then(|s| s.content)
+                        .map_or("no buffer yet".into(), |(w, h)| format!("{w}x{h}"));
+                    info!(
+                        COMPOSITOR,
+                        "cursor: client surface {size}, hotspot {hx},{hy} (from {})",
+                        self.title_of(focus.surface)
+                    );
+                }
+                Cursor::Hidden => info!(COMPOSITOR, "cursor: hidden by the client"),
+                Cursor::Default => {}
+            }
             self.seat.cursor = cursor;
             self.needs_redraw = true;
         }
