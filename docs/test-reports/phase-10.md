@@ -688,7 +688,16 @@ Components:
 
 ### T21: Reproducibility with the whole compositor stack (CI)
 
-- Actual: *pending*
+- Reproducibility run [36239847358](https://github.com/Mudher84/wana-os/actions/runs/36239847358) on `develop` @
+  `26311e9`. The image now contains:
+  - `wana-compositor` with GLES compositing and input: libinput, libxkbcommon and xkeyboard-config are now its
+    dependencies too;
+  - the refactored `wana-wl-test`.
+- Build A (ccache) took 47 min. Build B (`CCACHE_DISABLE=1`) took 69 min.
+- `compare A vs B`: `[BUILD] reproducibility: PASS (12/12 artifacts identical)`, from bzImage to `disk.img`.
+- Nothing added in steps 3 and 4 depends on the build machine or on build time. The protocol tables are generated
+  in file order, the default cursor is computed in code, and the keymap is compiled at run time.
+- Result: **PASS**
 
 ## Status
 
@@ -698,4 +707,9 @@ Components:
 - T11: reproducibility with the Wayland stack: **PASS** (12/12).
 - Step 3: **PASS** (T12-T15).
 - Step 4: **PASS** (T16-T20).
-- Step 5: close-out written; T21 (reproducibility with the whole compositor stack) is pending.
+- Step 5: **PASS** (close-out, T21 12/12).
+
+**Phase 10: PASS.** Clients connect through libwayland-server with Wana's own FFI and generated tables. Their
+windows are composited with GLES and page-flipped without tearing. Input from libinput reaches the focused client,
+and a click raises and focuses the window under it. The client's cursor or Wana's arrow is drawn on top. Every step
+is verified in CI in the Buildroot image, and the image is still reproducible bit for bit.
