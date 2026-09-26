@@ -67,5 +67,6 @@ dependencies = [
  "wana-input",
  "wana-log",
  "wana-render",
+ "wana-text",
  "wana-wayland",
 ]

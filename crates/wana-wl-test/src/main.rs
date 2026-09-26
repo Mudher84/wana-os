@@ -27,11 +27,17 @@
 //!   "back" above "front", which a screenshot shows. On every pointer
 //!   enter the client sets a 64x64 magenta cursor surface (hotspot 0,0).
 //!
+//! `--text`: a window showing Arabic and Latin text drawn by wana-text (the
+//! whole text stack: pinned fonts, shaping, BiDi, layout, rasterizer). Logs
+//! the rendering's SHA-256 (it is deterministic) and a fully inked pixel.
+//! Fonts from `--fonts DIR` (default /usr/share/fonts/wana).
+//!
 //! Keys are decoded with the compositor's keymap and modifier state.
 //! Lines are tagged `[COMPOSITOR] info: client: ...`.
 
 mod client;
 mod input;
+mod text;
 mod window;
 
 use client::{Connection, Proxy, Req, Val};
@@ -61,17 +67,27 @@ enum Mode {
     TruncatePool,
     Input(String),
     ZOrder(String),
+    Text,
 }
 
 fn main() -> ExitCode {
     wana_log::init_from_env();
     let mut mode = Mode::Window;
     let mut hold = 0u64;
+    let mut fonts_dir = std::path::PathBuf::from(text::DEFAULT_DIR);
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
+            "--text" => mode = Mode::Text,
+            "--fonts" => match it.next() {
+                Some(d) => fonts_dir = d.into(),
+                None => {
+                    error!(LOG, "client: --fonts needs a directory");
+                    return ExitCode::from(2);
+                }
+            },
             "--hold" => hold = it.next().and_then(|v| v.parse().ok()).unwrap_or(0),
             "--input" | "--zorder" => {
                 let Some(text) = it.next() else {
@@ -90,7 +106,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    match run(&mode, hold) {
+    match run(&mode, hold, &fonts_dir) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             error!(LOG, "client: {e}");
@@ -107,7 +123,7 @@ struct Globals {
     seat: Option<(u32, u32)>,
 }
 
-fn run(mode: &Mode, hold: u64) -> Result<(), String> {
+fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String> {
     let conn = Connection::connect()?;
     info!(LOG, "client: connected");
     let registry = conn
@@ -202,16 +218,33 @@ fn run(mode: &Mode, hold: u64) -> Result<(), String> {
         Mode::ZOrder(_) => "front",
         _ => "main",
     };
-    let win = Window::new(
-        &conn,
-        &shell,
-        name,
-        "wana-wl-test",
-        WIDTH,
-        HEIGHT,
-        ACCENT,
-        BORDER,
-    )?;
+    let win = if *mode == Mode::Text {
+        let (canvas, (sx, sy)) = text::render(fonts_dir)?;
+        info!(
+            LOG,
+            "client: fully inked pixel at {sx},{sy} (window coordinates)"
+        );
+        Window::with_pixels(
+            &conn,
+            &shell,
+            "text",
+            "wana-wl-test text",
+            canvas.width as i32,
+            canvas.height as i32,
+            &canvas.bytes(),
+        )?
+    } else {
+        Window::new(
+            &conn,
+            &shell,
+            name,
+            "wana-wl-test",
+            WIDTH,
+            HEIGHT,
+            ACCENT,
+            BORDER,
+        )?
+    };
     if let Some(d) = devices.as_mut() {
         d.add_window(win.surface, win.name);
     }

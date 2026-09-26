@@ -218,11 +218,81 @@ Components (`wana-text/src/layout.rs`), for each paragraph (text between `\n`):
 
 ### T11: Buildroot image + `make text-boot-test` (steps 1-3) in CI
 
+- Covered by the combined run of steps 1-4 (T16).
+
+## Text step 4: drawing
+
+Components (see the amendment to decision 0002: no FreeType):
+- `wana-text/src/raster.rs`:
+  - outlines come from HarfBuzz's draw API (`hb_font_draw_glyph`), whose callbacks receive plain coordinates;
+  - curves are flattened within 1/8 px;
+  - coverage uses signed-area accumulation, with non-zero fill for the overlapping contours of variable fonts;
+  - `Canvas` (XRGB8888, the wl_shm format) blends with integer math;
+  - `draw(layout)` places every glyph at its pen position on its line's baseline.
+- `wana-wl-test --text [--fonts DIR]`:
+  - lays out "مرحبا بك في وانا، نظام تشغيل مستقل Wana OS 2026" at 40 px in 560 px, white on a panel, and shows it in
+    a 600x209 window;
+  - logs the SHA-256 of the pixels (the rendering is deterministic) and a pixel whose 3x3 neighbourhood is fully
+    inked, for the screenshot.
+- The compositor clears the client's environment on purpose. So the font directory is an explicit `--fonts`
+  argument, not a variable passed through.
+- `make text-window-boot-test` (CI), plus a fourth scenario in `make wayland-host-test`, which checks the same hash
+  headless on the host.
+- Buildroot: `wana-compositor` selects `wana-text`, because `wana-wl-test` now draws text. `wana-text` no longer
+  selects FreeType.
+
+### T12: Rasterizer unit tests (local)
+
+- A pixel-aligned rectangle is solid 255. Edges at half pixels give exactly `[128, 255, 255, 128]`, an area of
+  3.0.
+- A right triangle with legs of 8 has an area of 32 (±0.05), and its diagonal pixels are 128.
+- Reversed winding gives the same mask, and two overlapping squares stay at 255 (non-zero fill).
+- For 'W', 'a', 'g' and 'O' in Noto Sans at 32 px, the mask's box equals HarfBuzz's glyph extents rounded
+  outwards, on all four sides. The center of the 'O' is empty, so its hole is a hole.
+- Blending is exact: 128 of black over white gives `7f7f7f`.
+- All of these passed on their first run. 116 tests in the workspace.
+- Result: **PASS**
+
+### T13: What the rendering looks like (local, host)
+
+- The text above, rendered at 40 px with `cargo run -p wana-text --example render`, was inspected by eye:
+  - the Arabic letters are joined, with their dots in place;
+  - the lines are right-aligned and break after "تشغيل";
+  - the second line reads "مستقل" at the right, then "Wana OS 2026" left to right.
+- Result: **PASS**
+
+### T14: Determinism
+
+- Two headless runs of `wana-wl-test --text`: the same SHA-256
+  `7e7cc3f09afa024bc2e3df715aae86f0cbe818d8684b7b4159196b8472342790`.
+- `make wayland-host-test`: 4 of 4 scenarios, including "Arabic text window, rendering sha256 as in the image".
+- Result: **PASS**
+
+### T15: The text on screen (local, QEMU, the exact `make text-window-boot-test` expectations)
+
+```
+[COMPOSITOR] info: client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 7e7cc3f09afa024bc2e3df715aae86f0cbe818d8684b7b4159196b8472342790
+[COMPOSITOR] info: client: fully inked pixel at 324,48 (window coordinates)
+[COMPOSITOR] info: window mapped: "wana-wl-test text" (org.wana.test) 600x209 at 340,295 (surface 8)
+[BOOT] info: pixel (664,343) = #ffffff expected #ffffff
+[BOOT] info: pixel (345,300) = #243b6b expected #243b6b
+[BOOT] info: pixel (0,0) = #16213e expected #16213e
+[BOOT] graphics test: PASS
+```
+- All 7 expectations and 3 pixels passed, and no `[INIT|COMPOSITOR|DRM|RENDER]` warning or error appeared.
+- The screenshot shows the panel centered with the two Arabic lines, as in T13, composited by wana-compositor.
+- In CI, the hash must be the same with the image's HarfBuzz 12.3.2: glyph outlines, positions and the rasterizer
+  together.
+- Result: **PASS**
+
+### T16: Buildroot image + `make text-boot-test` and `make text-window-boot-test` (steps 1-4) in CI
+
 - Actual: *pending*
 
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
 - Text step 2 (shaping + BiDi): **PASS** (T5-T8).
-- Text step 3 (layout): T9-T10 pass locally; T11 (CI) is pending.
-- Text step 4 (drawing: glyph rasterization with FreeType, glyph atlas): next.
+- Text step 3 (layout): T9-T10 pass locally; its CI run (T11) is covered by T16.
+- Text step 4 (drawing): T12-T15 pass locally; T16 (CI) is pending.
+- Next: text step 5 (report + reproducibility re-check), then the shell.

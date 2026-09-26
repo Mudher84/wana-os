@@ -20,5 +20,6 @@ pub mod ffi;
 pub mod font;
 pub mod fonts;
 pub mod layout;
+pub mod raster;
 pub mod sha256;
 pub mod shape;

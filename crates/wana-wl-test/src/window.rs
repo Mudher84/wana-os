@@ -94,13 +94,21 @@ impl Window {
         fill: u32,
         border: u32,
     ) -> Result<Window, String> {
-        let (buffer, file) = Window::buffer(
-            conn,
-            shell,
-            width,
-            height,
-            &pattern(width, height, fill, border),
-        )?;
+        let px = pattern(width, height, fill, border);
+        Window::with_pixels(conn, shell, name, title, width, height, &px)
+    }
+
+    /// A window showing `bytes` (XRGB8888, `width` x `height`, packed).
+    pub fn with_pixels(
+        conn: &Connection,
+        shell: &Shell,
+        name: &'static str,
+        title: &str,
+        width: i32,
+        height: i32,
+        bytes: &[u8],
+    ) -> Result<Window, String> {
+        let (buffer, file) = Window::buffer(conn, shell, width, height, bytes)?;
         let surface = conn
             .request(
                 shell.compositor,

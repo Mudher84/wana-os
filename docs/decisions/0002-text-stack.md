@@ -108,6 +108,24 @@ Fonts are untrusted input: a malformed font has been an exploit path before. In 
 pinned files shipped in the image, not user-supplied ones. User-installed fonts come with fontconfig and apps
 later, and each app parses them in its own process.
 
+## Amendment (2026-09-26, text step 4): rasterization without FreeType
+
+Rasterization (job 4) was planned with FreeType. Step 4 does it differently, for these reasons:
+- **Glyph outlines come from HarfBuzz**, through `hb_font_draw_glyph` (the draw API, since HarfBuzz 7.0). It calls
+  back with plain coordinates for move/line/quadratic/cubic/close. There is no C struct to mirror; FreeType would
+  have needed `FT_FaceRec` and `FT_GlyphSlotRec` layouts, the riskiest kind of FFI. HarfBuzz already parses the
+  font (including the variation axes), so there is one font parser instead of two.
+- **The rasterizer is Rust** (`wana-text/src/raster.rs`), about 200 lines:
+  - signed-area accumulation (the technique of libart and font-rs), for exact grayscale antialiasing;
+  - curves are flattened within 1/8 px, and overlapping contours are filled non-zero;
+  - it is plain `f32` arithmetic in a fixed order, so a rendered line is bit-identical everywhere and can be tested
+    by its hash;
+  - it is tested against exact shapes (half pixels, diagonals, winding, overlaps) and against HarfBuzz's own glyph
+    extents.
+- **No hinting.** Grayscale without hinting is the modern choice for these fonts at UI sizes. Hinting and LCD
+  filtering are not planned.
+- **FreeType is no longer selected** by `wana-text`. The image keeps it only if another package needs it.
+
 ## Phase plan (each step with its own test)
 
 1. **Packages and fonts:**
@@ -124,8 +142,9 @@ later, and each app parses them in its own process.
 3. **Layout:**
    - line breaking in a width, start/end alignment, logical to visual cursor mapping;
    - test: golden layouts, checked as data.
-4. **Drawing:**
-   - glyph atlas (GLES) and wl_shm rendering;
+4. **Drawing** (see the amendment above):
+   - glyph outlines from HarfBuzz, our own rasterizer, rendering into wl_shm memory (a GLES glyph atlas comes with
+     the shell);
    - test: a known Arabic + Latin line rendered in QEMU, with a screenshot check of where the text is and a hash
      of the rendered bitmap (deterministic with pinned FreeType and fonts).
 5. **Report + reproducibility re-check.**

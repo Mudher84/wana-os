@@ -196,3 +196,106 @@ extern "C" {
         extents: *mut hb_font_extents_t,
     ) -> hb_bool_t;
 }
+
+// --- glyph outlines (hb-draw.h, since 7.0) and extents -------------------------------
+#[derive(Debug)]
+pub enum hb_draw_funcs_t {}
+/// Opaque here: the callbacks keep their own current point.
+#[derive(Debug)]
+pub enum hb_draw_state_t {}
+
+pub type hb_draw_move_to_func_t = unsafe extern "C" fn(
+    dfuncs: *mut hb_draw_funcs_t,
+    draw_data: *mut std::ffi::c_void,
+    st: *mut hb_draw_state_t,
+    to_x: f32,
+    to_y: f32,
+    user_data: *mut std::ffi::c_void,
+);
+pub type hb_draw_quadratic_to_func_t = unsafe extern "C" fn(
+    dfuncs: *mut hb_draw_funcs_t,
+    draw_data: *mut std::ffi::c_void,
+    st: *mut hb_draw_state_t,
+    control_x: f32,
+    control_y: f32,
+    to_x: f32,
+    to_y: f32,
+    user_data: *mut std::ffi::c_void,
+);
+pub type hb_draw_cubic_to_func_t = unsafe extern "C" fn(
+    dfuncs: *mut hb_draw_funcs_t,
+    draw_data: *mut std::ffi::c_void,
+    st: *mut hb_draw_state_t,
+    control1_x: f32,
+    control1_y: f32,
+    control2_x: f32,
+    control2_y: f32,
+    to_x: f32,
+    to_y: f32,
+    user_data: *mut std::ffi::c_void,
+);
+pub type hb_draw_close_path_func_t = unsafe extern "C" fn(
+    dfuncs: *mut hb_draw_funcs_t,
+    draw_data: *mut std::ffi::c_void,
+    st: *mut hb_draw_state_t,
+    user_data: *mut std::ffi::c_void,
+);
+
+/// `hb_glyph_extents_t` (hb-common.h): y_bearing is the top, height is
+/// negative (font coordinates grow up).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct hb_glyph_extents_t {
+    pub x_bearing: i32,
+    pub y_bearing: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[link(name = "harfbuzz")]
+extern "C" {
+    pub fn hb_draw_funcs_create() -> *mut hb_draw_funcs_t;
+    pub fn hb_draw_funcs_destroy(dfuncs: *mut hb_draw_funcs_t);
+    pub fn hb_draw_funcs_make_immutable(dfuncs: *mut hb_draw_funcs_t);
+    pub fn hb_draw_funcs_set_move_to_func(
+        dfuncs: *mut hb_draw_funcs_t,
+        func: hb_draw_move_to_func_t,
+        user_data: *mut std::ffi::c_void,
+        destroy: *const std::ffi::c_void,
+    );
+    pub fn hb_draw_funcs_set_line_to_func(
+        dfuncs: *mut hb_draw_funcs_t,
+        func: hb_draw_move_to_func_t,
+        user_data: *mut std::ffi::c_void,
+        destroy: *const std::ffi::c_void,
+    );
+    pub fn hb_draw_funcs_set_quadratic_to_func(
+        dfuncs: *mut hb_draw_funcs_t,
+        func: hb_draw_quadratic_to_func_t,
+        user_data: *mut std::ffi::c_void,
+        destroy: *const std::ffi::c_void,
+    );
+    pub fn hb_draw_funcs_set_cubic_to_func(
+        dfuncs: *mut hb_draw_funcs_t,
+        func: hb_draw_cubic_to_func_t,
+        user_data: *mut std::ffi::c_void,
+        destroy: *const std::ffi::c_void,
+    );
+    pub fn hb_draw_funcs_set_close_path_func(
+        dfuncs: *mut hb_draw_funcs_t,
+        func: hb_draw_close_path_func_t,
+        user_data: *mut std::ffi::c_void,
+        destroy: *const std::ffi::c_void,
+    );
+    pub fn hb_font_draw_glyph(
+        font: *mut hb_font_t,
+        glyph: hb_codepoint_t,
+        dfuncs: *mut hb_draw_funcs_t,
+        draw_data: *mut std::ffi::c_void,
+    );
+    pub fn hb_font_get_glyph_extents(
+        font: *mut hb_font_t,
+        glyph: hb_codepoint_t,
+        extents: *mut hb_glyph_extents_t,
+    ) -> hb_bool_t;
+}

@@ -5,10 +5,14 @@ config BR2_PACKAGE_WANA_COMPOSITOR
 	depends on BR2_TOOLCHAIN_HAS_THREADS # wayland
 	depends on BR2_PACKAGE_HAS_LIBEGL && BR2_PACKAGE_HAS_LIBGLES && BR2_PACKAGE_HAS_LIBGBM
 	depends on BR2_PACKAGE_HAS_UDEV # libinput
+	depends on BR2_INSTALL_LIBSTDCPP # harfbuzz (wana-text)
+	depends on BR2_TOOLCHAIN_HAS_SYNC_4 # harfbuzz
+	depends on BR2_TOOLCHAIN_GCC_AT_LEAST_4_9 # harfbuzz
 	select BR2_PACKAGE_HOST_RUSTC
 	select BR2_PACKAGE_LIBINPUT
 	select BR2_PACKAGE_LIBXKBCOMMON
 	select BR2_PACKAGE_XKEYBOARD_CONFIG # runtime: keymap data
+	select BR2_PACKAGE_WANA_TEXT # wana-wl-test --text
 	select BR2_PACKAGE_WAYLAND
 	select BR2_PACKAGE_WAYLAND_PROTOCOLS # build time: protocol XML
 	help

@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -47,7 +47,8 @@ help:
 	@echo "    make window-boot-test    boot disk.img, a client window must appear (screenshot pixel check)"
 	@echo "    make seat-boot-test      boot disk.img, QEMU click raises + focuses a window, typed keys reach it"
 	@echo "    make wayland-host-test   headless compositor + test client on this host (3 protocol scenarios)"
-	@echo "    make text-boot-test      boot disk.img, wana-text must verify and load the pinned fonts"
+	@echo "    make text-boot-test      boot disk.img, wana-text: pinned fonts, Arabic shaping, BiDi, layout"
+	@echo "    make text-window-boot-test  boot disk.img, Arabic text drawn by wana-text in a window (hash + screenshot)"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -367,10 +368,33 @@ text-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|RENDER)\] (warn|error)'
 
+# Decision 0002, text step 4: the whole text stack on screen. wana-wl-test
+# --text lays out Arabic + Latin with wana-text, rasterizes it into its
+# window (deterministic: the SHA-256 of its pixels is fixed), and the
+# compositor shows it. The screenshot checks a fully inked pixel reported
+# by the client (window 324,48 -> screen 664,343) and the panel around it.
+TEXT_SHA256 := 7e7cc3f09afa024bc2e3df715aae86f0cbe818d8684b7b4159196b8472342790
+TEXT_WINDOW_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--run,/usr/bin/wana-wl-test,--text,--hold,3 wana.test=poweroff wana.shell=0
+text-window-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-textwin.img "$(TEXT_WINDOW_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-textwin.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/text-window-boot.log \
+		--screendump-on 'client: holding window' --screendump out/test/text-window.ppm \
+		--pixel 0.51875,0.42875=ffffff --pixel 0.26953125,0.375=243b6b --pixel 0,0=16213e \
+		--expect '\[COMPOSITOR\] info: client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' \
+		--expect '\[COMPOSITOR\] info: client: fully inked pixel at 324,48 \(window coordinates\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test text" \(org.wana.test\) 600x209 at 340,295' \
+		--expect '\[COMPOSITOR\] info: client: frame presented' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
+
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
 WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
-wayland-host-test:
+wayland-host-test: fonts
 	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
 	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
@@ -381,7 +405,10 @@ wayland-host-test:
 	$(WAYLAND_HOST_RUN) --truncate-pool > $$dir/sigbus.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: wl_buffer@[0-9]* code 2' $$dir/sigbus.log && \
 		grep -q 'shut down; socket removed' $$dir/sigbus.log && \
-		echo "[COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS" || \
+		echo "[COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS" && \
+	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
+		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
+		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" || \
 	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$dir/*.log >&2; exit 1; }
 
 br-%: buildroot-src

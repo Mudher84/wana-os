@@ -13,12 +13,13 @@ WANA_COMPOSITOR_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = \
 	--exclude /out --exclude /target --exclude /dl --exclude /.git \
 	--exclude /rust-toolchain.toml
 # Links libwayland-server (and, for wana-wl-test, libwayland-client) and
-# Mesa's EGL/GLESv2/GBM, and libudev/libinput/libxkbcommon for input,
+# Mesa's EGL/GLESv2/GBM, libudev/libinput/libxkbcommon for input, and
+# (wana-wl-test --text) libharfbuzz/libfribidi with the pinned fonts,
 # from the target sysroot. wana-wayland's build.rs
 # generates the protocol tables from the XML these packages install in
 # staging, so the tables match the exact library version in the image.
 WANA_COMPOSITOR_DEPENDENCIES = wayland wayland-protocols libegl libgles libgbm \
-	udev libinput libxkbcommon xkeyboard-config
+	udev libinput libxkbcommon xkeyboard-config harfbuzz libfribidi wana-fonts
 WANA_COMPOSITOR_CARGO_ENV = \
 	WANA_WAYLAND_XML=$(STAGING_DIR)/usr/share/wayland/wayland.xml \
 	WANA_WAYLAND_PROTOCOLS_DIR=$(STAGING_DIR)/usr/share/wayland-protocols
