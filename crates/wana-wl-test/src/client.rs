@@ -62,6 +62,8 @@ pub enum Val {
     Uint(u32),
     Str(String),
     Array(Vec<u8>),
+    /// An object argument (NULL or an object this client knows).
+    Object(Option<Proxy>),
     Other,
 }
 
@@ -108,6 +110,7 @@ unsafe extern "C" fn dispatcher(
                 'u' => Val::Uint(a.u),
                 's' if a.s.is_null() => Val::Other,
                 's' => Val::Str(CStr::from_ptr(a.s).to_string_lossy().into_owned()),
+                'o' => Val::Object(NonNull::new(a.o.cast()).map(Proxy)),
                 'a' if a.a.is_null() => Val::Array(Vec::new()),
                 'a' => Val::Array(
                     std::slice::from_raw_parts((*a.a).data as *const u8, (*a.a).size).to_vec(),

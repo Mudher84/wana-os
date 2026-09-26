@@ -34,6 +34,8 @@ pub enum Role {
     None,
     /// An xdg_surface was created for it (toplevel or not yet decided).
     Xdg(Resource),
+    /// wl_pointer.set_cursor made it a cursor image.
+    Cursor,
 }
 
 /// Double-buffered wl_surface state.

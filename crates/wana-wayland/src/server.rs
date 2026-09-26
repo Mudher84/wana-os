@@ -49,6 +49,18 @@ pub enum ClientEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Resource(NonNull<wl_resource>);
 
+/// Identity of a connected client (compare only; valid while connected).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ClientId(usize);
+
+impl ClientId {
+    /// A fake identity for unit tests (compared only).
+    #[doc(hidden)]
+    pub fn from_raw_for_tests(addr: usize) -> ClientId {
+        ClientId(addr)
+    }
+}
+
 impl Resource {
     /// A fake identity for unit tests of code that stores resources. It is
     /// never alive, so every [`Ctx`] operation on it is refused.
@@ -179,6 +191,15 @@ impl Ctx<'_> {
         self.raw(res)
             .map(|r| unsafe { sys::wl_resource_get_version(r) } as u32)
             .unwrap_or(0)
+    }
+
+    /// The client that owns `res` (None if gone): events for one client
+    /// (input focus) go only to that client's objects.
+    pub fn client(&self, res: Resource) -> Option<ClientId> {
+        // SAFETY: the resource is alive; only the pointer value is kept.
+        self.raw(res)
+            .ok()
+            .map(|r| ClientId(unsafe { sys::wl_resource_get_client(r) } as usize))
     }
 
     /// Object id in the client's id space (0 if gone).
@@ -773,13 +794,17 @@ impl<H: Handler> Display<H> {
     }
 
     /// Runs `f` with the handler and a [`Ctx`], outside of callbacks (for
-    /// events the compositor originates, e.g. input).
+    /// events the compositor originates, e.g. input, frame callbacks).
+    /// What `f` posted is flushed to the clients right away, not at the next
+    /// dispatch (which may be a poll timeout later).
     pub fn with_handler<R>(&mut self, f: impl FnOnce(&mut H, &mut Ctx) -> R) -> R {
         let r = f(
             &mut self.state.handler.borrow_mut(),
             &mut ctx_for(&self.state),
         );
         deliver_destroyed(&self.state);
+        // SAFETY: display valid.
+        unsafe { sys::wl_display_flush_clients(self.display()) };
         r
     }
 }

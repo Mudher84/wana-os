@@ -133,6 +133,13 @@ pub const XKB_CONTEXT_NO_FLAGS: c_int = 0;
 pub const XKB_KEYMAP_COMPILE_NO_FLAGS: c_int = 0;
 pub const XKB_KEY_UP: c_int = 0;
 pub const XKB_KEY_DOWN: c_int = 1;
+pub const XKB_KEYMAP_FORMAT_TEXT_V1: c_int = 1;
+pub const XKB_KEYMAP_USE_ORIGINAL_FORMAT: c_int = -1;
+pub const XKB_STATE_MODS_DEPRESSED: c_int = 1 << 0;
+pub const XKB_STATE_MODS_LATCHED: c_int = 1 << 1;
+pub const XKB_STATE_MODS_LOCKED: c_int = 1 << 2;
+pub const XKB_STATE_MODS_EFFECTIVE: c_int = 1 << 3;
+pub const XKB_STATE_LAYOUT_EFFECTIVE: c_int = 1 << 7;
 
 #[link(name = "xkbcommon")]
 extern "C" {
@@ -143,6 +150,13 @@ extern "C" {
         names: *const xkb_rule_names,
         flags: c_int,
     ) -> *mut xkb_keymap;
+    pub fn xkb_keymap_new_from_string(
+        ctx: *mut xkb_context,
+        string: *const c_char,
+        format: c_int,
+        flags: c_int,
+    ) -> *mut xkb_keymap;
+    pub fn xkb_keymap_get_as_string(keymap: *mut xkb_keymap, format: c_int) -> *mut c_char;
     pub fn xkb_keymap_unref(keymap: *mut xkb_keymap);
     pub fn xkb_keymap_layout_get_name(keymap: *mut xkb_keymap, idx: u32) -> *const c_char;
     pub fn xkb_state_new(keymap: *mut xkb_keymap) -> *mut xkb_state;
@@ -155,6 +169,17 @@ extern "C" {
         buffer: *mut c_char,
         size: usize,
     ) -> c_int;
+    pub fn xkb_state_update_mask(
+        state: *mut xkb_state,
+        depressed_mods: u32,
+        latched_mods: u32,
+        locked_mods: u32,
+        depressed_layout: u32,
+        latched_layout: u32,
+        locked_layout: u32,
+    ) -> c_int;
+    pub fn xkb_state_serialize_mods(state: *mut xkb_state, components: c_int) -> u32;
+    pub fn xkb_state_serialize_layout(state: *mut xkb_state, components: c_int) -> u32;
     pub fn xkb_keysym_get_name(keysym: u32, buffer: *mut c_char, size: usize) -> c_int;
 }
 
@@ -164,6 +189,7 @@ pub const O_CLOEXEC: c_int = 0o2_000_000;
 extern "C" {
     pub fn open(path: *const c_char, flags: c_int, ...) -> c_int;
     pub fn close(fd: c_int) -> c_int;
+    pub fn free(p: *mut c_void);
 }
 
 #[repr(C)]

@@ -410,6 +410,156 @@ Components:
 
 ### T15: Buildroot image + `make window-boot-test` and `make wayland-host-test` in CI
 
+- Buildroot run [36235233543](https://github.com/Mudher84/wana-os/actions/runs/36235233543), commit `3fedbe6`:
+  every step passed, including the new "Client window" step.
+  ```
+  [RENDER] info: compositor renderer: GL_RENDERER=softpipe, 1280x800
+  [DRM] info: modeset done: Virtual-1 1280x800@74.99 (preferred) on CRTC 37; compositor frame on screen
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,240 (surface 8)
+  [COMPOSITOR] info: frame 2: 1 window(s) on screen
+  [COMPOSITOR] info: client: frame presented (callback done at 1666 ms); buffer released
+  [BOOT] info: pixel (640,400) = #4f8cff expected #4f8cff
+  [BOOT] info: pixel (402,400) = #ffffff expected #ffffff
+  [BOOT] info: pixel (640,243) = #ffffff expected #ffffff
+  [BOOT] info: pixel (128,400) = #16213e expected #16213e
+  [BOOT] info: pixel (0,0) = #16213e expected #16213e
+  [BOOT] graphics test: PASS (log: out/logs/window-boot.log)
+  ```
+  9 of 9 expectations were found, and no `[INIT|COMPOSITOR|DRM|RENDER]` warning or error appeared. The
+  Buildroot Mesa has no llvmpipe (no LLVM in the image), so rendering used softpipe; the frame was still on screen
+  1.7 s after the compositor started (with KVM).
+- `ci` run 36235233534 on `3fedbe6` (unit tests, MSRV, `make wayland-host-test` against the runner's
+  libwayland): success.
+- Result: **PASS**
+
+## Step 4: input and focus
+
+Components:
+- `wana-input`:
+  - `Keyboard::keymap_string` (xkb text v1), `Keyboard::from_string` (the client side);
+  - `modifiers()`: the depressed, latched and locked masks plus the effective layout, as wl_keyboard.modifiers
+    carries them;
+  - `set_modifiers` (the client follows the compositor's state);
+  - `lookup` (what a key means without changing the state);
+  - `key()` now reports whether the key changed the xkb state.
+- `wana-compositor/src/seat.rs`: pure seat state, unit-tested without libwayland.
+  - Capabilities come from the devices present, recomputed on hotplug. The seat also remembers which capabilities
+    it has ever had, because get_pointer/get_keyboard are protocol violations only for a capability the seat
+    never had.
+  - Cursor position: relative motion is accumulated, absolute devices are scaled to the output, and the result is
+    clamped to the output.
+  - Hit test: the topmost window under the cursor, using surface-local coordinates.
+  - Implicit grab: while a button is held, pointer focus stays on the surface where the press landed.
+  - Held keys: repeated presses and releases of keys that were not down are dropped; the held keys fill
+    wl_keyboard.enter's array.
+  - Destroyed focus or cursor surfaces are forgotten.
+  - The default arrow cursor is generated in code: premultiplied, white with a black outline, and only fully opaque
+    or fully transparent pixels.
+- `input.rs`: libinput events become protocol events. Each event goes only to the objects of the client that owns
+  the focused surface (new `Ctx::client`).
+  - wl_pointer v7:
+    - events: enter, leave, motion, button, and axis for wheels (axis_source, axis_discrete, and axis with 15 per
+      detent); each group of events ends with a frame;
+    - set_cursor: honored only from the focused client with the serial of its latest enter. NULL hides the
+      cursor; a surface gets the cursor role, or the request fails with `wl_pointer.role` if the surface already
+      has another role.
+  - wl_keyboard v7:
+    - `keymap` (xkb v1): one sealed memfd shared by every client. It is sealed with `F_SEAL_WRITE`,
+      `F_SEAL_SHRINK`, `F_SEAL_GROW` and `F_SEAL_SEAL`, so no client can change what the others read;
+    - `enter` with the held keys, followed by `modifiers`;
+    - `leave`; `key`;
+    - `modifiers` after every key that changes the xkb state;
+    - `repeat_info` (25 per second after 600 ms; clients do the repeating).
+  - Touch: `get_touch` fails with `missing_capability`.
+- Focus rules:
+  - Pointer focus follows the cursor, except during a grab. A window mapped, unmapped or destroyed under the
+    cursor moves pointer focus without any pointer motion: `sync_focus` runs after every dispatch.
+  - A new window gets keyboard focus. A click raises the window under the cursor and gives it keyboard focus.
+  - When the focused window goes away, keyboard focus moves to the topmost remaining window.
+- Cursor: drawn in software, on top of the scene, after a pointing device has been used for the first time. The
+  window-only screenshots are therefore unaffected. A hardware cursor plane comes later.
+- Timestamps: input events use CLOCK_MONOTONIC in milliseconds, the same clock as the DRM flip times used for frame
+  callbacks.
+- Latency fix found while doing this step: events the compositor posts outside a dispatch (frame callbacks, and now
+  input) were only flushed at the next dispatch, which could be up to one 100 ms poll timeout later.
+  `Display::with_handler` now flushes the clients when it returns.
+- Event loop: the libinput fd is part of the same `poll()`. Input is opened only with a real display; headless
+  runs are protocol tests without devices.
+- `wana-wl-test --input TEXT`:
+  1. binds wl_seat and waits until the seat has both a pointer and a keyboard;
+  2. maps the keymap fd with `MAP_PRIVATE` and compiles it;
+  3. maps its window and waits for keyboard focus, then logs `client: ready for input`;
+  4. succeeds once the pointer has entered the window, a left click has arrived, and TEXT has been typed. The text
+     is decoded with the compositor's keymap and modifier state.
+  
+  While doing this, a client bug was fixed: waiting for the configure event discarded every other event, including
+  the keymap and the keyboard enter. Every event now also goes to the input handler, and events already queued are
+  handled before the client blocks.
+- Buildroot: `wana-compositor` depends on udev, libinput, libxkbcommon and xkeyboard-config. The new target
+  `make seat-boot-test` runs in CI.
+- T8 no longer applies to wl_seat: its requests are implemented now.
+
+### T16: Unit tests (local)
+
+- 81 tests (70 before this step).
+- New:
+  - keymap text round trip (fr layout, compiled back on the client side);
+  - the client following the modifier state (`set_modifiers`: Shift turns `q` into `Q`);
+  - serialized modifiers (Shift = bit 0, `mods_changed` only for modifier keys);
+  - hit test (top window wins, right and bottom edges are outside);
+  - cursor clamping and absolute positions;
+  - implicit grab;
+  - held keys and the enter array;
+  - capabilities on hotplug, with the history kept;
+  - forgetting destroyed focus and cursor surfaces;
+  - the arrow's pixels;
+  - the keymap memfd: contents plus NUL; write, shrink and grow refused by the seals;
+  - the monotonic clock.
+- Result: **PASS**
+
+### T17: Keys and mouse reach the focused window (local, QEMU TCG, virtio input + PS/2, host Mesa)
+
+- QEMU sends `sendkey shift-w`, `a`, `n`, `a`, then `mouse_move 40 30` and one left click, when the client logs
+  that it is ready.
+  ```
+  [INPUT] info: keymap English (US) for clients: 64756 bytes, sealed memfd
+  [INPUT] info: seat0 capabilities: keyboard
+  [INPUT] info: seat0 capabilities: pointer, keyboard
+  [COMPOSITOR] info: client: seat capabilities 0x3 (pointer + keyboard)
+  [COMPOSITOR] info: client: keymap received: 64756 bytes, layout English (US)
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,240 (surface 8)
+  [COMPOSITOR] info: keyboard focus: "wana-wl-test" (org.wana.test)
+  [COMPOSITOR] info: client: keyboard focus on the window (0 key(s) held)
+  [COMPOSITOR] info: client: ready for input (keyboard focus, keymap compiled)
+  [COMPOSITOR] info: client: key 42 pressed: Shift_L text ""
+  [COMPOSITOR] info: client: key 17 pressed: W text "W"
+  [COMPOSITOR] info: client: key 30 pressed: a text "a"
+  [COMPOSITOR] info: client: key 49 pressed: n text "n"
+  [COMPOSITOR] info: client: key 30 pressed: a text "a"
+  [COMPOSITOR] info: client: pointer entered the window at 262.0,176.5
+  [COMPOSITOR] info: client: left click at 262.0,176.5
+  [COMPOSITOR] info: client: input received: typed "Wana", pointer entered, 0 motion event(s), 1 left click(s)
+  ```
+  - The capital W shows the modifiers path works: the client decodes keys with its own xkb state, which it updates
+    only from the compositor's wl_keyboard.modifiers.
+  - The pointer moved relatively on the PS/2 mouse, from the output center (640,400) by the accelerated
+    (22,16.5), and entered the window at (262,176.5), which is 662-400 and 416.5-240.
+  - The enter carried the position, so no separate motion was needed.
+- All 15 expectations of `make seat-boot-test` matched this log. None of its reject patterns matched: no
+  `[INIT|COMPOSITOR|DRM|RENDER|INPUT]` warning or error.
+- Screenshot: the arrow is drawn with its tip at (661,416), black outline and white fill, over the window. The
+  pointer x was 661.99; the tip pixel is the one that contains that position.
+- Result: **PASS**
+
+### T18: Regressions (local)
+
+- `make wayland-host-test`: 3 of 3 scenarios pass (headless runs open no input).
+- The window test (`wana-wl-test --hold 5`, no input sent) with the new binaries: all 5 pixels exact. The cursor
+  stays hidden until a pointing device is used.
+- Result: **PASS**
+
+### T19: Buildroot image + `make seat-boot-test` in CI
+
 - Actual: *pending*
 
 ## Status
@@ -418,4 +568,5 @@ Components:
 - Step 2: **PASS** (T6-T9).
 - T10: console-split robustness fix: **PASS** (local and CI).
 - T11: reproducibility with the Wayland stack: **PASS** (12/12).
-- Step 3: T12-T14 pass locally; T15 (CI) is pending.
+- Step 3: **PASS** (T12-T15).
+- Step 4: T16-T18 pass locally; T19 (CI) is pending.

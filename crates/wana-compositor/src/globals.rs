@@ -5,7 +5,7 @@
 //! | `wl_compositor` | 4 | surfaces (attach, damage, frame, commit, scale 1), regions | offsets, transforms |
 //! | `wl_shm` | 1 | pools and buffers, ARGB8888 / XRGB8888 | |
 //! | `wl_output` | 4 | geometry, mode, scale, name, description, done from DRM | |
-//! | `wl_seat` | 7 | name `seat0`, no capabilities yet | pointer and keyboard: step 4 |
+//! | `wl_seat` | 7 | `seat0`: pointer (enter/leave/motion/button/axis/frame, set_cursor) and keyboard (xkb keymap, enter/leave/key/modifiers, repeat info), capabilities from the devices present (`input.rs`) | touch |
 //! | `xdg_wm_base` | 1 | xdg_surface + xdg_toplevel with the configure handshake | popups, interactive move/resize |
 //!
 //! A version is advertised only when every request of that version is
@@ -19,11 +19,14 @@
 //! is sent right away, so client memory is never read after the commit and
 //! a client can reuse its buffer immediately.
 
+use crate::input::Keymap;
+use crate::seat::{Seat, ARROW_SIZE};
 use crate::shm::{BufferLayout, Pool, ShmError};
 use crate::surface::{place, xdg_commit, Ack, Attach, Role, Surface, XdgCommit, XdgSurface};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use wana_input::keyboard::Keyboard;
 use wana_log::{debug, info, warn, Subsystem};
 use wana_render::compose::Texture;
 use wana_wayland::protocols::{wayland, xdg_shell};
@@ -134,8 +137,8 @@ pub struct Compositor {
     pub binds: Vec<u32>,
     /// Upload pixels to GL textures (a GL context is current).
     gpu: bool,
-    surfaces: HashMap<Resource, Surface>,
-    content: HashMap<Resource, Content>,
+    pub(crate) surfaces: HashMap<Resource, Surface>,
+    pub(crate) content: HashMap<Resource, Content>,
     pools: HashMap<Resource, SharedPool>,
     buffers: HashMap<Resource, (SharedPool, BufferLayout)>,
     xdg: HashMap<Resource, XdgSurface>,
@@ -147,12 +150,30 @@ pub struct Compositor {
     pub needs_redraw: bool,
     /// Windows mapped so far (for placement and the log).
     mapped_total: usize,
+    pub(crate) seat: Seat,
+    /// The compositor's keyboard state (xkb), if a keymap was compiled.
+    pub(crate) xkb: Option<Keyboard>,
+    pub(crate) keymap: Option<Keymap>,
+    /// The default cursor (with a GPU).
+    pub(crate) arrow: Option<Texture>,
 }
 
 impl Compositor {
     pub fn new(output: OutputInfo, gpu: bool) -> Compositor {
         let globals = globals();
         let binds = vec![0; globals.len()];
+        let arrow = if gpu {
+            match Texture::upload(&crate::seat::arrow(), ARROW_SIZE.0, ARROW_SIZE.1, false) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    warn!(COMPOSITOR, "cursor texture: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let seat = Seat::new(output.width, output.height);
         Compositor {
             output,
             globals,
@@ -169,10 +190,15 @@ impl Compositor {
             windows: Vec::new(),
             needs_redraw: true,
             mapped_total: 0,
+            seat,
+            xkb: None,
+            keymap: None,
+            arrow,
         }
     }
 
-    /// Textures of the mapped windows, bottom to top, with positions.
+    /// Textures of the mapped windows, bottom to top, with positions, then
+    /// the cursor.
     pub fn scene(&self) -> Vec<(&Texture, i32, i32)> {
         self.windows
             .iter()
@@ -180,7 +206,21 @@ impl Compositor {
                 Some(Content::Texture(t)) => Some((t, w.x, w.y)),
                 _ => None,
             })
+            .chain(self.cursor_image())
             .collect()
+    }
+
+    /// `"title" (app_id)` of the window on `surface`, for the log.
+    pub(crate) fn title_of(&self, surface: Resource) -> String {
+        let Some(Role::Xdg(xs)) = self.surfaces.get(&surface).map(|s| s.role) else {
+            return format!("surface {surface:?}");
+        };
+        self.xdg
+            .get(&xs)
+            .and_then(|x| x.toplevel)
+            .and_then(|t| self.toplevels.get(&t))
+            .map(|t| format!("{:?} ({})", t.title, t.app_id))
+            .unwrap_or_else(|| format!("surface {surface:?}"))
     }
 
     /// A frame reached the screen at `time_ms`: fire the frame callbacks
@@ -258,8 +298,11 @@ impl Compositor {
         } else if std::ptr::eq(iface, &wayland::WL_OUTPUT_INTERFACE) {
             self.send_output(ctx, res)?;
         } else if std::ptr::eq(iface, &wayland::WL_SEAT_INTERFACE) {
-            // No capabilities until input is routed to clients (step 4).
-            ctx.post(res, wayland::wl_seat::event::CAPABILITIES, &[Arg::Uint(0)])?;
+            ctx.post(
+                res,
+                wayland::wl_seat::event::CAPABILITIES,
+                &[Arg::Uint(self.seat.caps)],
+            )?;
             if ctx.version(res) >= 2 {
                 ctx.post(
                     res,
@@ -273,7 +316,7 @@ impl Compositor {
 
     /// Creates a child object; on failure the client gets no_memory-like
     /// treatment through an implementation error.
-    fn create(
+    pub(crate) fn create(
         &mut self,
         ctx: &Ctx,
         parent: Resource,
@@ -587,16 +630,14 @@ impl Compositor {
                 );
                 self.mapped_total += 1;
                 self.windows.push(Window { surface, x, y });
-                let title = xdg
-                    .toplevel
-                    .and_then(|t| self.toplevels.get(&t))
-                    .map(|t| format!("{:?} ({})", t.title, t.app_id))
-                    .unwrap_or_default();
+                let title = self.title_of(surface);
                 info!(
                     COMPOSITOR,
                     "window mapped: {title} {w}x{h} at {x},{y} (surface {})",
                     ctx.id(surface)
                 );
+                // A new window gets the keyboard (applied by sync_focus).
+                self.seat.focus_request = Some(surface);
                 self.needs_redraw = true;
             }
             (false, Some(i)) => {
@@ -746,11 +787,6 @@ fn uint(args: &[ReqArg], i: usize) -> Option<u32> {
     }
 }
 
-/// What to do with a request of the seat (still without devices).
-fn seat_allows(opcode: u32) -> bool {
-    opcode == wayland::wl_seat::request::RELEASE
-}
-
 impl Handler for Compositor {
     fn bind(&mut self, ctx: &mut Ctx, global: usize, res: Resource) {
         let g = self.globals[global];
@@ -762,6 +798,9 @@ impl Handler for Compositor {
             ctx.version(res),
             ctx.id(res)
         );
+        if std::ptr::eq(g.interface, &wayland::WL_SEAT_INTERFACE) {
+            self.seat.seats.push(res);
+        }
         if let Err(e) = self.send_initial(ctx, g.interface, res) {
             warn!(COMPOSITOR, "{}: {e}", interface_name(g.interface));
         }
@@ -792,21 +831,20 @@ impl Handler for Compositor {
             self.xdg_surface_request(ctx, res, opcode, &args);
         } else if is(&xdg_shell::XDG_TOPLEVEL_INTERFACE) {
             self.toplevel_request(res, opcode, &args);
-        } else if is(&wayland::WL_SEAT_INTERFACE) && !seat_allows(opcode) {
-            let why = "this seat has no capabilities yet (input arrives in Phase 10 step 4)";
-            warn!(
-                COMPOSITOR,
-                "{} not implemented yet: {why}",
-                request_name(iface, opcode)
-            );
-            ctx.implementation_error(res, &format!("{}: {why}", request_name(iface, opcode)));
+        } else if is(&wayland::WL_SEAT_INTERFACE) {
+            self.seat_request(ctx, res, opcode, &args);
+        } else if is(&wayland::WL_POINTER_INTERFACE) {
+            self.pointer_request(ctx, res, opcode, &args);
         }
-        // wl_buffer, wl_region, wl_output, xdg_positioner, wl_seat.release:
+        // wl_buffer, wl_region, wl_output, xdg_positioner, wl_keyboard:
         // only destructors or requests without effect here; destructors are
         // applied by the protocol layer.
     }
 
     fn destroyed(&mut self, ctx: &mut Ctx, res: Resource) {
+        if self.seat.forget(res) {
+            self.needs_redraw = true;
+        }
         if let Some(s) = self.surfaces.remove(&res) {
             for cb in s.pending_frames.into_iter().chain(s.frames) {
                 ctx.destroy(cb);
@@ -873,13 +911,6 @@ mod tests {
         }
         assert_eq!(interface_name(g[2].interface), "wl_output");
         assert_eq!(g[2].version, 4, "name/description need wl_output v4");
-    }
-
-    #[test]
-    fn seat_requests_wait_for_step_4() {
-        assert!(seat_allows(wayland::wl_seat::request::RELEASE));
-        assert!(!seat_allows(wayland::wl_seat::request::GET_POINTER));
-        assert!(!seat_allows(wayland::wl_seat::request::GET_KEYBOARD));
     }
 
     #[test]

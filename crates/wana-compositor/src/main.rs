@@ -6,7 +6,12 @@
 //!   connect/disconnect with its credentials;
 //! - step 2: advertises `wl_compositor`, `wl_shm`, `wl_output`, `wl_seat`
 //!   and `xdg_wm_base` (see `globals.rs`); `wl_output` describes the display
-//!   found through wana-drm (`--headless WxH@HZ` for machines without one).
+//!   found through wana-drm (`--headless WxH@HZ` for machines without one);
+//! - step 3: client windows (wl_shm buffers, xdg_toplevel) composited with
+//!   GLES and page-flipped on the display;
+//! - step 4: input from libinput routed to the focused client through
+//!   wl_seat (pointer, keyboard with the `--layout` xkb keymap), with a
+//!   cursor. Headless runs have no input.
 //!
 //! `--run PROGRAM [ARGS...]` starts one client with `WAYLAND_DISPLAY` set,
 //! serves it until it exits, then shuts down and returns its result, which
@@ -14,11 +19,13 @@
 //! `--client-debug` sets `WAYLAND_DEBUG=1` for that client so the console
 //! shows the protocol messages it exchanges.
 //!
-//! Usage: wana-compositor [--timeout SECONDS] [--headless WxH@HZ] [--client-debug]
-//!                        [--run PROGRAM [ARGS...]]
+//! Usage: wana-compositor [--timeout SECONDS] [--headless WxH@HZ] [--layout us]
+//!                        [--client-debug] [--run PROGRAM [ARGS...]]
 
 mod globals;
+mod input;
 mod render;
+mod seat;
 mod shm;
 mod surface;
 
@@ -28,6 +35,8 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
 use std::time::{Duration, Instant};
+use wana_input::keyboard::Keyboard;
+use wana_input::libinput::Libinput;
 use wana_log::{error, info, warn, Subsystem};
 use wana_render::scene;
 use wana_wayland::server::{interface_name, ClientEvent, Display};
@@ -37,9 +46,9 @@ const TICK: Duration = Duration::from_millis(100);
 /// Headless stand-in for the refresh period (frame callbacks without a screen).
 const HEADLESS_FRAME: Duration = Duration::from_millis(16);
 
-#[derive(Default)]
 struct Args {
     timeout: Option<u64>,
+    layout: String,
     client_debug: bool,
     headless: Option<(i32, i32, i32)>,
     run: Option<Vec<String>>,
@@ -56,7 +65,13 @@ fn parse_mode(v: &str) -> Result<(i32, i32, i32), String> {
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args::default();
+    let mut a = Args {
+        timeout: None,
+        layout: "us".into(),
+        client_debug: false,
+        headless: None,
+        run: None,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -65,6 +80,7 @@ fn parse_args() -> Result<Args, String> {
                 a.timeout = Some(v.parse().map_err(|e| format!("--timeout: {e}"))?);
             }
             "--client-debug" => a.client_debug = true,
+            "--layout" => a.layout = it.next().ok_or("--layout needs a value")?,
             "--headless" => {
                 let v = it.next().ok_or("--headless needs WIDTHxHEIGHT@HZ")?;
                 a.headless = Some(parse_mode(&v)?);
@@ -158,6 +174,11 @@ fn run(args: &Args) -> Result<(), String> {
     let dir = runtime_dir()?;
     let mut display = Display::new(Compositor::new(output.clone(), screen.is_some()))
         .map_err(|e| format!("display: {e}"))?;
+    // Input: only with a real display (a headless run is a protocol test).
+    let mut libinput = match screen {
+        Some(_) => start_input(&mut display, &args.layout)?,
+        None => None,
+    };
     let mut advertised = Vec::new();
     for g in globals::globals() {
         display.create_global(g.interface, g.version)?;
@@ -197,11 +218,19 @@ fn run(args: &Args) -> Result<(), String> {
     let mut shown_windows = usize::MAX;
     let mut clients = 0u32;
     let result = loop {
-        wait_for_work(&display, screen.as_ref(), TICK)?;
+        wait_for_work(&display, screen.as_ref(), libinput.as_ref(), TICK)?;
         display
             .dispatch(Duration::ZERO)
             .map_err(|e| format!("event loop: {e}"))?;
         log_events(&mut display, &mut clients);
+        if let Some(li) = libinput.as_mut() {
+            if readable(li.fd()) {
+                read_input(&mut display, li)?;
+            }
+        }
+        // Windows mapped, unmapped or destroyed by the requests above may
+        // move the focus.
+        display.with_handler(|c, ctx| c.sync_focus(ctx));
 
         // Presentation: a completed page flip, or the headless clock.
         let mut presented = None;
@@ -228,7 +257,7 @@ fn run(args: &Args) -> Result<(), String> {
                 let on_screen_now = {
                     let comp = display.handler();
                     let scene = comp.scene();
-                    let count = scene.len();
+                    let count = comp.windows.len();
                     let r = scr.draw(scene::BACKGROUND, &scene)?;
                     if count != shown_windows {
                         info!(
@@ -293,6 +322,7 @@ fn run(args: &Args) -> Result<(), String> {
     };
     info!(COMPOSITOR, "binds: {}", binds.join(", "));
     drop(display);
+    drop(libinput);
     drop(screen);
     if path.exists() {
         warn!(
@@ -318,11 +348,12 @@ extern "C" {
     fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
 }
 
-/// Waits until the Wayland event loop or the DRM device has work, or
-/// `timeout` passes.
+/// Waits until the Wayland event loop, the DRM device or libinput has
+/// work, or `timeout` passes.
 fn wait_for_work(
     display: &Display<Compositor>,
     screen: Option<&render::Screen>,
+    libinput: Option<&Libinput>,
     timeout: Duration,
 ) -> Result<(), String> {
     let mut fds = vec![PollFd {
@@ -330,6 +361,13 @@ fn wait_for_work(
         events: POLLIN,
         revents: 0,
     }];
+    if let Some(li) = libinput {
+        fds.push(PollFd {
+            fd: li.fd(),
+            events: POLLIN,
+            revents: 0,
+        });
+    }
     let mut timeout = timeout;
     match screen {
         Some(s) => fds.push(PollFd {
@@ -354,6 +392,40 @@ fn wait_for_work(
             return Err(format!("poll: {e}"));
         }
     }
+    Ok(())
+}
+
+/// Compiles the keymap and opens seat0's devices through udev + libinput.
+/// Devices present now are reported before any client connects, so the
+/// first wl_seat.capabilities is already right.
+fn start_input(
+    display: &mut Display<Compositor>,
+    layout: &str,
+) -> Result<Option<Libinput>, String> {
+    match Keyboard::new(layout) {
+        Ok(kb) => display.with_handler(|c, _| c.set_keyboard(kb))?,
+        Err(e) => warn!(Subsystem::Input, "keyboard disabled: {e}"),
+    }
+    let mut li = match Libinput::new("seat0") {
+        Ok(li) => li,
+        Err(e) => {
+            warn!(Subsystem::Input, "input disabled: {e}");
+            return Ok(None);
+        }
+    };
+    read_input(display, &mut li)?;
+    Ok(Some(li))
+}
+
+/// Reads libinput and routes its events.
+fn read_input(display: &mut Display<Compositor>, li: &mut Libinput) -> Result<(), String> {
+    li.dispatch()
+        .map_err(|e| format!("libinput_dispatch: {e}"))?;
+    display.with_handler(|c, ctx| {
+        while let Some(ev) = li.next_event() {
+            c.input_event(ctx, ev);
+        }
+    });
     Ok(())
 }
 
