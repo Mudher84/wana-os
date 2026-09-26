@@ -4,6 +4,8 @@
 //! - Desktop: a vertical gradient (integer interpolation, exact).
 //! - Top bar (RTL, as the UI is Arabic): "وانا" at the start (right), the
 //!   time at the end (left) in Arabic-Indic digits.
+//! - Launcher: a panel with a header and one row per app, the selected row
+//!   in the accent color.
 
 use wana_text::bidi::Base;
 use wana_text::layout::{layout, Align, FontSet, Style};
@@ -18,6 +20,21 @@ const BAR_TEXT_SIZE: f32 = 18.0;
 const BAR_PADDING: f32 = 16.0;
 /// The label at the bar's start.
 pub const BRAND: &str = "وانا";
+/// Width of the bar's start (right end) that opens the launcher on a click.
+pub const BRAND_HIT: u32 = 160;
+
+pub const LAUNCHER_BG: u32 = 0x1E2638;
+pub const LAUNCHER_BORDER: u32 = 0x3A4560;
+pub const LAUNCHER_DIM: u32 = 0x9AA4B8;
+pub const ACCENT: u32 = 0x4F8CFF;
+pub const LAUNCHER_WIDTH: u32 = 480;
+pub const LAUNCHER_HEADER: u32 = 56;
+pub const LAUNCHER_ROW: u32 = 48;
+const LAUNCHER_BOTTOM: u32 = 8;
+const LAUNCHER_TEXT: f32 = 20.0;
+const LAUNCHER_PADDING: f32 = 24.0;
+/// The launcher's title.
+pub const APPS_TITLE: &str = "التطبيقات";
 
 /// `a` to `b` at `i` of `n` (channels interpolated with rounding).
 pub fn mix(a: u32, b: u32, i: u32, n: u32) -> u32 {
@@ -82,6 +99,64 @@ pub fn bar(width: u32, fonts: &FontSet, time: &str) -> Result<Canvas, String> {
     Ok(c)
 }
 
+/// Fills a rectangle (clipped to the canvas).
+fn fill(c: &mut Canvas, x: u32, y: u32, w: u32, h: u32, rgb: u32) {
+    for row in y..(y + h).min(c.height) {
+        let start = (row * c.width + x.min(c.width)) as usize;
+        let end = (row * c.width + (x + w).min(c.width)) as usize;
+        c.pixels[start..end].fill(0xFF00_0000 | rgb);
+    }
+}
+
+/// Height of a launcher listing `rows` apps.
+pub fn launcher_height(rows: usize) -> u32 {
+    LAUNCHER_HEADER + LAUNCHER_ROW * rows as u32 + LAUNCHER_BOTTOM
+}
+
+/// The row at surface-local height `y`, if any.
+pub fn launcher_row_at(y: f64, rows: usize) -> Option<usize> {
+    let r = (y - f64::from(LAUNCHER_HEADER)) / f64::from(LAUNCHER_ROW);
+    (r >= 0.0 && (r as usize) < rows).then_some(r as usize)
+}
+
+/// Draws RTL `text` right-aligned in the band from `top`, `height` tall.
+fn line(
+    c: &mut Canvas,
+    fonts: &FontSet,
+    text: &str,
+    top: u32,
+    height: u32,
+    rgb: u32,
+) -> Result<(), String> {
+    let style = Style {
+        size: LAUNCHER_TEXT,
+        base: Base::Rtl,
+        align: Align::Start,
+        width: Some(c.width as f32 - 2.0 * LAUNCHER_PADDING),
+        language: "ar".into(),
+    };
+    let l = layout(text, fonts, &style)?;
+    let y = top as f32 + (height as f32 - l.height) / 2.0;
+    draw(c, &l, fonts, LAUNCHER_TEXT, LAUNCHER_PADDING, y, rgb);
+    Ok(())
+}
+
+/// The launcher: a title, then `names` one per row, `selected` highlighted.
+pub fn launcher(fonts: &FontSet, names: &[&str], selected: usize) -> Result<Canvas, String> {
+    let (w, h) = (LAUNCHER_WIDTH, launcher_height(names.len()));
+    let mut c = Canvas::new(w, h, LAUNCHER_BORDER);
+    fill(&mut c, 1, 1, w - 2, h - 2, LAUNCHER_BG);
+    line(&mut c, fonts, APPS_TITLE, 0, LAUNCHER_HEADER, LAUNCHER_DIM)?;
+    for (i, name) in names.iter().enumerate() {
+        let top = LAUNCHER_HEADER + LAUNCHER_ROW * i as u32;
+        if i == selected {
+            fill(&mut c, 8, top + 2, w - 16, LAUNCHER_ROW - 4, ACCENT);
+        }
+        line(&mut c, fonts, name, top, LAUNCHER_ROW, BAR_TEXT)?;
+    }
+    Ok(c)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +212,37 @@ mod tests {
         // Deterministic: the same inputs give the same pixels.
         assert_eq!(c, bar(1280, &fonts(), "16:20").unwrap());
         assert_ne!(c, bar(1280, &fonts(), "16:21").unwrap());
+    }
+
+    #[test]
+    fn launcher_highlights_the_selected_row() {
+        let names = ["نافذة تجريبية", "نص عربي"];
+        let c = launcher(&fonts(), &names, 1).unwrap();
+        assert_eq!((c.width, c.height), (LAUNCHER_WIDTH, launcher_height(2)));
+        let at = |x: u32, y: u32| c.pixels[(y * c.width + x) as usize] & 0xFF_FFFF;
+        assert_eq!(at(0, 0), LAUNCHER_BORDER);
+        // Left side of the rows (text is at the right, RTL).
+        let row = |i: u32| LAUNCHER_HEADER + LAUNCHER_ROW * i + LAUNCHER_ROW / 2;
+        assert_eq!(at(20, row(0)), LAUNCHER_BG);
+        assert_eq!(at(20, row(1)), ACCENT);
+        let ink = |y0: u32, y1: u32, x0: u32, x1: u32| {
+            (y0..y1).any(|y| (x0..x1).any(|x| ![LAUNCHER_BG, ACCENT].contains(&at(x, y))))
+        };
+        assert!(ink(0, LAUNCHER_HEADER, 300, 456), "title at the right");
+        assert!(
+            ink(row(0) - 10, row(0) + 10, 300, 456),
+            "first name at the right"
+        );
+        assert!(
+            !ink(row(0) - 10, row(0) + 10, 24, 200),
+            "left of a short name stays empty"
+        );
+        assert_ne!(c, launcher(&fonts(), &names, 0).unwrap());
+        assert_eq!(launcher_row_at(10.0, 2), None);
+        assert_eq!(launcher_row_at(f64::from(row(1)), 2), Some(1));
+        assert_eq!(
+            launcher_row_at(f64::from(LAUNCHER_HEADER + 2 * LAUNCHER_ROW), 2),
+            None
+        );
     }
 }

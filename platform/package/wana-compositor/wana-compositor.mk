@@ -32,6 +32,8 @@ define WANA_COMPOSITOR_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-compositor $(TARGET_DIR)/usr/bin/wana-compositor
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-shell $(TARGET_DIR)/usr/bin/wana-shell
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-wl-test $(TARGET_DIR)/usr/bin/wana-wl-test
+	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps $(TARGET_DIR)/etc/wana/apps
+	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps.test $(TARGET_DIR)/usr/share/wana-shell/apps.test
 endef
 
 $(eval $(cargo-package))

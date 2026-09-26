@@ -1,0 +1,4 @@
+# Launcher boot test (make launcher-boot-test): short-lived apps that
+# check they inherit no descriptor from the shell.
+نافذة تجريبية	/usr/bin/wana-wl-test	--no-inherited-fds	--hold	2
+نص عربي	/usr/bin/wana-wl-test	--no-inherited-fds	--text	--hold	2

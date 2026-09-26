@@ -141,6 +141,9 @@ jobs:
       - name: wana-shell (disk boot, desktop + Arabic top bar by hash, autostarted app below the bar with no inherited descriptors, screenshot pixel check)
         run: make shell-boot-test
 
+      - name: Launcher (disk boot, a click on the bar opens it with the keyboard held, Down + Enter start an app through the public socket, launcher by hash, screenshot pixel check)
+        run: make launcher-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

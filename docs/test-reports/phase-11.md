@@ -515,6 +515,95 @@ Components:
 
 - Actual: *pending*
 
+## Shell step 3b: the launcher
+
+Components (`crates/wana-shell`):
+- `apps.rs`: the apps come from a pinned file, one per line, fields separated by a TAB:
+  `name<TAB>/absolute/program<TAB>argument...`.
+  - A TAB separator lets names contain spaces without a quoting syntax.
+  - A bad line is rejected with its number. A missing or broken file leaves the launcher empty and is logged as a
+    warning; the desktop stays up.
+  - The image installs `/etc/wana/apps`: two entries for now, both `wana-wl-test`, the only Wayland app so far.
+  - It also installs `/usr/share/wana-shell/apps.test` for the boot test: short-lived apps that check they inherit
+    no descriptor.
+- `launcher.rs`: a pure state machine over evdev key codes, so navigation does not depend on the keyboard layout:
+  - Up, Down, Home and End select (no wrap-around);
+  - Enter or keypad Enter starts the selected app;
+  - Escape closes the launcher.
+- The launcher surface:
+  - an overlay layer surface, unanchored, so the compositor centers it in the usable area;
+  - keyboard interactivity is exclusive, so it holds the keyboard while open;
+  - drawn by `draw::launcher`: a title ("التطبيقات"), then one row per app, right-aligned (RTL), with the
+    selected row in the accent color.
+- Opening and closing:
+  - a click on the bar's start (the right 160 px, where "وانا" is) opens it, and a second click closes it;
+  - a click on a row starts that app;
+  - closing destroys the surface; the compositor then gives the keyboard back to the top window.
+- The first frame of the launcher is logged once presented (a frame callback), with the rendering's SHA-256.
+- Apps start like the autostart: through the public socket, with a clean environment.
+- The shell now binds `wl_seat` and creates the pointer and keyboard when the capabilities appear. The keymap
+  descriptor is closed unread, since the shell uses key codes.
+- Test flags:
+  - `--exit-with-launched` ends the shell with the result of the first app started from the launcher;
+  - `--test-launch N` opens the launcher once ready and starts app N as soon as it is shown. It exists for the
+    headless host, which has no input devices.
+- `tools/qemu-graphics-test.py`: a `--send` of the form `wait:REGEX` pauses the input list until a log line
+  matches. The test clicks, waits until the launcher is shown, presses Down, waits for the new selection, then
+  presses Enter. Nothing depends on timing.
+- The key binding to open the launcher is not in this step. The compositor would have to tell the shell about it,
+  which needs a private protocol, so it comes with its own decision.
+
+### T27: Unit tests (local)
+
+- Parsing the apps file: names with spaces; errors that name the line; both shipped lists parse.
+- The menu: moving at the ends, Enter, keypad Enter, Escape, other keys, an empty list.
+- The launcher drawing:
+  - border, background and accent where expected;
+  - the title and the names at the right, nothing at the left of a short name;
+  - another selection gives different pixels;
+  - finding the row under a point.
+- 132 tests in the workspace.
+- Result: **PASS**
+
+### T28: The launcher on the host (headless) and in a QEMU boot (local, the exact `make launcher-boot-test` expectations)
+
+- `make wayland-host-test`: 10 of 10. The new scenario uses `--test-launch 2` and checks:
+  - the launcher's position and hash;
+  - that it takes the keyboard;
+  - that it is destroyed when the app starts;
+  - that the app inherits no descriptor, maps its window and exits successfully.
+- QEMU: the input is sent through the QEMU monitor. Six pointer moves push the cursor to the top-right corner,
+  then comes a click. After `wait:launcher shown` it sends `sendkey down`, and after `wait:launcher: selected 2/2`
+  it sends `sendkey ret`.
+  ```
+  [SHELL] info: apps: 2 from /usr/share/wana-shell/apps.test
+  [SHELL] info: launcher opened from the bar
+  [COMPOSITOR] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 (exclusive zone 0)
+  [COMPOSITOR] info: keyboard focus: layer "wana-launcher"
+  [SHELL] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 05aea7f6617f5b2511e1f7a1b2ed775c67f8e85d3946b43354e074b8a45cc378
+  [SHELL] info: launcher: selected 2/2 "نص عربي"
+  [SHELL] info: launcher closed
+  [SHELL] info: app "نص عربي": /usr/bin/wana-wl-test --no-inherited-fds --text --hold 2 (pid …)
+  [COMPOSITOR] info: layer surface destroyed: "wana-launcher"
+  [COMPOSITOR] info: client: inherited descriptors: 0 1 2 only
+  [COMPOSITOR] info: client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 7e7cc3f09afa024bc2e3df715aae86f0cbe818d8684b7b4159196b8472342790
+  [COMPOSITOR] info: keyboard focus: "wana-wl-test text" (org.wana.test)
+  [SHELL] info: app "نص عربي" exited successfully
+  [BOOT] info: pixel (640,20) = #0b0f1a expected #0b0f1a
+  [BOOT] info: pixel (420,420) = #4f8cff expected #4f8cff
+  [BOOT] info: pixel (420,468) = #1e2638 expected #1e2638
+  ```
+- All 19 expectations and 3 pixels passed under TCG (no KVM), and no `[INIT|COMPOSITOR|DRM|RENDER|SHELL]`
+  warning or error appeared.
+- The launcher's hash is the same on the host and in the image.
+- The screenshot shows the panel centered below the bar: the title, then "نافذة تجريبية" selected, then
+  "نص عربي".
+- Result: **PASS**
+
+### T29: Buildroot image + `make launcher-boot-test` in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
@@ -526,5 +615,6 @@ Components:
   T18-T19 pass locally; T20 (CI) is pending.
 - Shell step 2 (layer surfaces): T21-T22 pass locally; T23 (CI) is pending.
 - Shell step 3a (wana-shell: desktop, Arabic top bar, autostart): T24-T25 pass locally; T26 (CI) is pending.
-- Shell step 3b (launcher: an overlay with exclusive keyboard that lists apps and starts one) and 3c (dock via
-  ext-foreign-toplevel-list; restarting a crashed shell): next.
+- Shell step 3b (launcher): T27-T28 pass locally; T29 (CI) is pending.
+- Shell step 3c (dock via ext-foreign-toplevel-list; restarting a crashed shell) and the launcher's key binding
+  (a private protocol, with its own decision): next.
