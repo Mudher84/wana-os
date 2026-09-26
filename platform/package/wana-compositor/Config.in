@@ -3,9 +3,15 @@ config BR2_PACKAGE_WANA_COMPOSITOR
 	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
 	depends on !BR2_STATIC_LIBS # wayland
 	depends on BR2_TOOLCHAIN_HAS_THREADS # wayland
+	depends on BR2_PACKAGE_HAS_LIBEGL && BR2_PACKAGE_HAS_LIBGLES && BR2_PACKAGE_HAS_LIBGBM
 	select BR2_PACKAGE_HOST_RUSTC
 	select BR2_PACKAGE_WAYLAND
 	select BR2_PACKAGE_WAYLAND_PROTOCOLS # build time: protocol XML
 	help
 	  Wana OS Wayland compositor, on libwayland-server (decision
-	  0001) with protocol tables generated from the protocol XML.
+	  0001) with protocol tables generated from the protocol XML,
+	  drawing with GLES (wana-render) on DRM/KMS (wana-drm); and
+	  wana-wl-test, the Wayland test client.
+
+comment "wana-compositor needs EGL, OpenGL ES and GBM (mesa3d)"
+	depends on !(BR2_PACKAGE_HAS_LIBEGL && BR2_PACKAGE_HAS_LIBGLES && BR2_PACKAGE_HAS_LIBGBM)

@@ -12,20 +12,22 @@ WANA_COMPOSITOR_LICENSE = GPL-2.0+
 WANA_COMPOSITOR_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = \
 	--exclude /out --exclude /target --exclude /dl --exclude /.git \
 	--exclude /rust-toolchain.toml
-# Links libwayland-server from the target sysroot. wana-wayland's build.rs
+# Links libwayland-server (and, for wana-wl-test, libwayland-client) and
+# Mesa's EGL/GLESv2/GBM from the target sysroot. wana-wayland's build.rs
 # generates the protocol tables from the XML these packages install in
 # staging, so the tables match the exact library version in the image.
-WANA_COMPOSITOR_DEPENDENCIES = wayland wayland-protocols
+WANA_COMPOSITOR_DEPENDENCIES = wayland wayland-protocols libegl libgles libgbm
 WANA_COMPOSITOR_CARGO_ENV = \
 	WANA_WAYLAND_XML=$(STAGING_DIR)/usr/share/wayland/wayland.xml \
 	WANA_WAYLAND_PROTOCOLS_DIR=$(STAGING_DIR)/usr/share/wayland-protocols
 
-WANA_COMPOSITOR_CARGO_BUILD_OPTS = -p wana-compositor
+WANA_COMPOSITOR_CARGO_BUILD_OPTS = -p wana-compositor -p wana-wl-test
+
+WANA_COMPOSITOR_BIN_DIR = $(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)
 
 define WANA_COMPOSITOR_INSTALL_TARGET_CMDS
-	$(INSTALL) -D -m 0755 \
-		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-compositor \
-		$(TARGET_DIR)/usr/bin/wana-compositor
+	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-compositor $(TARGET_DIR)/usr/bin/wana-compositor
+	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-wl-test $(TARGET_DIR)/usr/bin/wana-wl-test
 endef
 
 $(eval $(cargo-package))

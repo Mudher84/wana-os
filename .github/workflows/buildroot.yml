@@ -123,6 +123,9 @@ jobs:
       - name: Compositor protocol layer + globals (disk boot, wayland-info lists wana-compositor globals)
         run: make compositor-boot-test
 
+      - name: Client window (disk boot, wana-wl-test window composited by wana-compositor, screenshot pixel check)
+        run: make window-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

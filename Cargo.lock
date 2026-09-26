@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "wana-drm",
  "wana-log",
+ "wana-render",
  "wana-wayland",
 ]
 
@@ -49,4 +50,13 @@ name = "wana-wayland"
 version = "0.1.0"
 dependencies = [
  "wana-log",
+]
+
+[[package]]
+name = "wana-wl-test"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+ "wana-render",
+ "wana-wayland",
 ]

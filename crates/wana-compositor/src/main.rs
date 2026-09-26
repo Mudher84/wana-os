@@ -18,6 +18,9 @@
 //!                        [--run PROGRAM [ARGS...]]
 
 mod globals;
+mod render;
+mod shm;
+mod surface;
 
 use globals::{Compositor, OutputInfo};
 use std::fs;
@@ -26,10 +29,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
 use std::time::{Duration, Instant};
 use wana_log::{error, info, warn, Subsystem};
+use wana_render::scene;
 use wana_wayland::server::{interface_name, ClientEvent, Display};
 
 const COMPOSITOR: Subsystem = Subsystem::Compositor;
 const TICK: Duration = Duration::from_millis(100);
+/// Headless stand-in for the refresh period (frame callbacks without a screen).
+const HEADLESS_FRAME: Duration = Duration::from_millis(16);
 
 #[derive(Default)]
 struct Args {
@@ -142,10 +148,16 @@ fn run(args: &Args) -> Result<(), String> {
         COMPOSITOR,
         "protocol tables: {core} core + {xdg} xdg-shell interfaces (generated from XML)"
     );
-    let (output, _drm) = find_output(args)?;
+    let (output, drm) = find_output(args)?;
+    // The screen (GL context) is created before any client can commit, so
+    // textures can be uploaded from protocol callbacks.
+    let mut screen = match drm {
+        Some(out) => Some(render::Screen::new(out)?),
+        None => None,
+    };
     let dir = runtime_dir()?;
-    let mut display =
-        Display::new(Compositor::new(output.clone())).map_err(|e| format!("display: {e}"))?;
+    let mut display = Display::new(Compositor::new(output.clone(), screen.is_some()))
+        .map_err(|e| format!("display: {e}"))?;
     let mut advertised = Vec::new();
     for g in globals::globals() {
         display.create_global(g.interface, g.version)?;
@@ -180,12 +192,63 @@ fn run(args: &Args) -> Result<(), String> {
     let deadline = args
         .timeout
         .map(|s| Instant::now() + Duration::from_secs(s));
+    let start = Instant::now();
+    let mut last_present = Instant::now();
+    let mut shown_windows = usize::MAX;
     let mut clients = 0u32;
     let result = loop {
+        wait_for_work(&display, screen.as_ref(), TICK)?;
         display
-            .dispatch(TICK)
+            .dispatch(Duration::ZERO)
             .map_err(|e| format!("event loop: {e}"))?;
         log_events(&mut display, &mut clients);
+
+        // Presentation: a completed page flip, or the headless clock.
+        let mut presented = None;
+        if let Some(scr) = screen.as_mut() {
+            // Always drain a readable DRM fd, even without a pending flip:
+            // an unread event would make poll() return at once forever.
+            if readable(scr.drm_fd()) {
+                if let Some(us) = scr.handle_drm()? {
+                    presented = Some((us / 1000) as u32);
+                }
+            }
+        } else if display.handler().needs_redraw && last_present.elapsed() >= HEADLESS_FRAME {
+            display.with_handler(|c, _| c.needs_redraw = false);
+            last_present = Instant::now();
+            presented = Some(start.elapsed().as_millis() as u32);
+        }
+        if let Some(ms) = presented {
+            display.with_handler(|c, ctx| c.presented(ctx, ms));
+        }
+
+        // Redraw when something changed and the previous frame is on screen.
+        if let Some(scr) = screen.as_mut() {
+            if display.handler().needs_redraw && !scr.flip_pending() {
+                let on_screen_now = {
+                    let comp = display.handler();
+                    let scene = comp.scene();
+                    let count = scene.len();
+                    let r = scr.draw(scene::BACKGROUND, &scene)?;
+                    if count != shown_windows {
+                        info!(
+                            COMPOSITOR,
+                            "frame {}: {count} window(s) on screen",
+                            scr.frames()
+                        );
+                        shown_windows = count;
+                    }
+                    r
+                };
+                display.with_handler(|c, ctx| {
+                    c.needs_redraw = false;
+                    if on_screen_now {
+                        c.presented(ctx, start.elapsed().as_millis() as u32);
+                    }
+                });
+            }
+        }
+
         if let Some(c) = child.as_mut() {
             match c.try_wait() {
                 Ok(Some(status)) => {
@@ -230,6 +293,7 @@ fn run(args: &Args) -> Result<(), String> {
     };
     info!(COMPOSITOR, "binds: {}", binds.join(", "));
     drop(display);
+    drop(screen);
     if path.exists() {
         warn!(
             COMPOSITOR,
@@ -240,6 +304,68 @@ fn run(args: &Args) -> Result<(), String> {
         info!(COMPOSITOR, "shut down; socket removed");
     }
     result
+}
+
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    revents: i16,
+}
+const POLLIN: i16 = 1;
+
+extern "C" {
+    fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
+}
+
+/// Waits until the Wayland event loop or the DRM device has work, or
+/// `timeout` passes.
+fn wait_for_work(
+    display: &Display<Compositor>,
+    screen: Option<&render::Screen>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let mut fds = vec![PollFd {
+        fd: display.event_loop_fd(),
+        events: POLLIN,
+        revents: 0,
+    }];
+    let mut timeout = timeout;
+    match screen {
+        Some(s) => fds.push(PollFd {
+            fd: s.drm_fd(),
+            events: POLLIN,
+            revents: 0,
+        }),
+        None if display.handler().needs_redraw => timeout = timeout.min(HEADLESS_FRAME),
+        None => {}
+    }
+    // SAFETY: `fds` is a valid array of fds.len() pollfd entries.
+    let rc = unsafe {
+        poll(
+            fds.as_mut_ptr(),
+            fds.len() as u64,
+            timeout.as_millis() as i32,
+        )
+    };
+    if rc < 0 {
+        let e = std::io::Error::last_os_error();
+        if e.kind() != std::io::ErrorKind::Interrupted {
+            return Err(format!("poll: {e}"));
+        }
+    }
+    Ok(())
+}
+
+/// True if `fd` has data to read now (non-blocking check).
+fn readable(fd: i32) -> bool {
+    let mut p = PollFd {
+        fd,
+        events: POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one valid pollfd; zero timeout.
+    unsafe { poll(&mut p, 1, 0) > 0 && p.revents & POLLIN != 0 }
 }
 
 /// The display clients are told about: from DRM (the first connected

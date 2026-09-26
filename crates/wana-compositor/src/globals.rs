@@ -1,20 +1,31 @@
-//! The globals Wana advertises and what their objects do (Phase 10 step 2).
+//! The globals Wana advertises and what their objects do.
 //!
 //! | Global | Version | Now | Later |
 //! |---|---|---|---|
-//! | `wl_compositor` | 4 | bind | surfaces and regions: step 3 |
-//! | `wl_shm` | 1 | formats ARGB8888, XRGB8888 | pools and buffers: step 3 |
+//! | `wl_compositor` | 4 | surfaces (attach, damage, frame, commit, scale 1), regions | offsets, transforms |
+//! | `wl_shm` | 1 | pools and buffers, ARGB8888 / XRGB8888 | |
 //! | `wl_output` | 4 | geometry, mode, scale, name, description, done from DRM | |
-//! | `wl_seat` | 7 | name `seat0`, no capabilities yet | pointer and keyboard from wana-input: step 4 |
-//! | `xdg_wm_base` | 1 | ping/pong, destroy | xdg_surface, toplevel: step 3 |
+//! | `wl_seat` | 7 | name `seat0`, no capabilities yet | pointer and keyboard: step 4 |
+//! | `xdg_wm_base` | 1 | xdg_surface + xdg_toplevel with the configure handshake | popups, interactive move/resize |
 //!
 //! A version is advertised only when every request of that version is
 //! handled or answered with a clear protocol error; it is never above the
 //! protocol XML the tables were generated from. Requests that belong to a
 //! later step end the client with an implementation error that names the
 //! step, instead of being silently ignored.
+//!
+//! Buffers are copied at commit time (see `shm.rs`): the pixels go into a
+//! GL texture (or, headless, only their size is kept) and wl_buffer.release
+//! is sent right away, so client memory is never read after the commit and
+//! a client can reuse its buffer immediately.
 
+use crate::shm::{BufferLayout, Pool, ShmError};
+use crate::surface::{place, xdg_commit, Ack, Attach, Role, Surface, XdgCommit, XdgSurface};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use wana_log::{debug, info, warn, Subsystem};
+use wana_render::compose::Texture;
 use wana_wayland::protocols::{wayland, xdg_shell};
 use wana_wayland::server::{interface_name, request_name, Arg, Ctx, Handler, ReqArg, Resource};
 use wana_wayland::sys::wl_interface;
@@ -29,6 +40,17 @@ const MODE_PREFERRED: u32 = 0x2;
 /// wl_output subpixel `unknown`, transform `normal`.
 const SUBPIXEL_UNKNOWN: i32 = 0;
 const TRANSFORM_NORMAL: i32 = 0;
+
+/// Protocol error codes used below (from the XML enums).
+mod err {
+    pub const WM_BASE_ROLE: u32 = 0;
+    pub const WM_BASE_INVALID_SURFACE_STATE: u32 = 4;
+    pub const XDG_SURFACE_NOT_CONSTRUCTED: u32 = 1;
+    pub const XDG_SURFACE_ALREADY_CONSTRUCTED: u32 = 2;
+    pub const XDG_SURFACE_UNCONFIGURED_BUFFER: u32 = 3;
+    pub const XDG_SURFACE_INVALID_SERIAL: u32 = 4;
+    pub const WL_SURFACE_INVALID_SCALE: u32 = 0;
+}
 
 /// The display, as reported to clients through wl_output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +75,7 @@ pub struct Global {
     pub version: u32,
 }
 
-/// The globals of step 2, versions capped at the protocol XML's.
+/// The advertised globals, versions capped at the protocol XML's.
 pub fn globals() -> Vec<Global> {
     let cap = |i: &'static wl_interface, v: u32| Global {
         interface: i,
@@ -68,6 +90,41 @@ pub fn globals() -> Vec<Global> {
     ]
 }
 
+/// A surface's committed pixels.
+#[derive(Debug)]
+pub enum Content {
+    /// Uploaded to the GPU (with a screen).
+    Texture(Texture),
+    /// Headless: only the size is kept.
+    Size(i32, i32),
+}
+
+impl Content {
+    fn size(&self) -> (i32, i32) {
+        match self {
+            Content::Texture(t) => (t.width as i32, t.height as i32),
+            Content::Size(w, h) => (*w, *h),
+        }
+    }
+}
+
+/// A mapped toplevel, in stacking order (bottom first).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    pub surface: Resource,
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Default)]
+struct Toplevel {
+    xdg: Option<Resource>,
+    title: String,
+    app_id: String,
+}
+
+type SharedPool = Rc<RefCell<Pool>>;
+
 /// The compositor's protocol state.
 #[derive(Debug)]
 pub struct Compositor {
@@ -75,16 +132,74 @@ pub struct Compositor {
     pub globals: Vec<Global>,
     /// Bind count per global (for the log and tests).
     pub binds: Vec<u32>,
+    /// Upload pixels to GL textures (a GL context is current).
+    gpu: bool,
+    surfaces: HashMap<Resource, Surface>,
+    content: HashMap<Resource, Content>,
+    pools: HashMap<Resource, SharedPool>,
+    buffers: HashMap<Resource, (SharedPool, BufferLayout)>,
+    xdg: HashMap<Resource, XdgSurface>,
+    toplevels: HashMap<Resource, Toplevel>,
+    regions: HashMap<Resource, ()>,
+    positioners: HashMap<Resource, ()>,
+    pub windows: Vec<Window>,
+    /// Something visible changed, or clients wait for a frame.
+    pub needs_redraw: bool,
+    /// Windows mapped so far (for placement and the log).
+    mapped_total: usize,
 }
 
 impl Compositor {
-    pub fn new(output: OutputInfo) -> Compositor {
+    pub fn new(output: OutputInfo, gpu: bool) -> Compositor {
         let globals = globals();
         let binds = vec![0; globals.len()];
         Compositor {
             output,
             globals,
             binds,
+            gpu,
+            surfaces: HashMap::new(),
+            content: HashMap::new(),
+            pools: HashMap::new(),
+            buffers: HashMap::new(),
+            xdg: HashMap::new(),
+            toplevels: HashMap::new(),
+            regions: HashMap::new(),
+            positioners: HashMap::new(),
+            windows: Vec::new(),
+            needs_redraw: true,
+            mapped_total: 0,
+        }
+    }
+
+    /// Textures of the mapped windows, bottom to top, with positions.
+    pub fn scene(&self) -> Vec<(&Texture, i32, i32)> {
+        self.windows
+            .iter()
+            .filter_map(|w| match self.content.get(&w.surface) {
+                Some(Content::Texture(t)) => Some((t, w.x, w.y)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A frame reached the screen at `time_ms`: fire the frame callbacks
+    /// committed before it.
+    pub fn presented(&mut self, ctx: &mut Ctx, time_ms: u32) {
+        let mut done = 0;
+        for s in self.surfaces.values_mut() {
+            for cb in s.frames.drain(..) {
+                if ctx
+                    .post(cb, wayland::wl_callback::event::DONE, &[Arg::Uint(time_ms)])
+                    .is_ok()
+                {
+                    done += 1;
+                }
+                ctx.destroy(cb);
+            }
+        }
+        if done > 0 {
+            debug!(COMPOSITOR, "frame presented: {done} frame callback(s) done");
         }
     }
 
@@ -155,53 +270,485 @@ impl Compositor {
         }
         Ok(())
     }
+
+    /// Creates a child object; on failure the client gets no_memory-like
+    /// treatment through an implementation error.
+    fn create(
+        &mut self,
+        ctx: &Ctx,
+        parent: Resource,
+        iface: &'static wl_interface,
+        id: u32,
+    ) -> Option<Resource> {
+        match ctx.create_resource(parent, iface, id) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                warn!(COMPOSITOR, "{e}");
+                ctx.implementation_error(parent, &e);
+                None
+            }
+        }
+    }
+
+    // --- wl_compositor / wl_region --------------------------------------
+    fn compositor_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
+        use wayland::wl_compositor::request::*;
+        let Some(id) = new_id(args, 0) else { return };
+        match opcode {
+            CREATE_SURFACE => {
+                if let Some(s) = self.create(ctx, res, &wayland::WL_SURFACE_INTERFACE, id) {
+                    self.surfaces.insert(s, Surface::default());
+                }
+            }
+            CREATE_REGION => {
+                if let Some(r) = self.create(ctx, res, &wayland::WL_REGION_INTERFACE, id) {
+                    // Opaque and input regions are optimizations and input
+                    // shapes; this compositor draws and hit-tests whole
+                    // surfaces for now.
+                    self.regions.insert(r, ());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // --- wl_shm / wl_shm_pool --------------------------------------------
+    fn shm_request(&mut self, ctx: &Ctx, res: Resource, args: Vec<ReqArg>) {
+        // create_pool(new_id, fd, size)
+        let mut it = args.into_iter();
+        let (Some(ReqArg::NewId(id)), Some(ReqArg::Fd(fd)), Some(ReqArg::Int(size))) =
+            (it.next(), it.next(), it.next())
+        else {
+            return;
+        };
+        match Pool::new(fd, size) {
+            Ok(pool) => {
+                if let Some(p) = self.create(ctx, res, &wayland::WL_SHM_POOL_INTERFACE, id) {
+                    debug!(
+                        COMPOSITOR,
+                        "shm pool {} bytes (object {})",
+                        pool.size(),
+                        ctx.id(p)
+                    );
+                    self.pools.insert(p, Rc::new(RefCell::new(pool)));
+                }
+            }
+            Err(e) => shm_error(ctx, res, &e),
+        }
+    }
+
+    fn pool_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
+        use wayland::wl_shm_pool::request::*;
+        let Some(pool) = self.pools.get(&res).cloned() else {
+            return;
+        };
+        match opcode {
+            CREATE_BUFFER => {
+                let (Some(id), Some(offset), Some(width), Some(height), Some(stride), Some(format)) = (
+                    new_id(args, 0),
+                    int(args, 1),
+                    int(args, 2),
+                    int(args, 3),
+                    int(args, 4),
+                    uint(args, 5),
+                ) else {
+                    return;
+                };
+                let layout = BufferLayout {
+                    offset,
+                    width,
+                    height,
+                    stride,
+                    format,
+                };
+                if let Err(e) = layout.check(pool.borrow().size()) {
+                    shm_error(ctx, res, &e);
+                    return;
+                }
+                if let Some(b) = self.create(ctx, res, &wayland::WL_BUFFER_INTERFACE, id) {
+                    self.buffers.insert(b, (pool, layout));
+                }
+            }
+            RESIZE => {
+                if let Some(size) = int(args, 0) {
+                    if let Err(e) = pool.borrow_mut().resize(size) {
+                        shm_error(ctx, res, &e);
+                    }
+                }
+            }
+            _ => {} // destroy: applied by the protocol layer
+        }
+    }
+
+    // --- wl_surface -----------------------------------------------------------
+    fn surface_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
+        use wayland::wl_surface::request::*;
+        match opcode {
+            ATTACH => {
+                let attach = match args.first() {
+                    Some(ReqArg::Object(Some(b))) if self.buffers.contains_key(b) => Attach::Buffer(*b),
+                    Some(ReqArg::Object(Some(_))) => {
+                        ctx.implementation_error(res, "wl_surface.attach: not a wl_shm buffer");
+                        return;
+                    }
+                    _ => Attach::Remove,
+                };
+                if let Some(s) = self.surfaces.get_mut(&res) {
+                    s.attach = attach;
+                }
+            }
+            FRAME => {
+                let Some(id) = new_id(args, 0) else { return };
+                if let Some(cb) = self.create(ctx, res, &wayland::WL_CALLBACK_INTERFACE, id) {
+                    if let Some(s) = self.surfaces.get_mut(&res) {
+                        s.pending_frames.push(cb);
+                    }
+                }
+            }
+            SET_BUFFER_TRANSFORM => {
+                if int(args, 0) != Some(0) {
+                    ctx.implementation_error(res, "wl_surface.set_buffer_transform: only normal (0) is supported yet");
+                }
+            }
+            SET_BUFFER_SCALE => match int(args, 0) {
+                Some(scale) if scale < 1 => {
+                    ctx.post_error(res, err::WL_SURFACE_INVALID_SCALE, &format!("buffer scale {scale} < 1"));
+                }
+                Some(1) => {
+                    if let Some(s) = self.surfaces.get_mut(&res) {
+                        s.pending_scale = 1;
+                    }
+                }
+                _ => ctx.implementation_error(
+                    res,
+                    "wl_surface.set_buffer_scale: only scale 1 is supported yet (the output advertises scale 1)",
+                ),
+            },
+            COMMIT => self.commit(ctx, res),
+            // damage, damage_buffer: whole frames are redrawn; opaque and
+            // input regions are not used yet; destroy: protocol layer.
+            _ => {}
+        }
+    }
+
+    fn commit(&mut self, ctx: &Ctx, res: Resource) {
+        let Some(s) = self.surfaces.get_mut(&res) else {
+            return;
+        };
+        let attach = std::mem::replace(&mut s.attach, Attach::Unchanged);
+        if let Role::Xdg(xs) = s.role {
+            let Some(xdg) = self.xdg.get_mut(&xs) else {
+                return;
+            };
+            match xdg_commit(xdg, attach) {
+                XdgCommit::UnconfiguredBuffer => {
+                    ctx.post_error(
+                        xs,
+                        err::XDG_SURFACE_UNCONFIGURED_BUFFER,
+                        "buffer attached before the first configure was acknowledged",
+                    );
+                    return;
+                }
+                XdgCommit::NotConstructed => {
+                    ctx.post_error(
+                        xs,
+                        err::XDG_SURFACE_NOT_CONSTRUCTED,
+                        "commit on an xdg_surface without a role object (get_toplevel first)",
+                    );
+                    return;
+                }
+                XdgCommit::SendInitialConfigure => {
+                    if let Some(tl) = xdg.toplevel {
+                        let serial = ctx.next_serial();
+                        let ok = ctx
+                            .post(
+                                tl,
+                                xdg_shell::xdg_toplevel::event::CONFIGURE,
+                                &[Arg::Int(0), Arg::Int(0), Arg::Array(&[])],
+                            )
+                            .and_then(|_| {
+                                ctx.post(
+                                    xs,
+                                    xdg_shell::xdg_surface::event::CONFIGURE,
+                                    &[Arg::Uint(serial)],
+                                )
+                            });
+                        match ok {
+                            Ok(()) => {
+                                xdg.sent(serial);
+                                debug!(
+                                    COMPOSITOR,
+                                    "xdg_surface@{}: configure serial {serial}",
+                                    ctx.id(xs)
+                                );
+                            }
+                            Err(e) => warn!(COMPOSITOR, "configure: {e}"),
+                        }
+                    }
+                }
+                XdgCommit::Apply => {}
+            }
+        }
+
+        match attach {
+            Attach::Buffer(b) => {
+                if !self.apply_buffer(ctx, res, b) {
+                    return;
+                }
+            }
+            Attach::Remove => {
+                self.content.remove(&res);
+                if let Some(s) = self.surfaces.get_mut(&res) {
+                    s.content = None;
+                }
+            }
+            Attach::Unchanged => {}
+        }
+        let Some(s) = self.surfaces.get_mut(&res) else {
+            return;
+        };
+        let frames = std::mem::take(&mut s.pending_frames);
+        if !frames.is_empty() {
+            s.frames.extend(frames);
+            self.needs_redraw = true;
+        }
+        s.scale = s.pending_scale;
+        self.update_mapping(ctx, res);
+    }
+
+    /// Copies the buffer's pixels (texture or size), releases the buffer.
+    /// Returns false if the client was sent a protocol error.
+    fn apply_buffer(&mut self, ctx: &Ctx, res: Resource, b: Resource) -> bool {
+        let Some((pool, layout)) = self.buffers.get(&b).cloned() else {
+            // Destroyed after attach: treat as no buffer.
+            self.content.remove(&res);
+            return true;
+        };
+        let content = if self.gpu {
+            let pixels = match pool.borrow_mut().read(&layout) {
+                Ok(p) => p,
+                Err(e) => {
+                    shm_error(ctx, b, &e);
+                    return false;
+                }
+            };
+            match Texture::upload(
+                &pixels,
+                layout.width as u32,
+                layout.height as u32,
+                layout.opaque(),
+            ) {
+                Ok(t) => Content::Texture(t),
+                Err(e) => {
+                    warn!(COMPOSITOR, "texture upload: {e}");
+                    ctx.implementation_error(res, &format!("texture upload failed: {e}"));
+                    return false;
+                }
+            }
+        } else {
+            // Headless: still read the pixels, so a truncated pool is
+            // caught the same way.
+            if let Err(e) = pool.borrow_mut().read(&layout) {
+                shm_error(ctx, b, &e);
+                return false;
+            }
+            Content::Size(layout.width, layout.height)
+        };
+        let (w, h) = content.size();
+        self.content.insert(res, content);
+        if let Some(s) = self.surfaces.get_mut(&res) {
+            s.content = Some((w, h));
+            s.had_buffer = true;
+        }
+        // The pixels are copied: the client may reuse the buffer now.
+        let _ = ctx.post(b, wayland::wl_buffer::event::RELEASE, &[]);
+        self.needs_redraw = true;
+        true
+    }
+
+    /// Maps or unmaps the toplevel of `surface` after a commit.
+    fn update_mapping(&mut self, ctx: &Ctx, surface: Resource) {
+        let Some(s) = self.surfaces.get(&surface) else {
+            return;
+        };
+        let Role::Xdg(xs) = s.role else { return };
+        let Some(xdg) = self.xdg.get(&xs) else { return };
+        let visible = xdg.toplevel.is_some() && xdg.acked.is_some() && s.content.is_some();
+        let index = self.windows.iter().position(|w| w.surface == surface);
+        match (visible, index) {
+            (true, None) => {
+                let (w, h) = s.content.unwrap_or((0, 0));
+                let (x, y) = place(
+                    self.mapped_total,
+                    self.output.width,
+                    self.output.height,
+                    w,
+                    h,
+                );
+                self.mapped_total += 1;
+                self.windows.push(Window { surface, x, y });
+                let title = xdg
+                    .toplevel
+                    .and_then(|t| self.toplevels.get(&t))
+                    .map(|t| format!("{:?} ({})", t.title, t.app_id))
+                    .unwrap_or_default();
+                info!(
+                    COMPOSITOR,
+                    "window mapped: {title} {w}x{h} at {x},{y} (surface {})",
+                    ctx.id(surface)
+                );
+                self.needs_redraw = true;
+            }
+            (false, Some(i)) => {
+                self.windows.remove(i);
+                info!(COMPOSITOR, "window unmapped (surface {})", ctx.id(surface));
+                self.needs_redraw = true;
+            }
+            _ => {}
+        }
+    }
+
+    // --- xdg_wm_base / xdg_surface / xdg_toplevel ---------------------------
+    fn wm_base_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
+        use xdg_shell::xdg_wm_base::request::*;
+        match opcode {
+            CREATE_POSITIONER => {
+                if let Some(id) = new_id(args, 0) {
+                    if let Some(p) = self.create(ctx, res, &xdg_shell::XDG_POSITIONER_INTERFACE, id)
+                    {
+                        self.positioners.insert(p, ());
+                    }
+                }
+            }
+            GET_XDG_SURFACE => {
+                let (Some(id), Some(ReqArg::Object(Some(surface)))) =
+                    (new_id(args, 0), args.get(1))
+                else {
+                    return;
+                };
+                let Some(s) = self.surfaces.get(surface) else {
+                    ctx.implementation_error(res, "get_xdg_surface: not a wl_surface");
+                    return;
+                };
+                if s.role != Role::None {
+                    ctx.post_error(res, err::WM_BASE_ROLE, "wl_surface already has a role");
+                    return;
+                }
+                if s.had_buffer || matches!(s.attach, Attach::Buffer(_)) {
+                    ctx.post_error(
+                        res,
+                        err::WM_BASE_INVALID_SURFACE_STATE,
+                        "wl_surface has a buffer attached or committed",
+                    );
+                    return;
+                }
+                if let Some(xs) = self.create(ctx, res, &xdg_shell::XDG_SURFACE_INTERFACE, id) {
+                    self.xdg.insert(
+                        xs,
+                        XdgSurface {
+                            surface: Some(*surface),
+                            ..Default::default()
+                        },
+                    );
+                    if let Some(s) = self.surfaces.get_mut(surface) {
+                        s.role = Role::Xdg(xs);
+                    }
+                }
+            }
+            _ => {} // pong: nothing is pinged yet; destroy: protocol layer
+        }
+    }
+
+    fn xdg_surface_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
+        use xdg_shell::xdg_surface::request::*;
+        match opcode {
+            GET_TOPLEVEL => {
+                let Some(id) = new_id(args, 0) else { return };
+                if self.xdg.get(&res).is_some_and(|x| x.toplevel.is_some()) {
+                    ctx.post_error(
+                        res,
+                        err::XDG_SURFACE_ALREADY_CONSTRUCTED,
+                        "xdg_surface already has a role object",
+                    );
+                    return;
+                }
+                if let Some(tl) = self.create(ctx, res, &xdg_shell::XDG_TOPLEVEL_INTERFACE, id) {
+                    self.toplevels.insert(
+                        tl,
+                        Toplevel {
+                            xdg: Some(res),
+                            ..Default::default()
+                        },
+                    );
+                    if let Some(x) = self.xdg.get_mut(&res) {
+                        x.toplevel = Some(tl);
+                    }
+                }
+            }
+            GET_POPUP => ctx
+                .implementation_error(res, "xdg_surface.get_popup: popups arrive in a later step"),
+            ACK_CONFIGURE => {
+                let Some(serial) = uint(args, 0) else { return };
+                if let Some(x) = self.xdg.get_mut(&res) {
+                    if x.ack(serial) == Ack::Invalid {
+                        ctx.post_error(
+                            res,
+                            err::XDG_SURFACE_INVALID_SERIAL,
+                            &format!("ack_configure({serial}): no such configure"),
+                        );
+                    }
+                }
+            }
+            _ => {} // set_window_geometry: whole surface for now; destroy
+        }
+    }
+
+    fn toplevel_request(&mut self, res: Resource, opcode: u32, args: &[ReqArg]) {
+        use xdg_shell::xdg_toplevel::request::*;
+        let Some(t) = self.toplevels.get_mut(&res) else {
+            return;
+        };
+        match (opcode, args.first()) {
+            (SET_TITLE, Some(ReqArg::Str(Some(s)))) => t.title = s.clone(),
+            (SET_APP_ID, Some(ReqArg::Str(Some(s)))) => t.app_id = s.clone(),
+            // Parent, menus, interactive move/resize, size limits,
+            // maximize/fullscreen/minimize: the compositor may ignore them;
+            // window management arrives in Phase 12.
+            _ => {}
+        }
+    }
 }
 
-/// What to do with a request in step 2.
-#[derive(Debug, PartialEq, Eq)]
-enum Action {
-    /// Handled (or a destructor, which the protocol layer applies).
-    Done,
-    /// Not implemented yet: end the client with this message.
-    Later(&'static str),
-    /// Not a valid request for the interface (cannot happen with the
-    /// generated tables; kept as a guard).
-    Unknown,
+/// wl_shm errors go to the object the request came through.
+fn shm_error(ctx: &Ctx, res: Resource, e: &ShmError) {
+    warn!(COMPOSITOR, "shm error {}: {}", e.code(), e.message());
+    ctx.post_error(res, e.code(), e.message());
 }
 
-fn classify(iface: &'static wl_interface, opcode: u32) -> Action {
-    use std::ptr::eq;
-    if eq(iface, &wayland::WL_COMPOSITOR_INTERFACE) {
-        return Action::Later("surfaces and regions arrive in Phase 10 step 3");
+fn new_id(args: &[ReqArg], i: usize) -> Option<u32> {
+    match args.get(i) {
+        Some(ReqArg::NewId(id)) => Some(*id),
+        _ => None,
     }
-    if eq(iface, &wayland::WL_SHM_INTERFACE) {
-        return match opcode {
-            wayland::wl_shm::request::CREATE_POOL => {
-                Action::Later("shm pools arrive in Phase 10 step 3")
-            }
-            _ => Action::Done,
-        };
+}
+
+fn int(args: &[ReqArg], i: usize) -> Option<i32> {
+    match args.get(i) {
+        Some(ReqArg::Int(v)) => Some(*v),
+        _ => None,
     }
-    if eq(iface, &wayland::WL_OUTPUT_INTERFACE) {
-        return Action::Done; // release (destructor)
+}
+
+fn uint(args: &[ReqArg], i: usize) -> Option<u32> {
+    match args.get(i) {
+        Some(ReqArg::Uint(v)) => Some(*v),
+        _ => None,
     }
-    if eq(iface, &wayland::WL_SEAT_INTERFACE) {
-        return match opcode {
-            wayland::wl_seat::request::RELEASE => Action::Done,
-            _ => Action::Later(
-                "this seat has no capabilities yet (input arrives in Phase 10 step 4)",
-            ),
-        };
-    }
-    if eq(iface, &xdg_shell::XDG_WM_BASE_INTERFACE) {
-        return match opcode {
-            xdg_shell::xdg_wm_base::request::DESTROY | xdg_shell::xdg_wm_base::request::PONG => {
-                Action::Done
-            }
-            _ => Action::Later("xdg surfaces arrive in Phase 10 step 3"),
-        };
-    }
-    Action::Unknown
+}
+
+/// What to do with a request of the seat (still without devices).
+fn seat_allows(opcode: u32) -> bool {
+    opcode == wayland::wl_seat::request::RELEASE
 }
 
 impl Handler for Compositor {
@@ -220,25 +767,96 @@ impl Handler for Compositor {
         }
     }
 
-    fn request(&mut self, ctx: &mut Ctx, res: Resource, opcode: u32, _args: Vec<ReqArg>) {
+    fn request(&mut self, ctx: &mut Ctx, res: Resource, opcode: u32, args: Vec<ReqArg>) {
         let Some(iface) = ctx.interface(res) else {
             return;
         };
-        let req = request_name(iface, opcode);
-        let id = ctx.id(res);
-        match classify(iface, opcode) {
-            Action::Done => debug!(COMPOSITOR, "{req} (object {id})"),
-            Action::Later(why) => {
-                warn!(COMPOSITOR, "{req} (object {id}) not implemented yet: {why}");
-                ctx.implementation_error(res, &format!("{req}: {why}"));
-            }
-            Action::Unknown => ctx.implementation_error(res, &format!("{req}: unexpected")),
+        debug!(
+            COMPOSITOR,
+            "{} (object {})",
+            request_name(iface, opcode),
+            ctx.id(res)
+        );
+        let is = |i: &wl_interface| std::ptr::eq(iface, i);
+        if is(&wayland::WL_COMPOSITOR_INTERFACE) {
+            self.compositor_request(ctx, res, opcode, &args);
+        } else if is(&wayland::WL_SURFACE_INTERFACE) {
+            self.surface_request(ctx, res, opcode, &args);
+        } else if is(&wayland::WL_SHM_INTERFACE) {
+            self.shm_request(ctx, res, args);
+        } else if is(&wayland::WL_SHM_POOL_INTERFACE) {
+            self.pool_request(ctx, res, opcode, &args);
+        } else if is(&xdg_shell::XDG_WM_BASE_INTERFACE) {
+            self.wm_base_request(ctx, res, opcode, &args);
+        } else if is(&xdg_shell::XDG_SURFACE_INTERFACE) {
+            self.xdg_surface_request(ctx, res, opcode, &args);
+        } else if is(&xdg_shell::XDG_TOPLEVEL_INTERFACE) {
+            self.toplevel_request(res, opcode, &args);
+        } else if is(&wayland::WL_SEAT_INTERFACE) && !seat_allows(opcode) {
+            let why = "this seat has no capabilities yet (input arrives in Phase 10 step 4)";
+            warn!(
+                COMPOSITOR,
+                "{} not implemented yet: {why}",
+                request_name(iface, opcode)
+            );
+            ctx.implementation_error(res, &format!("{}: {why}", request_name(iface, opcode)));
         }
-        // Received fds (e.g. wl_shm.create_pool) are closed when `_args` drops.
+        // wl_buffer, wl_region, wl_output, xdg_positioner, wl_seat.release:
+        // only destructors or requests without effect here; destructors are
+        // applied by the protocol layer.
     }
 
     fn destroyed(&mut self, ctx: &mut Ctx, res: Resource) {
-        let _ = (ctx, res);
+        if let Some(s) = self.surfaces.remove(&res) {
+            for cb in s.pending_frames.into_iter().chain(s.frames) {
+                ctx.destroy(cb);
+            }
+            self.content.remove(&res);
+            if let Some(i) = self.windows.iter().position(|w| w.surface == res) {
+                self.windows.remove(i);
+                info!(COMPOSITOR, "window destroyed (surface {res:?})");
+                self.needs_redraw = true;
+            }
+            if let Role::Xdg(xs) = s.role {
+                if let Some(x) = self.xdg.get_mut(&xs) {
+                    x.surface = None;
+                }
+            }
+        } else if self.buffers.remove(&res).is_some() {
+            // A pending attach of this buffer becomes "no buffer" at commit.
+        } else if self.pools.remove(&res).is_some() {
+            // Buffers keep their pool mapped until they are destroyed.
+        } else if let Some(x) = self.xdg.remove(&res) {
+            if let Some(surface) = x.surface {
+                if let Some(s) = self.surfaces.get_mut(&surface) {
+                    s.role = Role::None;
+                }
+                if let Some(i) = self.windows.iter().position(|w| w.surface == surface) {
+                    self.windows.remove(i);
+                    self.needs_redraw = true;
+                }
+            }
+        } else if let Some(t) = self.toplevels.remove(&res) {
+            if let Some(xs) = t.xdg {
+                if let Some(x) = self.xdg.get_mut(&xs) {
+                    x.toplevel = None;
+                    if let Some(surface) = x.surface {
+                        if let Some(i) = self.windows.iter().position(|w| w.surface == surface) {
+                            self.windows.remove(i);
+                            info!(COMPOSITOR, "window closed by client: {:?}", t.title);
+                            self.needs_redraw = true;
+                        }
+                    }
+                }
+            }
+        } else {
+            self.regions.remove(&res);
+            self.positioners.remove(&res);
+            for s in self.surfaces.values_mut() {
+                s.frames.retain(|c| *c != res);
+                s.pending_frames.retain(|c| *c != res);
+            }
+        }
     }
 }
 
@@ -258,34 +876,19 @@ mod tests {
     }
 
     #[test]
-    fn later_requests_are_refused_with_the_step() {
-        use wayland::*;
-        assert_eq!(
-            classify(
-                &WL_COMPOSITOR_INTERFACE,
-                wl_compositor::request::CREATE_SURFACE
-            ),
-            Action::Later("surfaces and regions arrive in Phase 10 step 3")
-        );
-        assert!(matches!(
-            classify(&WL_SHM_INTERFACE, wl_shm::request::CREATE_POOL),
-            Action::Later(_)
-        ));
-        assert!(matches!(
-            classify(&WL_SEAT_INTERFACE, wl_seat::request::GET_POINTER),
-            Action::Later(_)
-        ));
-        assert_eq!(
-            classify(&WL_SEAT_INTERFACE, wl_seat::request::RELEASE),
-            Action::Done
-        );
-        assert_eq!(
-            classify(
-                &xdg_shell::XDG_WM_BASE_INTERFACE,
-                xdg_shell::xdg_wm_base::request::PONG
-            ),
-            Action::Done
-        );
-        assert_eq!(classify(&WL_REGION_INTERFACE, 0), Action::Unknown);
+    fn seat_requests_wait_for_step_4() {
+        assert!(seat_allows(wayland::wl_seat::request::RELEASE));
+        assert!(!seat_allows(wayland::wl_seat::request::GET_POINTER));
+        assert!(!seat_allows(wayland::wl_seat::request::GET_KEYBOARD));
+    }
+
+    #[test]
+    fn argument_helpers_check_kinds() {
+        let args = vec![ReqArg::NewId(5), ReqArg::Int(-3), ReqArg::Uint(7)];
+        assert_eq!(new_id(&args, 0), Some(5));
+        assert_eq!(int(&args, 1), Some(-3));
+        assert_eq!(uint(&args, 2), Some(7));
+        assert_eq!(int(&args, 0), None, "wrong kind");
+        assert_eq!(uint(&args, 9), None, "missing");
     }
 }

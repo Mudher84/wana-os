@@ -178,6 +178,9 @@ extern "C" {
         args: *mut wl_argument,
     );
     pub fn wl_client_post_no_memory(client: *mut wl_client);
+    /// printf-style; always called with "%s".
+    pub fn wl_resource_post_error(resource: *mut wl_resource, code: u32, fmt: *const c_char, ...);
+    pub fn wl_display_next_serial(display: *mut wl_display) -> u32;
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 //! top of them, and page-flipping the rendered buffers with `wana-drm`.
 //! This is layers 2-4 of the native stack: DRM/KMS, then GBM, then EGL, then GLES.
 
+pub mod compose;
 pub mod egl;
 pub mod ffi;
 pub mod gbm;

@@ -49,6 +49,15 @@ pub enum ClientEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Resource(NonNull<wl_resource>);
 
+impl Resource {
+    /// A fake identity for unit tests of code that stores resources. It is
+    /// never alive, so every [`Ctx`] operation on it is refused.
+    #[doc(hidden)]
+    pub fn from_raw_for_tests(addr: usize) -> Resource {
+        Resource(NonNull::new(addr as *mut wl_resource).expect("non-zero test address"))
+    }
+}
+
 /// A request argument, decoded and owned.
 #[derive(Debug)]
 pub enum ReqArg {
@@ -299,6 +308,23 @@ impl Ctx<'_> {
             let client = sys::wl_resource_get_client(raw);
             sys::wl_client_post_implementation_error(client, c"%s".as_ptr(), msg.as_ptr());
         }
+    }
+
+    /// Sends the resource's client a fatal protocol error with the
+    /// interface's own error `code` (`wl_display.error` naming `res`); the
+    /// client is disconnected.
+    pub fn post_error(&self, res: Resource, code: u32, message: &str) {
+        let Ok(raw) = self.raw(res) else { return };
+        let msg = CString::new(message.replace('\0', " ")).expect("NULs replaced");
+        // SAFETY: alive resource; printf format "%s" with a NUL-terminated
+        // string argument.
+        unsafe { sys::wl_resource_post_error(raw, code, c"%s".as_ptr(), msg.as_ptr()) };
+    }
+
+    /// The next display serial (for configure events and input).
+    pub fn next_serial(&self) -> u32 {
+        // SAFETY: the display outlives every Ctx.
+        unsafe { sys::wl_display_next_serial(self.inner.display.as_ptr()) }
     }
 }
 

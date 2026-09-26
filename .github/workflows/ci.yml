@@ -35,6 +35,8 @@ jobs:
         run: make test
       - name: Repository checks
         run: make repo-check
+      - name: Wayland protocol scenarios (headless compositor + test client)
+        run: make wayland-host-test
 
   msrv:
     name: build + test with Buildroot's Rust (MSRV)

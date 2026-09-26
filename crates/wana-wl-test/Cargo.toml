@@ -1,16 +1,17 @@
 [package]
-name = "wana-compositor"
-description = "Wana OS compositor"
+name = "wana-wl-test"
+description = "Wana OS Wayland test client: draws a known pattern through wl_shm + xdg_toplevel"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# Links the system libwayland-client through small FFI declarations and
+# uses wana-wayland's generated protocol tables. No crates.io dependencies.
 [dependencies]
 wana-log = { path = "../wana-log" }
 wana-wayland = { path = "../wana-wayland" }
-wana-drm = { path = "../wana-drm" }
 wana-render = { path = "../wana-render" }
 
 [lints]

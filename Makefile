@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test wayland-host-test br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -44,6 +44,8 @@ help:
 	@echo "    make gl-boot-test        boot disk.img with virtio-gpu, run wana-gl (GBM/EGL/GLES), check pixels"
 	@echo "    make input-boot-test     boot disk.img, inject keys + mouse via QEMU, wana-input must see them"
 	@echo "    make compositor-boot-test  boot disk.img, wayland-info must list wana-compositor globals"
+	@echo "    make window-boot-test    boot disk.img, a client window must appear (screenshot pixel check)"
+	@echo "    make wayland-host-test   headless compositor + test client on this host (3 protocol scenarios)"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -252,6 +254,50 @@ compositor-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
+
+# Phase 10 step 3: a client window on screen. wana-compositor draws with
+# GLES on the virtio-gpu display; wana-wl-test creates an xdg_toplevel,
+# does the configure handshake and commits a 480x320 XRGB8888 wl_shm buffer
+# (accent + 8 px white border). Once its frame callback reports the frame
+# presented, the screen is captured and the window's pixels checked:
+# centered at 400,240 on 1280x800 (center accent, left/top border white,
+# outside = compositor background).
+WINDOW_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,120,--run,/usr/bin/wana-wl-test,--hold,5 wana.test=poweroff wana.shell=0
+window-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-window.img "$(WINDOW_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-window.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/window-boot.log \
+		--screendump-on 'client: holding window' --screendump out/test/window.ppm \
+		--pixel 0.5,0.5=4f8cff --pixel 0.3141,0.5=ffffff --pixel 0.5,0.30375=ffffff \
+		--pixel 0.1,0.5=16213e --pixel 0,0=16213e \
+		--expect '\[RENDER\] info: compositor renderer: GL_RENDERER=' \
+		--expect '\[DRM\] info: modeset done: .* compositor frame on screen' \
+		--expect '\[COMPOSITOR\] info: client: configure received \(serial [0-9]+\); acking' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,240' \
+		--expect '\[COMPOSITOR\] info: frame [0-9]+: 1 window\(s\) on screen' \
+		--expect '\[COMPOSITOR\] info: client: frame presented \(callback done at [0-9]+ ms\); buffer released' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
+
+# Phase 10 step 3 on the build host, headless (no display needed): the
+# same client in its three scenarios against the real libwayland.
+WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
+wayland-host-test:
+	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test
+	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
+	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
+		grep -q 'client: frame presented' $$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
+	$(WAYLAND_HOST_RUN) --attach-before-configure > $$dir/early.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: xdg_surface@[0-9]* code 3' $$dir/early.log && \
+		echo "[COMPOSITOR] check: buffer before configure -> xdg_surface.unconfigured_buffer: PASS" && \
+	$(WAYLAND_HOST_RUN) --truncate-pool > $$dir/sigbus.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: wl_buffer@[0-9]* code 2' $$dir/sigbus.log && \
+		grep -q 'shut down; socket removed' $$dir/sigbus.log && \
+		echo "[COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS" || \
+	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$dir/*.log >&2; exit 1; }
 
 br-%: buildroot-src
 	$(BR_MAKE) $*

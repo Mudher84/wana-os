@@ -162,6 +162,21 @@ pub const GL_COLOR_BUFFER_BIT: GLbitfield = 0x4000;
 pub const GL_TRIANGLES: GLenum = 0x0004;
 pub const GL_FLOAT: GLenum = 0x1406;
 pub const GL_FALSE: GLboolean = 0;
+pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
+pub const GL_TEXTURE0: GLenum = 0x84C0;
+pub const GL_TEXTURE_MIN_FILTER: GLenum = 0x2801;
+pub const GL_TEXTURE_MAG_FILTER: GLenum = 0x2800;
+pub const GL_TEXTURE_WRAP_S: GLenum = 0x2802;
+pub const GL_TEXTURE_WRAP_T: GLenum = 0x2803;
+pub const GL_NEAREST: GLint = 0x2600;
+pub const GL_CLAMP_TO_EDGE: GLint = 0x812F;
+pub const GL_RGBA: GLenum = 0x1908;
+pub const GL_UNSIGNED_BYTE: GLenum = 0x1401;
+pub const GL_UNPACK_ALIGNMENT: GLenum = 0x0CF5;
+pub const GL_BLEND: GLenum = 0x0BE2;
+pub const GL_ONE: GLenum = 1;
+pub const GL_ONE_MINUS_SRC_ALPHA: GLenum = 0x0303;
+pub const GL_TRIANGLE_STRIP: GLenum = 0x0005;
 pub const GL_NO_ERROR: GLenum = 0;
 
 #[link(name = "GLESv2")]
@@ -204,6 +219,28 @@ extern "C" {
     );
     pub fn glDrawArrays(mode: GLenum, first: GLint, count: GLsizei);
     pub fn glFinish();
+    pub fn glGenTextures(n: GLsizei, textures: *mut GLuint);
+    pub fn glDeleteTextures(n: GLsizei, textures: *const GLuint);
+    pub fn glBindTexture(target: GLenum, texture: GLuint);
+    pub fn glActiveTexture(texture: GLenum);
+    pub fn glTexParameteri(target: GLenum, pname: GLenum, param: GLint);
+    pub fn glPixelStorei(pname: GLenum, param: GLint);
+    pub fn glTexImage2D(
+        target: GLenum,
+        level: GLint,
+        internalformat: GLint,
+        width: GLsizei,
+        height: GLsizei,
+        border: GLint,
+        format: GLenum,
+        typ: GLenum,
+        pixels: *const c_void,
+    );
+    pub fn glUniform1i(location: GLint, v0: GLint);
+    pub fn glUniform4f(location: GLint, v0: GLfloat, v1: GLfloat, v2: GLfloat, v3: GLfloat);
+    pub fn glEnable(cap: GLenum);
+    pub fn glDisable(cap: GLenum);
+    pub fn glBlendFunc(sfactor: GLenum, dfactor: GLenum);
 }
 
 #[cfg(test)]

@@ -286,9 +286,136 @@ Components:
 - Buildroot run 36198390808 and `ci` run 36198390857 on the same commit: success.
 - Result: **PASS**
 
+## Step 3: client windows on screen
+
+Components:
+- `wana-compositor/src/shm.rs`: wl_shm pools and buffers.
+  - The client file is mapped read-only and shared. `fstat` must show the file is at least as large as the pool
+    (`invalid_fd` otherwise). Pools only grow.
+  - Buffer layouts are checked with 64-bit arithmetic: format ARGB/XRGB8888, `stride >= width*4`, and the last row
+    inside the pool.
+  - SIGBUS guard: a client can shrink its file after creating the pool. While a pool is being read, a SIGBUS
+    handler maps zero pages over exactly that pool (`MAP_FIXED`, anonymous); the copy continues and the pool is
+    then marked poisoned. The client receives `wl_shm.error(invalid_fd)` and the compositor keeps running.
+    A SIGBUS anywhere else is left fatal, so real bugs still crash visibly. libwayland's own shm code uses the
+    same technique.
+- `surface.rs`: pure state machines, unit-tested without libwayland.
+  - Double-buffered surface state: attach, frame, scale.
+  - The xdg handshake:
+    - initial commit without a buffer, then `xdg_toplevel.configure` + `xdg_surface.configure(serial)`;
+    - ack, then attach and commit: the window is mapped;
+    - a NULL buffer unmaps it.
+  - Ack bookkeeping: acking a serial acknowledges the older ones; unknown or repeated serials are
+    `invalid_serial`.
+  - Placement: centered, then cascaded by 32 px, clamped to the screen.
+- `globals.rs`: the handler for wl_compositor, wl_region, wl_shm, wl_shm_pool, wl_buffer, wl_surface
+  (attach, damage, damage_buffer, frame, commit, transform normal, scale 1), xdg_wm_base (create_positioner,
+  get_xdg_surface), xdg_surface (get_toplevel, ack_configure) and xdg_toplevel (title, app_id).
+  - Protocol errors with the XML's codes: `xdg_wm_base.role` / `invalid_surface_state`,
+    `xdg_surface.not_constructed` / `already_constructed` / `unconfigured_buffer` / `invalid_serial`,
+    `wl_surface.invalid_scale`, `wl_shm.*`.
+  - Popups, buffer transforms and scale factors other than 1 end the client with an implementation error that
+    names what is missing.
+- Buffer model, copy at commit: the pixels are copied under the SIGBUS guard (rows packed), uploaded to a GLES
+  texture, and `wl_buffer.release` is sent immediately. Client memory is never read after the commit, so a client
+  cannot change or truncate a buffer while the compositor draws from it, and it can reuse the buffer right away.
+  The cost is one copy per commit. zero-copy buffers (linux-dmabuf) come later.
+- `wana-render/src/compose.rs`:
+  - textures from shm pixels, uploaded as RGBA bytes and swizzled with `.bgra` in the shader, so no BGRA texture
+    extension is needed;
+  - XRGB alpha forced to 1, premultiplied-alpha blending for ARGB;
+  - quads in output pixel coordinates with a top-left origin.
+- `render.rs`: the screen.
+  - GBM surface + EGL + composer. The first frame uses SETCRTC, later frames a page flip, with at most one in
+    flight.
+  - The buffer that was on screen goes back to GBM only after the flip that replaces it completes, so the
+    scanned-out buffer is never drawn into (no tearing).
+- Event loop: one `poll()` on the Wayland event loop fd and the DRM fd, single-threaded.
+  - A redraw happens when something changed and no flip is pending; commits during a flip wait for it, so there
+    is at most one frame per vblank.
+  - Frame callbacks fire when the frame is actually on screen, carrying the flip timestamp (ms), not at swap time.
+  - Headless mode uses a 16 ms clock instead.
+- `crates/wana-wl-test`: test client on libwayland-client (FFI, generated tables; events through one dispatcher
+  into a queue).
+  - Default: a 480x320 XRGB8888 memfd buffer with the Wana palette (accent, 8 px white border). The client waits
+    for the frame callback, then holds.
+  - `--attach-before-configure` and `--truncate-pool` are deliberate protocol violations that must end in the
+    expected error.
+- Buildroot:
+  - `wana-compositor` now depends on Mesa (libegl, libgles, libgbm) and installs `wana-wl-test`.
+  - `make window-boot-test` (screenshot + pixels) and `make wayland-host-test` (three scenarios, headless) run in
+    CI.
+
+### T12: Unit tests (local)
+
+- 70 tests, on the pinned toolchain and on Rust 1.88.
+- New:
+  - shm: layout validation including overflow-sized values, packing rows out of a strided pool, a pool larger than
+    its file, grow-only resize;
+  - the SIGBUS test: a real memfd truncated after mapping; the read fails with `invalid_fd` "SIGBUS", the test
+    process survives, and the pool stays poisoned;
+  - surface: the handshake table, ack bookkeeping, a buffer without a role object, placement;
+  - compose: color split, shader swizzle and origin;
+  - test client: the pattern bytes (B, G, R order).
+- One test was wrong at first: it expected an "overflow" rejection for a layout whose end offset (about 2^62) fits
+  in `u64` and was smaller than the pool size given. Real pools are at most `i32::MAX` bytes, and against that
+  limit the layout is refused. The test now uses that limit; the code was already right.
+- Result: **PASS**
+
+### T13: Three protocol scenarios against the real libwayland (local, headless)
+
+- `make wayland-host-test`, using the host's libwayland-server 1.22 and libwayland-client:
+  ```
+  [COMPOSITOR] check: window scenario: PASS
+  [COMPOSITOR] check: buffer before configure -> xdg_surface.unconfigured_buffer: PASS
+  [COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS
+  ```
+- Window scenario log:
+  ```
+  [COMPOSITOR] info: client: configure received (serial 1); acking
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,240 (surface 8)
+  [COMPOSITOR] info: client: frame presented (callback done at 19 ms); buffer released
+  [COMPOSITOR] info: window closed by client: "wana-wl-test"
+  ```
+- Protocol errors as the client saw them:
+  ```
+  xdg_surface@9: error 3: buffer attached before the first configure was acknowledged
+  [COMPOSITOR] warn: shm error 2: pool file was truncated while in use (SIGBUS)
+  wl_buffer@7: error 2: pool file was truncated while in use (SIGBUS)
+  [COMPOSITOR] info: shut down; socket removed
+  ```
+- Result: **PASS**
+
+### T14: A client window on the screen (local, QEMU TCG, virtio-gpu, host Mesa llvmpipe)
+
+- `wana-compositor --run wana-wl-test --hold 5` in a QEMU boot, with the expectations and pixels of
+  `make window-boot-test`: 9 of 9 found, no `[INIT|COMPOSITOR|DRM|RENDER]` warning or error.
+  ```
+  [RENDER] info: compositor renderer: GL_RENDERER=llvmpipe (LLVM 20.1.2, 128 bits), 1280x800
+  [DRM] info: modeset done: Virtual-1 1280x800@74.99 (preferred) on CRTC 37; compositor frame on screen
+  [COMPOSITOR] info: frame 1: 0 window(s) on screen
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,240 (surface 8)
+  [COMPOSITOR] info: frame 2: 1 window(s) on screen
+  [COMPOSITOR] info: client: frame presented (callback done at 13984 ms); buffer released
+  [COMPOSITOR] info: frame 3: 0 window(s) on screen
+  ```
+  Frame 3 is the redraw after the client closed its window.
+- Screenshot 1280x800, all exact:
+  - (640,400) `#4f8cff`: the window interior;
+  - (402,400) and (640,243) `#ffffff`: the left and top borders;
+  - (128,400) and (0,0) `#16213e`: the compositor background.
+  The PNG shows the window centered, not flipped, with an even border.
+- `make compositor-boot-test` (step 2) still passes with the compositor now drawing.
+- Result: **PASS**
+
+### T15: Buildroot image + `make window-boot-test` and `make wayland-host-test` in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Step 1: **PASS** (T1-T5).
 - Step 2: **PASS** (T6-T9).
 - T10: console-split robustness fix: **PASS** (local and CI).
 - T11: reproducibility with the Wayland stack: **PASS** (12/12).
+- Step 3: T12-T14 pass locally; T15 (CI) is pending.
