@@ -621,7 +621,37 @@ Components:
 
 ### T20: Buildroot image + `make seat-boot-test` in CI
 
-- Actual: *pending*
+- Buildroot run [36238193934](https://github.com/Mudher84/wana-os/actions/runs/36238193934), commit `e63a7d7`:
+  every step passed, including the new "Seat input, focus and z-order" step.
+  ```
+  [INPUT] info: seat0 capabilities: pointer, keyboard
+  [COMPOSITOR] info: client: keymap received: 63745 bytes, layout English (US)
+  [COMPOSITOR] info: window mapped: "wana-wl-test back" (org.wana.test) 1400x900 at 0,0 (surface 14)
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 432,272 (surface 20)
+  [COMPOSITOR] info: client: ready for input (keyboard focus on window "front", keymap compiled)
+  [COMPOSITOR] info: client: pointer entered window "front" at 95.8,15.8
+  [COMPOSITOR] info: client: pointer entered window "back" at 295.0,55.0
+  [COMPOSITOR] info: cursor: client surface 64x64, hotspot 0,0 (from "wana-wl-test back" (org.wana.test))
+  [COMPOSITOR] info: window raised: "wana-wl-test back" (org.wana.test)
+  [COMPOSITOR] info: client: keyboard focus on window "back" (0 key(s) held)
+  [COMPOSITOR] info: client: left click on window "back" at 17.6,17.6
+  [COMPOSITOR] info: client: key 17 pressed on window "back": W text "W"
+  [COMPOSITOR] info: client: input received: typed "Wana" on window "back", left click on window "back", 11 motion event(s)
+  [BOOT] info: pixel (640,400) = #e0a030 expected #e0a030
+  [BOOT] info: pixel (384,400) = #e0a030 expected #e0a030
+  [BOOT] info: pixel (1152,720) = #e0a030 expected #e0a030
+  [BOOT] info: pixel (60,60) = #ff00ff expected #ff00ff
+  [BOOT] graphics test: PASS (log: out/logs/seat-boot.log)
+  ```
+- All 19 expectations were found, and no `[INIT|COMPOSITOR|DRM|RENDER|INPUT]` warning or error appeared.
+- The pointer and click coordinates are identical to the local run (95.8,15.8, then 295.0,55.0, then 17.6,17.6),
+  although the image has libinput 1.31 and the host 1.25. Driving the pointer into the corner makes the scenario
+  independent of pointer acceleration, as designed.
+- The keymap is 63745 bytes in the image and 64756 on the host (different xkeyboard-config versions), with the same
+  result.
+- The window test (step 3) and every earlier boot test still pass in the same run.
+- `ci` run 36238193984 on `e63a7d7` (81 unit tests, MSRV, `make wayland-host-test`): success.
+- Result: **PASS**
 
 ## Step 5: phase close-out
 
@@ -656,6 +686,10 @@ Components:
 - Single-threaded: protocol, input and rendering share one `poll()` loop. With softpipe (CI) a frame costs a lot of
   CPU; the image has no GPU acceleration under QEMU.
 
+### T21: Reproducibility with the whole compositor stack (CI)
+
+- Actual: *pending*
+
 ## Status
 
 - Step 1: **PASS** (T1-T5).
@@ -663,4 +697,5 @@ Components:
 - T10: console-split robustness fix: **PASS** (local and CI).
 - T11: reproducibility with the Wayland stack: **PASS** (12/12).
 - Step 3: **PASS** (T12-T15).
-- Step 4: T16-T19 pass locally; T20 (CI) is pending.
+- Step 4: **PASS** (T16-T20).
+- Step 5: close-out written; T21 (reproducibility with the whole compositor stack) is pending.

@@ -23,7 +23,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | # | Phase | Status |
 |---|-------|--------|
 | 9 | Input stack (udev + libinput -> wana-input): QEMU-injected keys, pointer and click decoded by `wana-input` in the Buildroot image, in CI ([phase 09 report](test-reports/phase-09.md)) | PASS |
-| 10 | Compositor MVP (surfaces, focus, z-order, pointer, keyboard) on libwayland-server ([decision 0001](decisions/0001-wayland-protocol-layer.md), [phase 10 report](test-reports/phase-10.md)); steps 1 (protocol layer + socket) and 2 (globals) PASS; step 3 (client windows on screen) PASS; step 4 (input, focus) in CI | IN PROGRESS |
+| 10 | Compositor MVP (surfaces, focus, z-order, pointer, keyboard) on libwayland-server ([decision 0001](decisions/0001-wayland-protocol-layer.md), [phase 10 report](test-reports/phase-10.md)); steps 1 (protocol layer + socket) and 2 (globals) PASS; steps 3 (client windows on screen) and 4 (input, focus, z-order, cursor) PASS; step 5 (reproducibility re-check) in CI | IN PROGRESS |
 | 11 | Desktop shell MVP | NOT STARTED |
 | 12 | Window management | NOT STARTED |
 
