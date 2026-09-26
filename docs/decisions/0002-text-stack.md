@@ -118,7 +118,7 @@ later, and each app parses them in its own process.
 2. **Shaping + BiDi as data:** `wana-text` returns runs with glyph IDs and positions. Tests, on the host and in CI:
    - "مرحبا" gets different glyph IDs for the initial, medial and final forms of the same letters than for the
      isolated letters;
-   - lam-alef ("لا") becomes one ligature glyph;
+   - lam-alef ("لا") takes its ligature forms, not an ordinary initial lam next to an ordinary final alef;
    - "Wana 2026 وانا" in an RTL paragraph gives the visual run order and levels from UAX #9, including the
      numbers.
 3. **Layout:**

@@ -47,6 +47,11 @@ impl Font {
         Ok(f)
     }
 
+    /// The HarfBuzz font, for shaping (valid while `self` lives).
+    pub(crate) fn raw(&self) -> *mut ffi::hb_font_t {
+        self.font.as_ptr()
+    }
+
     pub fn glyph_count(&self) -> u32 {
         // SAFETY: face is valid.
         unsafe { ffi::hb_face_get_glyph_count(self.face.as_ptr()) }

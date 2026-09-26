@@ -7,7 +7,8 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# Links the system libharfbuzz through small FFI declarations (src/ffi.rs);
+# Links the system libharfbuzz and libfribidi through small FFI declarations
+# (src/ffi.rs);
 # no crates.io dependencies (decision 0002).
 [dependencies]
 wana-log = { path = "../wana-log" }

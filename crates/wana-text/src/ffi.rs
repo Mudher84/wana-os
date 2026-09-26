@@ -73,3 +73,106 @@ extern "C" {
         axes_array: *mut hb_ot_var_axis_info_t,
     ) -> c_uint;
 }
+
+// --- shaping (hb-buffer.h, hb-shape.h) ----------------------------------------
+#[derive(Debug)]
+pub enum hb_buffer_t {}
+#[derive(Debug)]
+pub enum hb_language_impl_t {}
+pub type hb_language_t = *const hb_language_impl_t;
+
+/// `hb_glyph_info_t` (20 bytes; checked against hb-buffer.h).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct hb_glyph_info_t {
+    pub codepoint: u32,
+    pub mask: u32,
+    pub cluster: u32,
+    pub var1: u32,
+    pub var2: u32,
+}
+
+/// `hb_glyph_position_t` (20 bytes).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct hb_glyph_position_t {
+    pub x_advance: i32,
+    pub y_advance: i32,
+    pub x_offset: i32,
+    pub y_offset: i32,
+    pub var: u32,
+}
+
+pub const HB_DIRECTION_LTR: c_uint = 4;
+pub const HB_DIRECTION_RTL: c_uint = 5;
+/// Clusters per character, monotone (for cursor positions inside
+/// ligatures and around marks).
+pub const HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS: c_uint = 1;
+
+#[link(name = "harfbuzz")]
+extern "C" {
+    pub fn hb_buffer_create() -> *mut hb_buffer_t;
+    pub fn hb_buffer_destroy(buf: *mut hb_buffer_t);
+    pub fn hb_buffer_add_utf8(
+        buf: *mut hb_buffer_t,
+        text: *const c_char,
+        text_length: c_int,
+        item_offset: c_uint,
+        item_length: c_int,
+    );
+    pub fn hb_buffer_set_direction(buf: *mut hb_buffer_t, direction: c_uint);
+    pub fn hb_buffer_set_language(buf: *mut hb_buffer_t, language: hb_language_t);
+    pub fn hb_buffer_set_cluster_level(buf: *mut hb_buffer_t, level: c_uint);
+    pub fn hb_buffer_guess_segment_properties(buf: *mut hb_buffer_t);
+    pub fn hb_buffer_get_glyph_infos(
+        buf: *mut hb_buffer_t,
+        length: *mut c_uint,
+    ) -> *mut hb_glyph_info_t;
+    pub fn hb_buffer_get_glyph_positions(
+        buf: *mut hb_buffer_t,
+        length: *mut c_uint,
+    ) -> *mut hb_glyph_position_t;
+    pub fn hb_language_from_string(s: *const c_char, len: c_int) -> hb_language_t;
+    pub fn hb_shape(
+        font: *mut hb_font_t,
+        buf: *mut hb_buffer_t,
+        features: *const std::ffi::c_void,
+        num_features: c_uint,
+    );
+}
+
+// --- libfribidi (UAX #9) --------------------------------------------------------
+pub type FriBidiChar = u32;
+pub type FriBidiStrIndex = c_int;
+pub type FriBidiCharType = u32;
+pub type FriBidiBracketType = u32;
+pub type FriBidiParType = u32;
+pub type FriBidiLevel = i8;
+
+/// Paragraph directions (values checked against fribidi-bidi-types.h).
+pub const FRIBIDI_PAR_LTR: FriBidiParType = 0x110;
+pub const FRIBIDI_PAR_RTL: FriBidiParType = 0x111;
+pub const FRIBIDI_PAR_ON: FriBidiParType = 0x40;
+
+#[link(name = "fribidi")]
+extern "C" {
+    pub fn fribidi_get_bidi_types(
+        str: *const FriBidiChar,
+        len: FriBidiStrIndex,
+        btypes: *mut FriBidiCharType,
+    );
+    pub fn fribidi_get_bracket_types(
+        str: *const FriBidiChar,
+        len: FriBidiStrIndex,
+        types: *const FriBidiCharType,
+        btypes: *mut FriBidiBracketType,
+    );
+    /// Returns max level + 1, or 0 on failure.
+    pub fn fribidi_get_par_embedding_levels_ex(
+        bidi_types: *const FriBidiCharType,
+        bracket_types: *const FriBidiBracketType,
+        len: FriBidiStrIndex,
+        pbase_dir: *mut FriBidiParType,
+        embedding_levels: *mut FriBidiLevel,
+    ) -> FriBidiLevel;
+}

@@ -12,9 +12,9 @@ WANA_TEXT_LICENSE = GPL-2.0+
 WANA_TEXT_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = \
 	--exclude /out --exclude /target --exclude /dl --exclude /.git \
 	--exclude /rust-toolchain.toml
-# Links libharfbuzz from the target sysroot; the fonts it checks at run
-# time come from wana-fonts.
-WANA_TEXT_DEPENDENCIES = harfbuzz wana-fonts
+# Links libharfbuzz and libfribidi from the target sysroot; the fonts it
+# checks at run time come from wana-fonts.
+WANA_TEXT_DEPENDENCIES = harfbuzz libfribidi wana-fonts
 
 WANA_TEXT_CARGO_BUILD_OPTS = -p wana-text
 

@@ -5,9 +5,15 @@
 //! `font` loads a font through HarfBuzz and reports what it contains:
 //! family, glyph count, units per em, variation axes, script coverage.
 //!
-//! Later steps add shaping (HarfBuzz), BiDi (FriBidi), layout and drawing.
+//! Step 2: `bidi` resolves a paragraph's embedding levels (FriBidi, UAX
+//! #9) and orders runs visually (rule L2); `shape` turns a run into
+//! positioned glyphs (HarfBuzz), which is where Arabic letters join.
+//!
+//! Later steps add layout and drawing.
 
+pub mod bidi;
 pub mod ffi;
 pub mod font;
 pub mod fonts;
 pub mod sha256;
+pub mod shape;

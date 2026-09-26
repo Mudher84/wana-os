@@ -334,9 +334,12 @@ seat-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|INPUT)\] (warn|error)'
 
-# Decision 0002 step 1: the pinned UI fonts in the image. wana-text checks
-# /usr/share/fonts/wana against its SHA256SUMS, loads each font through
-# HarfBuzz, and requires Arabic and Latin coverage.
+# Decision 0002 steps 1-2: the pinned UI fonts in the image, verified
+# against SHA256SUMS and loaded through HarfBuzz (Arabic and Latin
+# coverage required); then Arabic shaping (joined forms, lam-alef) and BiDi
+# levels + visual order of a mixed line. The glyph IDs are from the pinned
+# Noto Naskh Arabic; they must be the same with the image's HarfBuzz 12.3
+# as with the host's 8.3.
 TEXT_ARGS := wana.run=/usr/bin/wana-text wana.test=poweroff wana.shell=0
 text-boot-test:
 	mkdir -p out/logs out/test
@@ -350,6 +353,10 @@ text-boot-test:
 		--expect '\[RENDER\] info: font loaded: NotoSansArabic-VF.ttf: "Noto Sans Arabic", 1711 glyphs, 1000 units/em' \
 		--expect '\[RENDER\] info: font loaded: NotoSans-VF.ttf: "Noto Sans", 4671 glyphs, 1000 units/em, .*covers \[Latin\]' \
 		--expect '\[RENDER\] info: fonts ok: 3 verified and loaded, Arabic and Latin covered' \
+		--expect '\[RENDER\] info: shaped "مرحبا" \(Noto Naskh Arabic, RTL\): 6 glyphs \[9 322 16 25 29 77\], width 2041 units, joined forms: yes' \
+		--expect '\[RENDER\] info: shaped "لا": lam 71 \(initial lam 70\), alef 10 \(final alef 9\): lam-alef forms: yes' \
+		--expect '\[RENDER\] info: bidi "Wana 2026 وانا" \(RTL paragraph\): levels 22222222211111, left to right: "وانا" RTL \| "Wana 2026" LTR' \
+		--expect '\[RENDER\] info: text ok: fonts, Arabic shaping and BiDi \(FriBidi, UAX #9\)' \
 		--expect '\[INIT\] info: /usr/bin/wana-text exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|RENDER)\] (warn|error)'
