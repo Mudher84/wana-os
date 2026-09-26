@@ -149,4 +149,19 @@ The tests now check what must hold for any correct Arabic rendering, not one fon
 
 ### T8: Buildroot image + `make text-boot-test` (steps 1+2) in CI
 
-- Actual: *pending*
+- Buildroot run [36247633814](https://github.com/Mudher84/wana-os/actions/runs/36247633814), commit `3c15221`:
+  - every step passed, including the new "Text fonts" step (`[BOOT] graphics test: PASS (log: out/logs/text-boot.log)`);
+  - all 13 expectations were found, and no `[INIT|RENDER]` warning or error appeared;
+  - `wana-fonts` downloaded the three files and Buildroot checked them against `wana-fonts.hash`.
+- The image's HarfBuzz 12.3.2 produces exactly the glyph IDs expected from the host's 8.3: `[9 322 16 25 29 77]`
+  for "مرحبا", and lam 71 / alef 10 for "لا". So with the same pinned font, shaping does not change across those
+  versions.
+- `ci` run 36247634014 (99 unit tests with the pinned fonts from `make fonts`, and HarfBuzz/FriBidi from the
+  runner's packages; MSRV): success.
+- Result: **PASS**
+
+## Status
+
+- Text step 1 (pinned fonts): **PASS** (T1-T4).
+- Text step 2 (shaping + BiDi): **PASS** (T5-T8).
+- Text step 3 (layout): next.
