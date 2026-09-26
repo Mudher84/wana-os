@@ -501,6 +501,7 @@ impl Compositor {
                 let w = self.windows.remove(i);
                 self.windows.push(w);
                 self.needs_redraw = true;
+                info!(COMPOSITOR, "window raised: {}", self.title_of(surface));
             }
         }
     }

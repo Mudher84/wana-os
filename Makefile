@@ -45,7 +45,7 @@ help:
 	@echo "    make input-boot-test     boot disk.img, inject keys + mouse via QEMU, wana-input must see them"
 	@echo "    make compositor-boot-test  boot disk.img, wayland-info must list wana-compositor globals"
 	@echo "    make window-boot-test    boot disk.img, a client window must appear (screenshot pixel check)"
-	@echo "    make seat-boot-test      boot disk.img, QEMU-injected keys + mouse must reach the focused client window"
+	@echo "    make seat-boot-test      boot disk.img, QEMU click raises + focuses a window, typed keys reach it"
 	@echo "    make wayland-host-test   headless compositor + test client on this host (3 protocol scenarios)"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
@@ -283,31 +283,43 @@ window-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
 
-# Phase 10 step 4: input through the compositor. QEMU types Shift+W a n a,
-# moves the mouse onto the window and clicks; the client must see the
-# pointer enter and the click, and decode "Wana" with the keymap the
-# compositor sent (the capital W proves the wl_keyboard.modifiers path).
-SEAT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--run,/usr/bin/wana-wl-test,--input,Wana wana.test=poweroff wana.shell=0
+# Phase 10 step 4: input, focus and z-order through the compositor.
+# wana-wl-test --zorder maps "back" (larger than the screen, placed at 0,0,
+# amber) and then "front" (480x320, accent) on top, which takes keyboard
+# focus. QEMU drives the pointer into the top-left corner (large relative
+# moves; the cursor clamps at the edge, so the position does not depend on
+# pointer acceleration), where only "back" is visible, clicks, and types
+# Shift+W a n a. The click must raise "back" and move keyboard focus to it
+# (the screenshot's center turns amber), and the client must decode "Wana"
+# with the compositor's keymap (the capital W proves wl_keyboard.modifiers).
+SEAT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--run,/usr/bin/wana-wl-test,--zorder,Wana,--hold,3 wana.test=poweroff wana.shell=0
 seat-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-seat.img "$(SEAT_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-seat.img --gpu virtio --input virtio --timeout 300 --memory 1024 \
 		--log out/logs/seat-boot.log \
 		--send-on 'client: ready for input' \
+		--send 'mouse_move -300 -300' --send 'mouse_move -300 -300' --send 'mouse_move -300 -300' \
+		--send 'mouse_move -300 -300' --send 'mouse_move 10 10' \
+		--send 'mouse_button 1' --send 'mouse_button 0' \
 		--send 'sendkey shift-w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
-		--send 'mouse_move 40 30' --send 'mouse_button 1' --send 'mouse_button 0' \
+		--screendump-on 'client: input received' --screendump out/test/seat.ppm \
+		--pixel 0.5,0.5=e0a030 --pixel 0.3,0.5=e0a030 --pixel 0.9,0.9=e0a030 \
 		--expect '\[INPUT\] info: keymap English \(US\) for clients: [0-9]+ bytes, sealed memfd' \
 		--expect '\[INPUT\] info: seat0 capabilities: pointer, keyboard' \
 		--expect '\[COMPOSITOR\] info: client: seat capabilities 0x3 \(pointer \+ keyboard\)' \
 		--expect '\[COMPOSITOR\] info: client: keymap received: [0-9]+ bytes, layout English \(US\)' \
-		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,240' \
-		--expect '\[COMPOSITOR\] info: keyboard focus: "wana-wl-test" \(org.wana.test\)' \
-		--expect '\[COMPOSITOR\] info: client: keyboard focus on the window \(0 key\(s\) held\)' \
-		--expect '\[COMPOSITOR\] info: client: key 42 pressed: Shift_L' \
-		--expect '\[COMPOSITOR\] info: client: key 17 pressed: W text "W"' \
-		--expect '\[COMPOSITOR\] info: client: pointer entered the window at [0-9.]+,[0-9.]+' \
-		--expect '\[COMPOSITOR\] info: client: left click at [0-9.]+,[0-9.]+' \
-		--expect '\[COMPOSITOR\] info: client: input received: typed "Wana", pointer entered, [0-9]+ motion event\(s\), 1 left click\(s\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test back" \(org.wana.test\) 1400x900 at 0,0' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 432,272' \
+		--expect '\[COMPOSITOR\] info: client: ready for input \(keyboard focus on window "front", keymap compiled\)' \
+		--expect '\[COMPOSITOR\] info: client: pointer entered window "back" at [0-9.]+,[0-9.]+' \
+		--expect '\[COMPOSITOR\] info: window raised: "wana-wl-test back" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: client: keyboard focus left window "front"' \
+		--expect '\[COMPOSITOR\] info: client: keyboard focus on window "back" \(0 key\(s\) held\)' \
+		--expect '\[COMPOSITOR\] info: client: left click on window "back" at [0-9.]+,[0-9.]+' \
+		--expect '\[COMPOSITOR\] info: client: key 42 pressed on window "back": Shift_L' \
+		--expect '\[COMPOSITOR\] info: client: key 17 pressed on window "back": W text "W"' \
+		--expect '\[COMPOSITOR\] info: client: input received: typed "Wana" on window "back", left click on window "back", [0-9]+ motion event\(s\)' \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \

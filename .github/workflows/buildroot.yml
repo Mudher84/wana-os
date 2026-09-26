@@ -126,7 +126,7 @@ jobs:
       - name: Client window (disk boot, wana-wl-test window composited by wana-compositor, screenshot pixel check)
         run: make window-boot-test
 
-      - name: Seat input (disk boot, QEMU keys + mouse routed by wana-compositor to the focused wana-wl-test window)
+      - name: Seat input, focus and z-order (disk boot, QEMU click raises and focuses a window, keys reach it, screenshot pixel check)
         run: make seat-boot-test
 
       - name: Upload logs and kernel

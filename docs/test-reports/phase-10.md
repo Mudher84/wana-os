@@ -4,7 +4,8 @@ Phase 10 is built in steps ([decision 0001](../decisions/0001-wayland-protocol-l
 1. the protocol layer and the Wayland socket;
 2. globals;
 3. surfaces on screen;
-4. input focus and z-order.
+4. input focus and z-order;
+5. the phase report and a reproducibility re-check.
 
 This report grows with each step.
 
@@ -485,7 +486,9 @@ Components:
   `Display::with_handler` now flushes the clients when it returns.
 - Event loop: the libinput fd is part of the same `poll()`. Input is opened only with a real display; headless
   runs are protocol tests without devices.
-- `wana-wl-test --input TEXT`:
+- `wana-wl-test` was split into modules: `window.rs` creates and maps a window, `input.rs` handles the seat and
+  focus, and `main.rs` holds the scenarios.
+- `wana-wl-test --input TEXT` (one window, "main"):
   1. binds wl_seat and waits until the seat has both a pointer and a keyboard;
   2. maps the keymap fd with `MAP_PRIVATE` and compiles it;
   3. maps its window and waits for keyboard focus, then logs `client: ready for input`;
@@ -495,8 +498,17 @@ Components:
   While doing this, a client bug was fixed: waiting for the configure event discarded every other event, including
   the keymap and the keyboard enter. Every event now also goes to the input handler, and events already queued are
   handled before the client blocks.
-- Buildroot: `wana-compositor` depends on udev, libinput, libxkbcommon and xkeyboard-config. The new target
-  `make seat-boot-test` runs in CI.
+- `wana-wl-test --zorder TEXT` (two windows):
+  - "back" is 1400x900, larger than the screen, so it is placed at 0,0 and covers the screen (amber);
+  - "front" is 480x320 in the accent color, mapped second, so it is on top and gets keyboard focus;
+  - the client then expects a click on "back" (visible only outside "front", e.g. in the top-left corner), keyboard
+    focus moving to "back", and TEXT typed into it.
+- Buildroot: `wana-compositor` depends on udev, libinput, libxkbcommon and xkeyboard-config.
+- `make seat-boot-test` (in CI) runs the z-order scenario:
+  - QEMU drives the pointer into the corner with large relative moves. The cursor clamps at the screen edge, so the
+    position does not depend on pointer acceleration.
+  - QEMU then clicks and types Shift+W a n a.
+  - The screenshot pixels must show "back" above "front".
 - T8 no longer applies to wl_seat: its requests are implemented now.
 
 ### T16: Unit tests (local)
@@ -545,20 +557,56 @@ Components:
   - The pointer moved relatively on the PS/2 mouse, from the output center (640,400) by the accelerated
     (22,16.5), and entered the window at (262,176.5), which is 662-400 and 416.5-240.
   - The enter carried the position, so no separate motion was needed.
-- All 15 expectations of `make seat-boot-test` matched this log. None of its reject patterns matched: no
+- All 15 expectations of the first, single-window version of `make seat-boot-test` matched this log. T18 replaced that
+  version with the z-order scenario, and the client's log lines now name the window. None of its reject patterns matched: no
   `[INIT|COMPOSITOR|DRM|RENDER|INPUT]` warning or error.
 - Screenshot: the arrow is drawn with its tip at (661,416), black outline and white fill, over the window. The
   pointer x was 661.99; the tip pixel is the one that contains that position.
 - Result: **PASS**
 
-### T18: Regressions (local)
+### T18: Click raises and focuses, typing follows the focus (local, QEMU TCG, the exact `make seat-boot-test` arguments)
+
+- `wana-wl-test --zorder Wana`:
+  ```
+  [COMPOSITOR] info: window mapped: "wana-wl-test back" (org.wana.test) 1400x900 at 0,0 (surface 11)
+  [COMPOSITOR] info: keyboard focus: "wana-wl-test back" (org.wana.test)
+  [COMPOSITOR] info: client: keyboard focus on window "back" (0 key(s) held)
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 432,272 (surface 17)
+  [COMPOSITOR] info: keyboard focus: "wana-wl-test" (org.wana.test)
+  [COMPOSITOR] info: client: keyboard focus left window "back"
+  [COMPOSITOR] info: client: keyboard focus on window "front" (0 key(s) held)
+  [COMPOSITOR] info: client: ready for input (keyboard focus on window "front", keymap compiled)
+  [COMPOSITOR] info: client: pointer entered window "front" at 95.8,15.8
+  [COMPOSITOR] info: client: pointer left window "front"
+  [COMPOSITOR] info: client: pointer entered window "back" at 295.0,55.0
+  [COMPOSITOR] info: window raised: "wana-wl-test back" (org.wana.test)
+  [COMPOSITOR] info: client: keyboard focus left window "front"
+  [COMPOSITOR] info: client: keyboard focus on window "back" (0 key(s) held)
+  [COMPOSITOR] info: client: left click on window "back" at 17.6,17.6
+  [COMPOSITOR] info: client: input received: typed "Wana" on window "back", left click on window "back", 11 motion event(s)
+  ```
+  (The motion and click coordinates are from the first run of this scenario. The run with the exact CI arguments
+  matched the same expectations.)
+- Each rule shows in the log:
+  - a newly mapped window takes keyboard focus;
+  - the pointer's focus follows the cursor across windows, with a leave before each enter;
+  - the button press raises the window under the cursor and moves keyboard focus to it (leave on the old window,
+    enter on the new) before the button event itself is delivered;
+  - typing goes to the new focus.
+- Screenshot: (640,400), (384,400) and (1152,720) are all `#e0a030`. "back" is now drawn above "front", which
+  covered the screen's center before the click.
+- All 18 expectations and the 3 pixel checks of `make seat-boot-test` passed, and no `[INIT|COMPOSITOR|DRM|RENDER|INPUT]`
+  warning or error appeared.
+- Result: **PASS**
+
+### T19: Regressions (local)
 
 - `make wayland-host-test`: 3 of 3 scenarios pass (headless runs open no input).
 - The window test (`wana-wl-test --hold 5`, no input sent) with the new binaries: all 5 pixels exact. The cursor
   stays hidden until a pointing device is used.
 - Result: **PASS**
 
-### T19: Buildroot image + `make seat-boot-test` in CI
+### T20: Buildroot image + `make seat-boot-test` in CI
 
 - Actual: *pending*
 
@@ -569,4 +617,4 @@ Components:
 - T10: console-split robustness fix: **PASS** (local and CI).
 - T11: reproducibility with the Wayland stack: **PASS** (12/12).
 - Step 3: **PASS** (T12-T15).
-- Step 4: T16-T18 pass locally; T19 (CI) is pending.
+- Step 4: T16-T19 pass locally; T20 (CI) is pending.
