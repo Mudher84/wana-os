@@ -334,12 +334,15 @@ seat-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|INPUT)\] (warn|error)'
 
-# Decision 0002 steps 1-2: the pinned UI fonts in the image, verified
-# against SHA256SUMS and loaded through HarfBuzz (Arabic and Latin
-# coverage required); then Arabic shaping (joined forms, lam-alef) and BiDi
-# levels + visual order of a mixed line. The glyph IDs are from the pinned
-# Noto Naskh Arabic; they must be the same with the image's HarfBuzz 12.3
-# as with the host's 8.3.
+# Decision 0002, text steps 1-3, in the image:
+# 1. the pinned UI fonts, verified against SHA256SUMS and loaded through
+#    HarfBuzz (Arabic and Latin coverage required);
+# 2. Arabic shaping (joined forms, lam-alef) and the BiDi levels and visual
+#    order of a mixed line;
+# 3. layout of a mixed line in a narrow width: line breaks, fallback fonts,
+#    right alignment, carets.
+# Glyph IDs and widths come from the pinned fonts. They were recorded with
+# the host's HarfBuzz 8.3 and must be the same with the image's 12.3.
 TEXT_ARGS := wana.run=/usr/bin/wana-text wana.test=poweroff wana.shell=0
 text-boot-test:
 	mkdir -p out/logs out/test
@@ -357,6 +360,9 @@ text-boot-test:
 		--expect '\[RENDER\] info: shaped "لا": lam 71 \(initial lam 70\), alef 10 \(final alef 9\): lam-alef forms: yes' \
 		--expect '\[RENDER\] info: bidi "Wana 2026 وانا" \(RTL paragraph\): levels 22222222211111, left to right: "وانا" RTL \| "Wana 2026" LTR' \
 		--expect '\[RENDER\] info: text ok: fonts, Arabic shaping and BiDi \(FriBidi, UAX #9\)' \
+		--expect '\[RENDER\] info: layout "مرحبا بك في Wana 2026" at 20px in 120px: 2 lines: "مرحبا بك في" 100.0px fonts \{1\} / "Wana 2026" 104.0px fonts \{0\}' \
+		--expect '\[RENDER\] info: layout checks: fits true, right-aligned true, carets right to left true, clicks round-trip true' \
+		--expect '\[RENDER\] info: text ok: layout \(line breaks, fallback fonts, alignment, carets\)' \
 		--expect '\[INIT\] info: /usr/bin/wana-text exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|RENDER)\] (warn|error)'

@@ -9,11 +9,16 @@
 //! #9) and orders runs visually (rule L2); `shape` turns a run into
 //! positioned glyphs (HarfBuzz), which is where Arabic letters join.
 //!
-//! Later steps add layout and drawing.
+//! Step 3: `layout` breaks text into lines in a width, picks fonts from a
+//! fallback chain, orders runs visually per line, aligns (start = right
+//! for RTL) and maps carets between logical offsets and x.
+//!
+//! Drawing follows.
 
 pub mod bidi;
 pub mod ffi;
 pub mod font;
 pub mod fonts;
+pub mod layout;
 pub mod sha256;
 pub mod shape;

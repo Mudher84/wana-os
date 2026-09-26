@@ -176,3 +176,23 @@ extern "C" {
         embedding_levels: *mut FriBidiLevel,
     ) -> FriBidiLevel;
 }
+
+// --- font metrics (hb-font.h) -----------------------------------------------------
+/// `hb_font_extents_t` (48 bytes: 3 values + 9 reserved; checked with the C
+/// compiler). Descender is negative (below the baseline).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct hb_font_extents_t {
+    pub ascender: i32,
+    pub descender: i32,
+    pub line_gap: i32,
+    pub reserved: [i32; 9],
+}
+
+#[link(name = "harfbuzz")]
+extern "C" {
+    pub fn hb_font_get_h_extents(
+        font: *mut hb_font_t,
+        extents: *mut hb_font_extents_t,
+    ) -> hb_bool_t;
+}

@@ -160,8 +160,69 @@ The tests now check what must hold for any correct Arabic rendering, not one fon
   runner's packages; MSRV): success.
 - Result: **PASS**
 
+## Text step 3: layout
+
+Components (`wana-text/src/layout.rs`), for each paragraph (text between `\n`):
+1. BiDi levels for the paragraph (automatic, LTR or RTL base).
+2. Items: maximal ranges with one level and one font.
+   - The font is the first one in the fallback chain (`FontSet`, in preference order: Noto Sans, then Noto Sans
+     Arabic) that has the character.
+   - Neutrals (spaces, digits, punctuation) stay in the previous item's font when it has them. So the digits of
+     "سنة 2026" stay in the Arabic font instead of jumping to the Latin one.
+3. Measuring: each item is shaped once, giving advances per character.
+4. Line breaking: greedy, after spaces. A word wider than the line is broken between characters.
+5. Per line:
+   - the line's pieces of items are reordered visually (L2 from step 2);
+   - each piece is shaped again on its own, so a broken word is shaped as what actually is on the line;
+   - trailing spaces are left out of the width;
+   - the line is aligned: Start = the paragraph's start side (right for RTL), End or Center;
+   - every line has the same height (the largest ascent, descent and line gap in the set).
+6. Carets:
+   - `caret(offset)` puts the caret at the leading edge of the character at that offset: the left edge for LTR, the
+     right edge for RTL; at the end of a line it is at the trailing edge of the last character;
+   - `hit(line, x)` returns the offset whose caret is nearest, so a click lands where a caret would be drawn.
+- `hb_font_extents_t` (48 bytes: 3 values and 9 reserved) was checked with the C compiler.
+
+### T9: Unit tests (local)
+
+- A Latin line runs left to right: clusters in order, x increasing, and the width is the sum of the advances.
+- An Arabic line is right-aligned at the start and reads right to left: the first word is at the right.
+- Mixed "Wana 2026 وانا" in an RTL paragraph: the Arabic word (Arabic font) is left of "Wana 2026" (Noto Sans).
+- Digits after Arabic stay in the Arabic font and read left to right inside the RTL line.
+- Breaking: two lines, the break after a space, every line within the width and right-aligned, baselines one line
+  height apart.
+- A word wider than the line is broken between characters, every line fits, and every character is on some line.
+- Paragraphs: a direction per paragraph; the second paragraph's byte range is right.
+- Alignment End and Center.
+- Carets move right to left in Arabic (from the right edge to the left edge) and left to right in Latin.
+- Clicks: for every offset of the mixed line, hitting its caret's x returns an offset with a caret at the same x.
+  Where an LTR run meets an RTL one, two offsets share a place on the screen, the usual bidirectional caret.
+- Golden layout: font, glyph ID and x of every glyph of the mixed line, checked by hand when recorded:
+  - left to right: final alef 9, initial noon 19 with its dot 283, isolated alef 8 (waw does not join to its left),
+    waw 98, the space, then "Wana 2026";
+  - any change to itemizing, shaping, L2 or positioning shows up here.
+- 110 tests in the workspace, on the pinned toolchain and on Rust 1.88.
+- Result: **PASS**
+
+### T10: Layout in a QEMU boot (local, the exact `make text-boot-test` expectations)
+
+```
+[RENDER] info: layout "مرحبا بك في Wana 2026" at 20px in 120px: 2 lines: "مرحبا بك في" 100.0px fonts {1} / "Wana 2026" 104.0px fonts {0}
+[RENDER] info: layout checks: fits true, right-aligned true, carets right to left true, clicks round-trip true
+[RENDER] info: text ok: layout (line breaks, fallback fonts, alignment, carets)
+```
+- All 16 expectations were found (13 from steps 1-2 and 3 new), and no `[INIT|RENDER]` warning or error appeared.
+- The break falls between "في" and "Wana". Each line uses one font from the chain. Both lines are right-aligned,
+  because the paragraph is Arabic, including the Latin line.
+- Result: **PASS**
+
+### T11: Buildroot image + `make text-boot-test` (steps 1-3) in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
 - Text step 2 (shaping + BiDi): **PASS** (T5-T8).
-- Text step 3 (layout): next.
+- Text step 3 (layout): T9-T10 pass locally; T11 (CI) is pending.
+- Text step 4 (drawing: glyph rasterization with FreeType, glyph atlas): next.

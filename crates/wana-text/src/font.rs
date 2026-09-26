@@ -62,6 +62,14 @@ impl Font {
         unsafe { ffi::hb_face_get_upem(self.face.as_ptr()) }
     }
 
+    /// Ascender, descender (negative) and line gap in font units.
+    pub fn extents(&self) -> (i32, i32, i32) {
+        let mut e = ffi::hb_font_extents_t::default();
+        // SAFETY: font is valid; e is a valid out pointer.
+        unsafe { ffi::hb_font_get_h_extents(self.font.as_ptr(), &mut e) };
+        (e.ascender, e.descender, e.line_gap)
+    }
+
     /// File size as HarfBuzz mapped it.
     pub fn bytes(&self) -> u32 {
         // SAFETY: blob is valid.

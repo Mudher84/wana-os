@@ -11,6 +11,10 @@
 //! and visual run order of a mixed Arabic/Latin/number line. Exits 1 if
 //! Arabic does not join or the BiDi order is wrong.
 //!
+//! Step 3: lays out an Arabic line with Latin and digits in a narrow width
+//! (fonts from the fallback chain, line breaks, right alignment) and checks
+//! that the carets move right to left and clicks map back.
+//!
 //! Usage: wana-text [--fonts DIR]   (default /usr/share/fonts/wana)
 
 use std::path::PathBuf;
@@ -19,6 +23,7 @@ use wana_log::{error, info, Subsystem};
 use wana_text::bidi::{self, Base};
 use wana_text::font::{Font, ARABIC_SAMPLE, LATIN_SAMPLE};
 use wana_text::fonts;
+use wana_text::layout::{layout, Align, FontSet, Style};
 use wana_text::shape::{shape, width, Glyph};
 
 const RENDER: Subsystem = Subsystem::Render;
@@ -102,7 +107,80 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
         verified.len()
     );
     shaping(&dir.join("NotoNaskhArabic-VF.ttf"))?;
-    bidi_check()
+    bidi_check()?;
+    layout_check(dir)
+}
+
+fn layout_check(dir: &std::path::Path) -> Result<(), String> {
+    let set = FontSet {
+        fonts: vec![
+            Font::load(&dir.join("NotoSans-VF.ttf"))?,
+            Font::load(&dir.join("NotoSansArabic-VF.ttf"))?,
+        ],
+    };
+    let text = "مرحبا بك في Wana 2026";
+    let width = 120.0;
+    let style = Style {
+        size: 20.0,
+        base: Base::Auto,
+        align: Align::Start,
+        width: Some(width),
+        language: "ar".into(),
+    };
+    let l = layout(text, &set, &style)?;
+    let lines: Vec<String> = l
+        .lines
+        .iter()
+        .map(|ln| {
+            let fonts: std::collections::BTreeSet<usize> =
+                ln.glyphs.iter().map(|g| g.font).collect();
+            format!(
+                "\"{}\" {:.1}px fonts {:?}",
+                &text[ln.start..ln.content_end],
+                ln.width,
+                fonts
+            )
+        })
+        .collect();
+    let fits = l.lines.iter().all(|ln| ln.width <= width + 0.001);
+    let right = l
+        .lines
+        .iter()
+        .all(|ln| ln.rtl && (ln.x + ln.width - width).abs() < 0.001);
+    // Carets on the first line move right to left; every caret's click
+    // position maps back to a caret at the same place.
+    let first = &l.lines[0];
+    let offs: Vec<usize> = text[first.start..first.content_end]
+        .char_indices()
+        .map(|(i, _)| first.start + i)
+        .chain([first.content_end])
+        .collect();
+    let xs: Vec<f32> = offs.iter().map(|&o| l.caret(o).1).collect();
+    let rtl_carets = xs.windows(2).all(|w| w[0] > w[1]);
+    let round_trip = (0..=text.len())
+        .filter(|&o| text.is_char_boundary(o))
+        .all(|o| {
+            let (li, x) = l.caret(o);
+            (l.caret(l.hit(li, x)).1 - x).abs() < 0.001
+        });
+    info!(
+        RENDER,
+        "layout \"{text}\" at 20px in {width}px: {} lines: {}",
+        l.lines.len(),
+        lines.join(" / ")
+    );
+    info!(
+        RENDER,
+        "layout checks: fits {fits}, right-aligned {right}, carets right to left {rtl_carets}, clicks round-trip {round_trip}"
+    );
+    if !(fits && right && rtl_carets && round_trip) {
+        return Err("layout checks failed".into());
+    }
+    info!(
+        RENDER,
+        "text ok: layout (line breaks, fallback fonts, alignment, carets)"
+    );
+    Ok(())
 }
 
 fn ids(g: &[Glyph]) -> String {
