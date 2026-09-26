@@ -36,6 +36,8 @@ pub enum Role {
     Xdg(Resource),
     /// wl_pointer.set_cursor made it a cursor image.
     Cursor,
+    /// A layer surface (wlr-layer-shell), by its zwlr_layer_surface_v1.
+    Layer(Resource),
 }
 
 /// Double-buffered wl_surface state.
@@ -149,11 +151,14 @@ pub fn xdg_commit(xdg: &XdgSurface, attach: Attach) -> XdgCommit {
     }
 }
 
-/// Places the n-th window: centered, then cascaded by 32 px.
-pub fn place(n: usize, out_w: i32, out_h: i32, w: i32, h: i32) -> (i32, i32) {
+/// Places the n-th window in `area` (x, y, width, height: the output minus
+/// the layer surfaces' exclusive zones): centered, then cascaded by 32 px,
+/// kept inside the area when it fits.
+pub fn place(n: usize, area: (i32, i32, i32, i32), w: i32, h: i32) -> (i32, i32) {
+    let (ax, ay, aw, ah) = area;
     let step = 32 * n as i32;
-    let x = ((out_w - w) / 2 + step).clamp(0, (out_w - w).max(0));
-    let y = ((out_h - h) / 2 + step).clamp(0, (out_h - h).max(0));
+    let x = ax + ((aw - w) / 2 + step).clamp(0, (aw - w).max(0));
+    let y = ay + ((ah - h) / 2 + step).clamp(0, (ah - h).max(0));
     (x, y)
 }
 
@@ -226,17 +231,12 @@ mod tests {
 
     #[test]
     fn windows_are_centered_then_cascaded_on_screen() {
-        assert_eq!(place(0, 1280, 800, 480, 320), (400, 240));
-        assert_eq!(place(1, 1280, 800, 480, 320), (432, 272));
-        assert_eq!(
-            place(0, 1280, 800, 2000, 100),
-            (0, 350),
-            "clamped when larger"
-        );
-        assert_eq!(
-            place(50, 1280, 800, 480, 320),
-            (800, 480),
-            "stays on screen"
-        );
+        let out = (0, 0, 1280, 800);
+        assert_eq!(place(0, out, 480, 320), (400, 240));
+        assert_eq!(place(1, out, 480, 320), (432, 272));
+        assert_eq!(place(0, out, 2000, 100), (0, 350), "clamped when larger");
+        assert_eq!(place(50, out, 480, 320), (800, 480), "stays on screen");
+        // Below a 40 px top bar: centered in what is left.
+        assert_eq!(place(0, (0, 40, 1280, 760), 480, 320), (400, 260));
     }
 }

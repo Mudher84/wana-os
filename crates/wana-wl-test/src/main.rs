@@ -41,11 +41,15 @@
 //! hidden global would do) and expects the connection to end with
 //! wl_display.error invalid_object on the registry.
 //!
+//! `--layers` / `--layer-invalid-size` (as the shell): layer surfaces, see
+//! `layers.rs`.
+//!
 //! Keys are decoded with the compositor's keymap and modifier state.
 //! Lines are tagged `[COMPOSITOR] info: client: ...`.
 
 mod client;
 mod input;
+mod layers;
 mod text;
 mod window;
 
@@ -80,6 +84,9 @@ enum Mode {
     /// (global, expected visible)
     Globals(Vec<(String, bool)>),
     TryBindHidden(String),
+    /// As the shell: background + top bar layer surfaces, then a window.
+    Layers,
+    LayerInvalidSize,
 }
 
 fn main() -> ExitCode {
@@ -93,6 +100,8 @@ fn main() -> ExitCode {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
             "--text" => mode = Mode::Text,
+            "--layers" => mode = Mode::Layers,
+            "--layer-invalid-size" => mode = Mode::LayerInvalidSize,
             "--try-bind-hidden" => match it.next() {
                 Some(iface) => mode = Mode::TryBindHidden(iface),
                 None => {
@@ -221,6 +230,63 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
     };
     let wm_base = shell.wm_base;
     info!(LOG, "client: bound wl_compositor, wl_shm, xdg_wm_base");
+
+    if matches!(mode, Mode::Layers | Mode::LayerInvalidSize) {
+        let name = seen
+            .iter()
+            .zip(&seen_names)
+            .find(|((n, _), _)| n == "zwlr_layer_shell_v1")
+            .map(|(_, id)| *id)
+            .ok_or("zwlr_layer_shell_v1 not advertised (am I the shell?)")?;
+        let layer_shell = conn
+            .request(
+                registry,
+                wayland::wl_registry::request::BIND,
+                Some((
+                    &wana_wayland::protocols::wlr_layer_shell_unstable_v1::ZWLR_LAYER_SHELL_V1_INTERFACE,
+                    4,
+                )),
+                &[
+                    Req::Uint(name),
+                    Req::Str("zwlr_layer_shell_v1"),
+                    Req::Uint(4),
+                    Req::NewId,
+                ],
+            )?
+            .expect("layer shell");
+        if *mode == Mode::LayerInvalidSize {
+            return layers::invalid_size(&conn, &shell, layer_shell);
+        }
+        layers::map(
+            &conn,
+            &shell,
+            layer_shell,
+            layers::Spec {
+                namespace: "wana-desktop",
+                layer: layers::BACKGROUND,
+                anchor: layers::ANCHOR_ALL,
+                width: 0,
+                height: 0,
+                zone: -1,
+                rgb: layers::DESKTOP_RGB,
+            },
+        )?;
+        layers::map(
+            &conn,
+            &shell,
+            layer_shell,
+            layers::Spec {
+                namespace: "wana-bar",
+                layer: layers::TOP,
+                anchor: layers::ANCHOR_TOP_BAR,
+                width: 0,
+                height: layers::BAR_HEIGHT,
+                zone: layers::BAR_HEIGHT as i32,
+                rgb: layers::BAR_RGB,
+            },
+        )?;
+        info!(LOG, "client: background and bar layers mapped");
+    }
 
     // Input objects exist before any window maps, so no focus event is lost.
     let mut devices = match mode {
@@ -429,7 +495,7 @@ pub(crate) fn wait_for<T>(
 }
 
 /// Expects the connection to end with `interface` error `code`.
-fn expect_error(conn: &Connection, interface: &str, code: u32) -> Result<(), String> {
+pub(crate) fn expect_error(conn: &Connection, interface: &str, code: u32) -> Result<(), String> {
     let err = match conn.roundtrip() {
         Ok(()) => conn.roundtrip().err(),
         Err(e) => Some(e),

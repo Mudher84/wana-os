@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -49,6 +49,7 @@ help:
 	@echo "    make wayland-host-test   headless compositor + test client on this host (3 protocol scenarios)"
 	@echo "    make text-boot-test      boot disk.img, wana-text: pinned fonts, Arabic shaping, BiDi, layout"
 	@echo "    make text-window-boot-test  boot disk.img, Arabic text drawn by wana-text in a window (hash + screenshot)"
+	@echo "    make layer-boot-test     boot disk.img, the shell maps a background and a top bar; a window goes below the bar"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -397,9 +398,39 @@ text-window-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
 
+# Phase 11 shell step 2 (decision 0003): layer surfaces. wana-wl-test runs
+# as the shell on the private connection: a background (all edges, zone -1)
+# and a 40 px top bar (zone 40) through the configure handshake, then an
+# ordinary window, which must be centered in what the bar leaves: 400,260.
+# Pixels: the bar, the desktop left of and above the window, the window's
+# top border and its interior.
+LAYER_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--shell,/usr/bin/wana-wl-test,--shell-arg,--layers,--shell-arg,--hold,--shell-arg,3,--exit-with-shell wana.test=poweroff wana.shell=0
+layer-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-layer.img "$(LAYER_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-layer.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/layer-boot.log \
+		--screendump-on 'client: holding window' --screendump out/test/layer.ppm \
+		--pixel 0.5,0.025=0b0f1a --pixel 0.078125,0.5=1b3a5c --pixel 0.5,0.3125=1b3a5c \
+		--pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: client: layer "wana-desktop" configured 1280x800' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-desktop" on layer background at 0,0 1280x800 \(exclusive zone -1\)' \
+		--expect '\[COMPOSITOR\] info: client: layer "wana-bar" configured 1280x40' \
+		--expect '\[COMPOSITOR\] info: usable area for windows: 0,40 1280x760' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-bar" on layer top at 0,0 1280x40 \(exclusive zone 40\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
+
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
 WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
+# The shell alone, the compositor stopping with it (layer surfaces).
+WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+	--exit-with-shell --shell target/release/wana-wl-test --shell-arg
 # The same compositor with a shell on the private connection (decision 0003).
 WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1
@@ -425,7 +456,14 @@ wayland-host-test: fonts
 	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
 		grep -q 'binds: .*zwlr_layer_shell_v1 0' $$dir/bind.log && \
-		echo "[COMPOSITOR] check: binding the hidden global by guessing its name -> invalid_object: PASS" || \
+		echo "[COMPOSITOR] check: binding the hidden global by guessing its name -> invalid_object: PASS" && \
+	$(WAYLAND_HOST_LAYERS) --layers > $$dir/layers.log 2>&1 && \
+		grep -q 'usable area for windows: 0,40 1280x760' $$dir/layers.log && \
+		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$dir/layers.log && \
+		echo "[COMPOSITOR] check: background + bar layer surfaces, window placed below the bar: PASS" && \
+	$(WAYLAND_HOST_LAYERS) --layer-invalid-size > $$dir/badlayer.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: zwlr_layer_surface_v1@[0-9]* code 1' $$dir/badlayer.log && \
+		echo "[COMPOSITOR] check: layer width 0 without both side anchors -> invalid_size: PASS" || \
 	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$dir/*.log >&2; exit 1; }
 
 br-%: buildroot-src

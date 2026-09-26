@@ -7,7 +7,7 @@
 //! | `wl_output` | 4 | geometry, mode, scale, name, description, done from DRM | |
 //! | `wl_seat` | 7 | `seat0`: pointer (enter/leave/motion/button/axis/frame, set_cursor) and keyboard (xkb keymap, enter/leave/key/modifiers, repeat info), capabilities from the devices present (`input.rs`) | touch |
 //! | `xdg_wm_base` | 1 | xdg_surface + xdg_toplevel with the configure handshake | popups, interactive move/resize |
-//! | `zwlr_layer_shell_v1` | 4 | privileged: only the shell sees it (decision 0003) | layer surfaces: Phase 11 step 2 |
+//! | `zwlr_layer_shell_v1` | 4 | privileged: only the shell sees it (decision 0003); layer surfaces with anchors, margins, exclusive zones, keyboard interactivity, stacking (`shell_surfaces.rs`, `layer.rs`) | popups |
 //!
 //! A version is advertised only when every request of that version is
 //! handled or answered with a clear protocol error; it is never above the
@@ -146,6 +146,11 @@ pub struct Compositor {
     /// Upload pixels to GL textures (a GL context is current).
     gpu: bool,
     pub(crate) surfaces: HashMap<Resource, Surface>,
+    /// Layer surfaces (by zwlr_layer_surface_v1) and their creation order.
+    pub(crate) layers: HashMap<Resource, crate::shell_surfaces::LayerSurface>,
+    pub(crate) layer_order: Vec<Resource>,
+    /// The output minus the layer surfaces' exclusive zones.
+    pub(crate) usable: crate::layer::Rect,
     pub(crate) content: HashMap<Resource, Content>,
     pools: HashMap<Resource, SharedPool>,
     buffers: HashMap<Resource, (SharedPool, BufferLayout)>,
@@ -182,7 +187,16 @@ impl Compositor {
             None
         };
         let seat = Seat::new(output.width, output.height);
+        let usable = crate::layer::Rect {
+            x: 0,
+            y: 0,
+            w: output.width,
+            h: output.height,
+        };
         Compositor {
+            layers: HashMap::new(),
+            layer_order: Vec::new(),
+            usable,
             output,
             globals,
             binds,
@@ -205,21 +219,11 @@ impl Compositor {
         }
     }
 
-    /// Textures of the mapped windows, bottom to top, with positions, then
-    /// the cursor.
-    pub fn scene(&self) -> Vec<(&Texture, i32, i32)> {
-        self.windows
-            .iter()
-            .filter_map(|w| match self.content.get(&w.surface) {
-                Some(Content::Texture(t)) => Some((t, w.x, w.y)),
-                _ => None,
-            })
-            .chain(self.cursor_image())
-            .collect()
-    }
-
     /// `"title" (app_id)` of the window on `surface`, for the log.
     pub(crate) fn title_of(&self, surface: Resource) -> String {
+        if let Some(l) = self.layer_of(surface) {
+            return format!("layer {:?}", l.namespace);
+        }
         let Some(Role::Xdg(xs)) = self.surfaces.get(&surface).map(|s| s.role) else {
             return format!("surface {surface:?}");
         };
@@ -487,7 +491,11 @@ impl Compositor {
             return;
         };
         let attach = std::mem::replace(&mut s.attach, Attach::Unchanged);
-        if let Role::Xdg(xs) = s.role {
+        if let Role::Layer(ls) = s.role {
+            if !self.layer_commit(ctx, ls, attach) {
+                return;
+            }
+        } else if let Role::Xdg(xs) = s.role {
             let Some(xdg) = self.xdg.get_mut(&xs) else {
                 return;
             };
@@ -565,6 +573,7 @@ impl Compositor {
         }
         s.scale = s.pending_scale;
         self.update_mapping(ctx, res);
+        self.layer_update_mapping(ctx, res);
     }
 
     /// Copies the buffer's pixels (texture or size), releases the buffer.
@@ -629,13 +638,8 @@ impl Compositor {
         match (visible, index) {
             (true, None) => {
                 let (w, h) = s.content.unwrap_or((0, 0));
-                let (x, y) = place(
-                    self.mapped_total,
-                    self.output.width,
-                    self.output.height,
-                    w,
-                    h,
-                );
+                let u = self.usable;
+                let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
                 self.windows.push(Window { surface, x, y });
                 let title = self.title_of(surface);
@@ -839,12 +843,10 @@ impl Handler for Compositor {
             self.xdg_surface_request(ctx, res, opcode, &args);
         } else if is(&xdg_shell::XDG_TOPLEVEL_INTERFACE) {
             self.toplevel_request(res, opcode, &args);
-        } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE)
-            && opcode == layer_shell::zwlr_layer_shell_v1::request::GET_LAYER_SURFACE
-        {
-            let why = "layer surfaces arrive in Phase 11 step 2";
-            warn!(COMPOSITOR, "zwlr_layer_shell_v1.get_layer_surface: {why}");
-            ctx.implementation_error(res, &format!("get_layer_surface: {why}"));
+        } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE) {
+            self.layer_shell_request(ctx, res, opcode, &args);
+        } else if is(&layer_shell::ZWLR_LAYER_SURFACE_V1_INTERFACE) {
+            self.layer_surface_request(ctx, res, opcode, &args);
         } else if is(&wayland::WL_SEAT_INTERFACE) {
             self.seat_request(ctx, res, opcode, &args);
         } else if is(&wayland::WL_POINTER_INTERFACE) {
@@ -874,6 +876,11 @@ impl Handler for Compositor {
                     x.surface = None;
                 }
             }
+            if let Role::Layer(ls) = s.role {
+                self.layer_surface_gone(ctx, ls);
+            }
+        } else if self.layers.contains_key(&res) {
+            self.layer_destroyed(ctx, res);
         } else if self.buffers.remove(&res).is_some() {
             // A pending attach of this buffer becomes "no buffer" at commit.
         } else if self.pools.remove(&res).is_some() {

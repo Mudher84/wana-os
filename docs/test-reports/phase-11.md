@@ -359,6 +359,90 @@ Components:
 
 - Actual: *pending*
 
+## Shell step 2: layer surfaces
+
+Components:
+- `wana-compositor/src/layer.rs`: the rules, free of libwayland and unit-tested.
+  - Validation: a size of 0 needs both opposite anchors (`invalid_size`); the anchor is 4 bits (`invalid_anchor`);
+    layer 0..3, keyboard interactivity 0..2.
+  - The exclusive edge: a positive zone counts only when the surface is anchored to one edge, or one edge and both
+    perpendicular ones.
+  - Arrangement:
+    - surfaces with a positive zone first, from overlay down to background, each against the area still usable,
+      each taking its zone plus margin off that edge;
+    - then the others in the usable area (zone 0) or on the whole output (zone -1);
+    - a size of 0 stretches between the anchors minus the margins, and an unanchored axis is centered.
+- `wana-compositor/src/shell_surfaces.rs`: the protocol.
+  - `get_layer_surface` checks the surface's role (`role`), a buffer already attached (`already_constructed`) and
+    the layer (`invalid_layer`).
+  - State is double-buffered and validated at commit.
+  - The handshake is xdg's: an initial commit without a buffer, then configure (serial, width, height), then ack;
+    a buffer before the ack is `invalid_surface_state`.
+  - A null buffer unmaps the surface and returns it to its state right after `get_layer_surface`.
+  - After every layer commit the surfaces are arranged again. Each one whose size changed gets a new configure, and
+    windows are placed in the area left for them.
+  - A surface reserves its zone only while mapped, so windows do not move for a panel that is not on screen yet.
+  - `get_popup` is refused for now with an implementation error.
+- Stacking (`stack()`): background, then bottom, then windows, then top, then overlay. Drawing and input both use
+  it.
+- Input:
+  - the pointer hit test covers layer surfaces too;
+  - a click on a layer surface with keyboard interactivity `none` does not take the keyboard, and does not raise
+    anything;
+  - a mapped top/overlay surface with `exclusive` interactivity holds the keyboard until it unmaps. This is for the
+    launcher and the lock screen.
+- `surface::place` centers new windows in the usable area instead of the whole output.
+- The compositor has `--exit-with-shell` for tests: it stops when the shell exits and returns the shell's result.
+- `wana-wl-test`:
+  - `--layers`, run as the shell: a background (all edges, zone -1) and a 40 px top bar (zone 40), each through the
+    handshake, then an ordinary window;
+  - `--layer-invalid-size`: width 0 anchored only to the top.
+
+### T21: Unit tests (local)
+
+- Validation and anchor, layer and keyboard ranges.
+- The exclusive edge for every anchor case in the protocol text (one edge, one edge and both perpendicular edges, a
+  corner, parallel edges, all edges, zone 0).
+- Arrangement:
+  - a background at -1 covers the output while the bar takes 40 px;
+  - zones stack in layer order and include margins: a top bar with margin 4, a left panel below it, a bottom dock
+    centered in what is left;
+  - a zone 0 notification moves below the bar;
+  - an unanchored launcher is centered.
+- Window placement inside the usable area: 400,260 below a 40 px bar.
+- All passed on their first run. 122 tests in the workspace.
+- Result: **PASS**
+
+### T22: On the host (headless) and in a QEMU boot (local, the exact `make layer-boot-test` expectations)
+
+- `make wayland-host-test`: 8 of 8. The new scenarios:
+  - background + bar, and the window below the bar;
+  - width 0 without both side anchors: `zwlr_layer_surface_v1 error 1: width 0 needs anchors to both the left and
+    the right edge`.
+- QEMU:
+  ```
+  [COMPOSITOR] info: client: layer "wana-desktop" configured 1280x800 (serial 1)
+  [COMPOSITOR] info: layer surface mapped: "wana-desktop" on layer background at 0,0 1280x800 (exclusive zone -1)
+  [COMPOSITOR] info: client: layer "wana-bar" configured 1280x40 (serial 2)
+  [COMPOSITOR] info: usable area for windows: 0,40 1280x760
+  [COMPOSITOR] info: layer surface mapped: "wana-bar" on layer top at 0,0 1280x40 (exclusive zone 40)
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260 (surface 17)
+  [BOOT] info: pixel (640,20) = #0b0f1a expected #0b0f1a
+  [BOOT] info: pixel (100,400) = #1b3a5c expected #1b3a5c
+  [BOOT] info: pixel (640,250) = #1b3a5c expected #1b3a5c
+  [BOOT] info: pixel (640,262) = #ffffff expected #ffffff
+  [BOOT] info: pixel (640,420) = #4f8cff expected #4f8cff
+  ```
+  - The pixels are: the bar, then the desktop left of and above the window (not the compositor's own background),
+    then the window's top border at y 262, now 20 px lower than before, then its interior.
+  - When the shell exits, its layers are destroyed and the usable area goes back to the whole output.
+- All 10 expectations and 5 pixels passed, and no `[INIT|COMPOSITOR|DRM|RENDER]` warning or error appeared.
+- Result: **PASS**
+
+### T23: Buildroot image + `make layer-boot-test` in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
@@ -368,4 +452,5 @@ Components:
 - Text step 5 (reproducibility re-check with the text stack in the image): pending.
 - Shell step 1 (layer-shell protocol + privilege, [decision 0003](../decisions/0003-shell-surfaces.md) accepted):
   T18-T19 pass locally; T20 (CI) is pending.
-- Shell step 2 (layer surfaces: configure, anchors, exclusive zones, stacking): next.
+- Shell step 2 (layer surfaces): T21-T22 pass locally; T23 (CI) is pending.
+- Shell step 3 (wana-shell MVP: background, top bar with time via wana-text, launcher, dock; shell restart): next.

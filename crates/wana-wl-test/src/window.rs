@@ -158,7 +158,7 @@ impl Window {
     }
 
     /// A wl_buffer over a new memfd pool holding `bytes` (XRGB8888).
-    fn buffer(
+    pub(crate) fn buffer(
         conn: &Connection,
         shell: &Shell,
         width: i32,

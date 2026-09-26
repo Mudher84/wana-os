@@ -135,6 +135,9 @@ jobs:
       - name: Text on screen (disk boot, Arabic text drawn by wana-text in a client window, rendering hash + screenshot pixel check)
         run: make text-window-boot-test
 
+      - name: Shell layer surfaces (disk boot, background + top bar through wlr-layer-shell, window placed below the bar, screenshot pixel check)
+        run: make layer-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

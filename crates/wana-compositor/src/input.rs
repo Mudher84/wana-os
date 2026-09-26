@@ -198,29 +198,32 @@ impl Compositor {
         }
     }
 
-    /// Mapped windows as hit-test rectangles, bottom first.
+    /// Everything visible (layer surfaces and windows) as hit-test
+    /// rectangles, bottom first.
     fn rects(&self) -> Vec<Rect> {
-        self.windows
-            .iter()
-            .filter_map(|win| {
-                let (w, h) = self.surfaces.get(&win.surface)?.content?;
-                Some(Rect {
-                    surface: win.surface,
-                    x: win.x,
-                    y: win.y,
-                    w,
-                    h,
-                })
+        self.stack()
+            .into_iter()
+            .map(|(surface, x, y, w, h)| Rect {
+                surface,
+                x,
+                y,
+                w,
+                h,
             })
             .collect()
     }
 
-    /// Surface-local position of the cursor on `surface`, if it is a window.
+    /// True if `surface` is on screen (a mapped window or layer surface).
+    fn visible(&self, surface: Resource) -> bool {
+        self.stack().iter().any(|e| e.0 == surface)
+    }
+
+    /// Surface-local position of the cursor on `surface`, if it is visible.
     fn local(&self, surface: Resource) -> Option<(f64, f64)> {
-        let win = self.windows.iter().find(|w| w.surface == surface)?;
+        let (_, x, y, _, _) = self.stack().into_iter().find(|e| e.0 == surface)?;
         Some((
-            self.seat.pos.0 - f64::from(win.x),
-            self.seat.pos.1 - f64::from(win.y),
+            self.seat.pos.0 - f64::from(x),
+            self.seat.pos.1 - f64::from(y),
         ))
     }
 
@@ -329,9 +332,20 @@ impl Compositor {
             return;
         };
         if first {
-            // Click to focus: raise the window and give it the keyboard.
-            self.raise(focus.surface);
-            if self.seat.keyboard_focus != Some(focus.surface) {
+            // Click to focus: a window is raised and gets the keyboard; a
+            // layer surface gets it only if it asked (not "none"), and
+            // never while another layer holds the keyboard exclusively.
+            let takes_keyboard = match self.layer_of(focus.surface) {
+                Some(l) => l.current.keyboard != crate::layer::KEYBOARD_NONE,
+                None => {
+                    self.raise(focus.surface);
+                    true
+                }
+            };
+            let locked = self
+                .exclusive_keyboard_layer()
+                .is_some_and(|s| s != focus.surface);
+            if takes_keyboard && !locked && self.seat.keyboard_focus != Some(focus.surface) {
                 self.set_keyboard_focus(ctx, Some(focus.surface));
             }
         }
@@ -511,7 +525,7 @@ impl Compositor {
     /// get the keyboard, a focused window that went away.
     pub fn sync_focus(&mut self, ctx: &Ctx) {
         if let Some(f) = self.seat.pointer_focus {
-            let mapped = self.windows.iter().any(|w| w.surface == f.surface);
+            let mapped = self.visible(f.surface);
             if !mapped && ctx.is_alive(f.surface) {
                 // Unmapped while focused (even during a grab): leave.
                 let serial = ctx.next_serial();
@@ -531,15 +545,22 @@ impl Compositor {
         }
         self.update_pointer_focus(ctx);
 
+        // A top/overlay layer surface with exclusive keyboard
+        // interactivity (a launcher, a lock screen) holds the keyboard while
+        // it is mapped; nothing else can take it.
+        if let Some(s) = self.exclusive_keyboard_layer() {
+            self.seat.focus_request = None;
+            if self.seat.keyboard_focus != Some(s) {
+                self.set_keyboard_focus(ctx, Some(s));
+            }
+            return;
+        }
         if let Some(s) = self.seat.focus_request.take() {
-            if self.windows.iter().any(|w| w.surface == s) {
+            if self.visible(s) {
                 self.set_keyboard_focus(ctx, Some(s));
             }
         }
-        let focused_mapped = self
-            .seat
-            .keyboard_focus
-            .is_some_and(|s| self.windows.iter().any(|w| w.surface == s));
+        let focused_mapped = self.seat.keyboard_focus.is_some_and(|s| self.visible(s));
         if !focused_mapped {
             let top = self.windows.last().map(|w| w.surface);
             if top != self.seat.keyboard_focus {

@@ -23,14 +23,16 @@
 //! privileged connection (decision 0003, `shell.rs`).
 //!
 //! Usage: wana-compositor [--timeout SECONDS] [--headless WxH@HZ] [--layout us]
-//!                        [--shell PROGRAM [--shell-arg ARG]...]
+//!                        [--shell PROGRAM [--shell-arg ARG]... [--exit-with-shell]]
 //!                        [--client-debug] [--run PROGRAM [ARGS...]]
 
 mod globals;
 mod input;
+mod layer;
 mod render;
 mod seat;
 mod shell;
+mod shell_surfaces;
 mod shm;
 mod surface;
 
@@ -59,6 +61,8 @@ struct Args {
     run: Option<Vec<String>>,
     /// The shell program and its arguments (`--shell`, `--shell-arg`).
     shell: Option<Vec<String>>,
+    /// Stop when the shell exits, with its result (boot tests).
+    exit_with_shell: bool,
 }
 
 /// `1280x800@60` -> (1280, 800, 60000 mHz).
@@ -79,6 +83,7 @@ fn parse_args() -> Result<Args, String> {
         headless: None,
         run: None,
         shell: None,
+        exit_with_shell: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -88,6 +93,7 @@ fn parse_args() -> Result<Args, String> {
                 a.timeout = Some(v.parse().map_err(|e| format!("--timeout: {e}"))?);
             }
             "--client-debug" => a.client_debug = true,
+            "--exit-with-shell" => a.exit_with_shell = true,
             "--shell" => a.shell = Some(vec![it.next().ok_or("--shell needs a program")?]),
             "--shell-arg" => {
                 let v = it.next().ok_or("--shell-arg needs a value")?;
@@ -318,6 +324,18 @@ fn run(args: &Args) -> Result<(), String> {
                     warn!(COMPOSITOR, "shell exited: {status}");
                 }
                 shell = None;
+                if args.exit_with_shell {
+                    // Let its disconnect be processed and logged.
+                    display
+                        .dispatch(TICK)
+                        .map_err(|e| format!("event loop: {e}"))?;
+                    log_events(&mut display, &mut clients);
+                    break if status.success() {
+                        Ok(())
+                    } else {
+                        Err(format!("shell failed: {status}"))
+                    };
+                }
             }
         }
         if let Some(c) = child.as_mut() {
