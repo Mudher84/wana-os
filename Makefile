@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test shortcut-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -52,6 +52,7 @@ help:
 	@echo "    make layer-boot-test     boot disk.img, the shell maps a background and a top bar; a window goes below the bar"
 	@echo "    make shell-boot-test     boot disk.img, wana-shell: desktop + Arabic top bar, autostarted app below it"
 	@echo "    make launcher-boot-test  boot disk.img, a click on the bar opens the launcher, Down + Enter start an app"
+	@echo "    make shortcut-boot-test  boot disk.img, Left Super opens the launcher through private shell-control"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -237,13 +238,13 @@ input-boot-test:
 # describes the virtio-gpu display found through wana-drm as wl_output, and
 # serves one real client, wayland-info, which must list every global with
 # its contents (shm formats, output mode, seat name).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1,--shell-arg,--expect-global,--shell-arg,wana_shell_control_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-compositor.img --gpu virtio --timeout 180 \
 		--log out/logs/compositor-boot.log \
-		--expect '\[COMPOSITOR\] info: protocol tables: [0-9]+ core \+ 5 xdg-shell \+ 2 layer-shell \+ 2 foreign-toplevel interfaces \(generated from XML\)' \
+		--expect '\[COMPOSITOR\] info: protocol tables: [0-9]+ core \+ 5 xdg-shell \+ 2 layer-shell \+ 2 foreign-toplevel \+ 1 shell-control interfaces \(generated from XML\)' \
 		--expect '\[COMPOSITOR\] info: globals: wl_compositor v4, wl_shm v1, wl_output v4, wl_seat v7, xdg_wm_base v1' \
 		--expect '\[COMPOSITOR\] info: wl_output Virtual-1: [0-9]+x[0-9]+@[0-9.]+ Hz' \
 		--expect '\[COMPOSITOR\] info: listening on /run/user/0/wayland-0 ' \
@@ -259,18 +260,20 @@ compositor-boot-test:
 		--expect 'name: seat0' \
 		--expect "interface: 'xdg_wm_base', +version: +1," \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
-		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0, ext_foreign_toplevel_list_v1 0' \
-		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4, ext_foreign_toplevel_list_v1 v1' \
+		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0, ext_foreign_toplevel_list_v1 0, wana_shell_control_v1 0' \
+		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4, ext_foreign_toplevel_list_v1 v1, wana_shell_control_v1 v1' \
 		--expect '\[COMPOSITOR\] info: shell: started /usr/bin/wana-wl-test .* on a private connection' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
 		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
 		--expect '\[COMPOSITOR\] info: client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' \
+		--expect '\[COMPOSITOR\] info: client: global wana_shell_control_v1 v1 visible, as expected' \
 		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject "interface: 'zwlr_layer_shell_v1'" \
 		--reject "interface: 'ext_foreign_toplevel_list_v1'" \
+		--reject "interface: 'wana_shell_control_v1'" \
 		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
 
 # Phase 10 step 3: a client window on screen. wana-compositor draws with
@@ -500,6 +503,32 @@ launcher-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Shell step 3d: Left Super is consumed by the compositor and delivered as
+# a semantic toggle_launcher event over the private Wana shell-control protocol.
+SHORTCUT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,160,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--apps,--shell-arg,/usr/share/wana-shell/apps.test,--shell-arg,--test-launch,--shell-arg,1,--shell-arg,--exit-with-launched wana.test=poweroff wana.shell=0
+shortcut-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-shortcut.img "$(SHORTCUT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-shortcut.img --gpu virtio --input virtio --timeout 260 --memory 1024 \
+		--log out/logs/shortcut-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--screendump-on 'launcher opened from shortcut' --screendump out/test/shortcut.ppm \
+		--expect '\[COMPOSITOR\] info: shell-control: toggle_launcher sent to 1 shell object\(s\)' \
+		--expect '\[COMPOSITOR\] debug: global shortcut: Left Super pressed' \
+		--expect '\[SHELL\] info: launcher opened from shortcut' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 \(exclusive zone 0\)' \
+		--expect '\[COMPOSITOR\] info: keyboard focus: layer "wana-launcher"' \
+		--expect '\[SHELL\] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' \
+		--expect '\[SHELL\] info: app "نافذة تجريبية": /usr/bin/wana-wl-test --no-inherited-fds --hold 2 \(pid [0-9]+\)' \
+		--expect '\[COMPOSITOR\] info: client: inherited descriptors: 0 1 2 only' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320' \
+		--expect '\[SHELL\] info: app "نافذة تجريبية" exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
 # Shell step 3c: the Dock is a bottom layer surface fed by the private
 # ext-foreign-toplevel-list-v1. An ordinary app maps on the public socket;
 # the shell receives its toplevel metadata and redraws the Dock while the
@@ -532,7 +561,8 @@ WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/releas
 # The same compositor with a shell on the private connection (decision 0003).
 WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1 \
-	--shell-arg --expect-global --shell-arg ext_foreign_toplevel_list_v1
+	--shell-arg --expect-global --shell-arg ext_foreign_toplevel_list_v1 \
+	--shell-arg --expect-global --shell-arg wana_shell_control_v1
 wayland-host-test: fonts
 	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test -p wana-shell
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
@@ -555,11 +585,13 @@ wayland-host-test: fonts
 	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
 		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
 		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
-	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-no-global wana_shell_control_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
 		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 v1 visible, as expected' $dir/priv.log && \
 		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 not visible, as expected' $dir/priv.log && \
 		echo "[COMPOSITOR] check: shell globals visible only to the private shell connection: PASS" && \
 	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
