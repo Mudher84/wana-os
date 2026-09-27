@@ -302,7 +302,7 @@ impl Devices {
                     self.motions += 1;
                     self.at = (fixed(x), fixed(y));
                 }
-                (pev::BUTTON, [Val::Uint(serial), _, Val::Uint(button), Val::Uint(state)]) => {
+                (pev::BUTTON, [Val::Uint(_serial), _, Val::Uint(button), Val::Uint(state)]) => {
                     let Some(on) = self.pointer_focus else {
                         return Err(format!("button {button} without pointer focus"));
                     };
