@@ -12,7 +12,6 @@ pub const STATE_FULLSCREEN: u32 = 2;
 pub const STATE_RESIZING: u32 = 3;
 pub const STATE_ACTIVATED: u32 = 4;
 
-pub const EDGE_NONE: u32 = 0;
 pub const EDGE_TOP: u32 = 1;
 pub const EDGE_BOTTOM: u32 = 2;
 pub const EDGE_LEFT: u32 = 4;
@@ -152,13 +151,6 @@ impl WindowState {
         self.mode = Mode::Minimized;
         self.resizing = false;
         self.activated = false;
-    }
-
-    pub fn restore_from_minimize(&mut self) {
-        if self.mode == Mode::Minimized {
-            self.mode = Mode::Normal;
-            self.rect = self.restore;
-        }
     }
 
     pub fn set_min_size(&mut self, w: i32, h: i32) {
@@ -307,7 +299,7 @@ mod tests {
         let mut w = WindowState::new(NORMAL);
         w.minimize();
         assert!(!w.visible());
-        w.restore_from_minimize();
+        w.normal();
         assert!(w.visible());
         assert_eq!(w.rect, NORMAL);
     }
@@ -347,7 +339,7 @@ mod tests {
         ] {
             assert!(valid_resize_edge(edge));
         }
-        assert!(!valid_resize_edge(EDGE_NONE));
+        assert!(!valid_resize_edge(0));
         assert!(!valid_resize_edge(3));
         assert!(!valid_resize_edge(11));
     }
