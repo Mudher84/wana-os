@@ -28,6 +28,9 @@ const INIT: Subsystem = Subsystem::Init;
 const SHELL: &str = "/bin/sh";
 const SHELL_RESTART_DELAY: Duration = Duration::from_secs(1);
 const UDEVD_RESTART_DELAY: Duration = Duration::from_secs(1);
+const SERVICES: &str = "/usr/sbin/wana-services";
+const SERVICES_DIR: &str = "/etc/wana/services.d";
+const SERVICES_RESTART_DELAY: Duration = Duration::from_secs(1);
 
 fn main() {
     let pid = std::process::id();
@@ -66,6 +69,8 @@ fn main() {
         None
     };
 
+    let services = start_services(&mut problems);
+
     let uptime = read_first_field("/proc/uptime").unwrap_or_else(|| "?".into());
     if problems.is_empty() {
         info!(INIT, "ready ({uptime}s after kernel start)");
@@ -84,7 +89,7 @@ fn main() {
     if let Some(action) = opts.test {
         stop(action);
     }
-    supervise(opts.shell, udevd)
+    supervise(opts.shell, udevd, services)
 }
 
 /// Performs the early mounts. Returns the number of failures.
@@ -186,6 +191,45 @@ fn spawn_udevd(daemon: &str) -> Option<Child> {
     }
 }
 
+fn start_services(problems: &mut Vec<String>) -> Option<Child> {
+    if !Path::new(SERVICES).is_file() {
+        error!(INIT, "service manager missing: {SERVICES}");
+        problems.push("service manager missing".into());
+        return None;
+    }
+    if let Err(e) = fs::create_dir_all(SERVICES_DIR) {
+        error!(INIT, "services: create {SERVICES_DIR}: {e}");
+        problems.push("service directory unavailable".into());
+        return None;
+    }
+    match spawn_services() {
+        Some(child) => Some(child),
+        None => {
+            problems.push("service manager failed to start".into());
+            None
+        }
+    }
+}
+
+fn spawn_services() -> Option<Child> {
+    match Command::new(SERVICES)
+        .args(["run", SERVICES_DIR])
+        .env_clear()
+        .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
+        .current_dir("/")
+        .spawn()
+    {
+        Ok(child) => {
+            info!(INIT, "services: manager started (pid {})", child.id());
+            Some(child)
+        }
+        Err(e) => {
+            error!(INIT, "services: spawn {SERVICES}: {e}");
+            None
+        }
+    }
+}
+
 /// First whitespace-separated field of a small text file.
 fn read_first_field(path: &str) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
@@ -221,7 +265,11 @@ fn stop(action: TestAction) {
 }
 
 /// Reaps children forever and keeps udevd and the console shell alive.
-fn supervise(want_shell: bool, mut udevd: Option<Child>) -> ! {
+fn supervise(
+    want_shell: bool,
+    mut udevd: Option<Child>,
+    mut services: Option<Child>,
+) -> ! {
     let mut shell = if want_shell { spawn_shell() } else { None };
     loop {
         match sys::reap_any(true) {
@@ -232,8 +280,14 @@ fn supervise(want_shell: bool, mut udevd: Option<Child>) -> ! {
                         "udev: udevd exited (wait status {status}), restarting"
                     );
                     sleep(UDEVD_RESTART_DELAY);
-                    // Same as the shell below: already reaped, just replace.
                     udevd = udev::find(udev::DAEMONS).and_then(spawn_udevd);
+                } else if services.as_ref().map(Child::id) == Some(pid as u32) {
+                    error!(
+                        INIT,
+                        "services: manager exited (wait status {status}), restarting"
+                    );
+                    sleep(SERVICES_RESTART_DELAY);
+                    services = spawn_services();
                 } else if shell.as_ref().map(Child::id) == Some(pid as u32) {
                     info!(
                         INIT,
