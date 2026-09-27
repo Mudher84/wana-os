@@ -550,7 +550,7 @@ impl Compositor {
 
     /// Moves keyboard focus, with leave to the old client's keyboards and
     /// enter (+ modifiers) to the new one's.
-    fn set_keyboard_focus(&mut self, ctx: &Ctx, surface: Option<Resource>) {
+    pub(crate) fn set_keyboard_focus(&mut self, ctx: &Ctx, surface: Option<Resource>) {
         let old = std::mem::replace(&mut self.seat.keyboard_focus, surface);
         if old == surface {
             return;
@@ -598,7 +598,7 @@ impl Compositor {
     }
 
     /// Puts `surface`'s window on top.
-    fn raise(&mut self, surface: Resource) {
+    pub(crate) fn raise(&mut self, surface: Resource) {
         if let Some(i) = self.windows.iter().position(|w| w.surface == surface) {
             if i + 1 != self.windows.len() {
                 let w = self.windows.remove(i);
