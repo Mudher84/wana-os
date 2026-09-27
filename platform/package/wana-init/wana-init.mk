@@ -14,7 +14,7 @@ WANA_INIT_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = \
 	--exclude /out --exclude /target --exclude /dl --exclude /.git \
 	--exclude /rust-toolchain.toml
 
-WANA_INIT_CARGO_BUILD_OPTS = -p wana-init -p wana-services
+WANA_INIT_CARGO_BUILD_OPTS = -p wana-init -p wana-services -p wana-install
 
 define WANA_INIT_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 \
@@ -23,6 +23,9 @@ define WANA_INIT_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 \
 		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-services \
 		$(TARGET_DIR)/usr/sbin/wana-services
+	$(INSTALL) -D -m 0755 \
+		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-install \
+		$(TARGET_DIR)/usr/sbin/wana-install
 	$(INSTALL) -d -m 0755 $(TARGET_DIR)/etc/wana/services.d
 endef
 
