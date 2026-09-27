@@ -1170,9 +1170,15 @@ impl Compositor {
 
     pub(crate) fn end_interactive(&mut self) {
         if let Some(grab) = self.interactive_grab.take() {
+            let pos = self
+                .windows
+                .iter()
+                .find(|w| w.surface == grab.surface)
+                .map(|w| (w.x, w.y));
+            let size = self.surfaces.get(&grab.surface).and_then(|s| s.content);
             info!(
                 COMPOSITOR,
-                "interactive {:?} finished: {}",
+                "interactive {:?} finished: {} position={pos:?} size={size:?}",
                 grab.kind,
                 self.title_of(grab.surface)
             );
