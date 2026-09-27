@@ -153,6 +153,9 @@ jobs:
       - name: Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)
         run: make dock-boot-test
 
+      - name: Dock activation (click restores, raises and focuses a minimized public window)
+        run: make dock-activation-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
