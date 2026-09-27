@@ -781,7 +781,11 @@ fn seal_child_fds() -> Result<(), String> {
         // The /proc iterator itself may close a descriptor between listing
         // and this call; EBADF is harmless. Any other fcntl failure means we
         // cannot guarantee descriptor isolation for the child.
-        if unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) } < 0 {
+        let rc = {
+            // SAFETY: fd is from /proc/self/fd; F_SETFD does not dereference memory.
+            unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) }
+        };
+        if rc < 0 {
             let e = std::io::Error::last_os_error();
             if e.raw_os_error() != Some(9) {
                 return Err(format!("cannot mark fd {fd} close-on-exec: {e}"));
