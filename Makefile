@@ -500,6 +500,38 @@ launcher-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Phase 12: window management. A normal public client is moved, maximized,
+# minimized and restored through compositor-owned Super shortcuts while the
+# real shell reserves the top bar and displays the Dock.
+WINDOW_MANAGEMENT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,220,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--run,/usr/bin/wana-wl-test,--window-management,--hold,12 wana.test=poweroff wana.shell=0
+window-management-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-window-management.img "$(WINDOW_MANAGEMENT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-window-management.img --gpu virtio --input virtio --timeout 320 --memory 1024 \
+		--log out/logs/window-management-boot.log \
+		--send-on '\[COMPOSITOR\] info: client: ready for window management' \
+		--send 'sendkey meta_l-right' \
+		--send 'wait:window moved: .* to 464,260' \
+		--send 'sendkey meta_l-up' \
+		--send 'wait:client: maximized buffer applied: 1280x760' \
+		--send 'sendkey meta_l-m' \
+		--send 'wait:window minimized:' \
+		--send 'sendkey meta_l-m' \
+		--send 'wait:window restored:' \
+		--screendump-on 'client: maximized buffer applied: 1280x760' --screendump out/test/window-management.ppm \
+		--pixel 0.5,0.5=4f8cff --pixel 0.5,0.025=0b0f1a \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
+		--expect '\[COMPOSITOR\] info: client: ready for window management' \
+		--expect '\[COMPOSITOR\] info: window moved: "wana-wl-test" \(org.wana.test\) to 464,260' \
+		--expect '\[COMPOSITOR\] info: window maximized: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: client: maximize configure 1280x760, states \[1\]' \
+		--expect '\[COMPOSITOR\] info: client: maximized buffer applied: 1280x760' \
+		--expect '\[COMPOSITOR\] info: window minimized: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: window restored: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
 # Shell step 3d: Super+Space is a compositor-owned global shortcut.
 # The compositor consumes the chord and sends a private shell-control event;
 # wana-shell opens the launcher without requiring pointer focus or a click.
