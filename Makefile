@@ -498,6 +498,29 @@ launcher-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Shell step 3c: the Dock is a bottom layer surface fed by the private
+# ext-foreign-toplevel-list-v1. An ordinary app maps on the public socket;
+# the shell receives its toplevel metadata and redraws the Dock while the
+# window remains in the same usable area (Dock zone 0 does not reserve it).
+DOCK_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,180,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--autostart,--shell-arg,/usr/bin/wana-wl-test,--shell-arg,--autostart-arg,--shell-arg,--hold,--shell-arg,--autostart-arg,--shell-arg,3,--shell-arg,--exit-with-autostart wana.test=poweroff wana.shell=0
+dock-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock.img "$(DOCK_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-dock.img --gpu virtio --timeout 260 --memory 1024 \
+		--log out/logs/dock-boot.log \
+		--screendump-on 'client: holding window' --screendump out/test/dock.ppm \
+		--pixel 0.28125,0.92=3a4560 --pixel 0.5,0.025=0b0f1a --pixel 0.5,0.525=4f8cff \
+		--expect '\[SHELL\] info: dock mapped: 560x64, windows 0, sha256 [0-9a-f]{64}' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-dock" on layer top at 360,736 560x64 \(exclusive zone 0\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
+		--expect '\[SHELL\] info: dock updated: 1 window\(s\), sha256 [0-9a-f]{64}' \
+		--expect '\[COMPOSITOR\] info: client: holding window for 3s' \
+		--expect '\[SHELL\] info: autostart exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
 WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
