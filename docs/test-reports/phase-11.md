@@ -618,3 +618,23 @@ Components (`crates/wana-shell`):
 - Shell step 3b (launcher): T27-T28 pass locally; T29 (CI) is pending.
 - Shell step 3c (dock via ext-foreign-toplevel-list; restarting a crashed shell) and the launcher's key binding
   (a private protocol, with its own decision): next.
+
+
+## Shell step 3c: Dock + crash restart — CI closure
+
+- Canonical commit: `faf74fe9e0bbdfab344c2e87173044f02ddde736`.
+- CI run `36314022040`: **PASS**.
+- Buildroot run `36314022037`: **PASS**.
+- Reproducibility run `36314022065`: **PASS**.
+- QEMU Buildroot step `Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)`: **PASS**.
+- The Dock is fed by the privileged `ext-foreign-toplevel-list-v1` global and updates on mapped/closed/title/app-id events.
+- The compositor restarts a crashed shell at most three times and leaves application windows alive after the limit.
+- Applications launched by the shell inherit only standard descriptors; all shell-owned descriptors are sealed close-on-exec.
+
+## Phase 11 result
+
+**PASS.**
+
+The Arabic text stack, shell-surface protocol, desktop, top bar, launcher, live Dock,
+privileged shell isolation, crash restart policy, host scenarios, Buildroot/QEMU
+boot tests and reproducibility all passed on the same canonical source line.
