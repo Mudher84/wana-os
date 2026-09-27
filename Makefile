@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -54,6 +54,7 @@ help:
 	@echo "    make launcher-boot-test  boot disk.img, Super opens the launcher, Down + Enter start an app"
 	@echo "    make settings-boot-test  boot native Settings app, verify Arabic UI + state rendering"
 	@echo "    make network-boot-test   boot with virtio-net; Wana must discover the live interface"
+	@echo "    make files-boot-test     boot native Files app and render a real directory listing"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -580,6 +581,23 @@ network-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-network exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT)\] error'
+
+# Phase 16: native Files app reads the guest filesystem and renders
+# a real directory listing as an ordinary xdg_toplevel.
+FILES_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,120,--run,/usr/bin/wana-files,--path,/etc,--hold,3 wana.test=poweroff wana.shell=0
+files-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-files.img "$(FILES_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-files.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/files-boot.log \
+		--screendump-on 'files mapped' --screendump out/test/files.ppm \
+		--pixel 0.21875,0.2=111827 --pixel 0.25,0.36=1e293b \
+		--expect '\[COMPOSITOR\] info: window mapped: "الملفات — وانا" \(org.wana.Files\) 760x520 at 260,140' \
+		--expect '\[SHELL\] info: files mapped: 760x520, path=/etc, entries=[1-9][0-9]*, sha256 [0-9a-f]{64}' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-files exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
