@@ -390,6 +390,24 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
 
     if *mode == Mode::WindowManagement {
         info!(LOG, "client: ready for window management");
+
+        let (width, height, states) = win.wait_reconfigure(&conn, wm_base)?;
+        if (width, height) != (544, 320) || !states.is_empty() {
+            return Err(format!(
+                "window management: resize configure expected 544x320 with no states, got {width}x{height} {states:?}"
+            ));
+        }
+        info!(
+            LOG,
+            "client: resize configure {width}x{height}, states {states:?}"
+        );
+        win.resize_pattern(&conn, &shell, width, height, ACCENT, BORDER)?;
+        win.present(&conn, wm_base, None)?;
+        info!(
+            LOG,
+            "client: resized buffer applied: {}x{}", win.width, win.height
+        );
+
         let (width, height, states) = win.wait_reconfigure(&conn, wm_base)?;
         if width <= 0 || height <= 0 {
             return Err(format!(
@@ -410,6 +428,23 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         info!(
             LOG,
             "client: maximized buffer applied: {}x{}", win.width, win.height
+        );
+
+        let (width, height, states) = win.wait_reconfigure(&conn, wm_base)?;
+        if (width, height) != (1280, 800) || !states.contains(&2) {
+            return Err(format!(
+                "window management: fullscreen configure expected 1280x800 state 2, got {width}x{height} {states:?}"
+            ));
+        }
+        info!(
+            LOG,
+            "client: fullscreen configure {width}x{height}, states {states:?}"
+        );
+        win.resize_pattern(&conn, &shell, width, height, ACCENT, BORDER)?;
+        win.present(&conn, wm_base, None)?;
+        info!(
+            LOG,
+            "client: fullscreen buffer applied: {}x{}", win.width, win.height
         );
     }
 
