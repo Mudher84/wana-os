@@ -10,3 +10,7 @@ generates their tables like the others.
 
 The file is unchanged from the source. Its license (HPND-style, permissive)
 is in its `<copyright>` block.
+
+| `wana-shell-control-v1.xml` | Wana OS project | 1 | project-owned; GPL-2.0-or-later |
+
+`wana-shell-control-v1` is the private compositor-to-shell control protocol from [decision 0004](../../../docs/decisions/0004-shell-control.md). It is not advertised to public clients.
