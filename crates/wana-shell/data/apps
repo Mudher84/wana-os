@@ -2,3 +2,4 @@
 # name<TAB>/absolute/program<TAB>argument...
 نافذة تجريبية	/usr/bin/wana-wl-test	--hold	600
 نص عربي	/usr/bin/wana-wl-test	--text	--hold	600
+الإعدادات	/usr/bin/wana-settings
