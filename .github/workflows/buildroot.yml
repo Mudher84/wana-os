@@ -150,6 +150,9 @@ jobs:
       - name: Window management (maximize, fullscreen, restore, constraints and minimize through xdg_toplevel)
         run: make window-management-boot-test
 
+      - name: Settings (native Arabic xdg app, persistent defaults, screenshot pixels)
+        run: make settings-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
