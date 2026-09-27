@@ -140,6 +140,7 @@ struct Toplevel {
     xdg: Option<Resource>,
     title: String,
     app_id: String,
+    wm: crate::window::State,
 }
 
 #[derive(Debug, Default)]
@@ -949,6 +950,65 @@ impl Compositor {
         }
     }
 
+    fn window_rect(&self, surface: Resource) -> Option<crate::layer::Rect> {
+        let w = self.windows.iter().find(|w| w.surface == surface)?;
+        let (width, height) = self
+            .content
+            .get(&surface)
+            .map(Content::size)
+            .unwrap_or((1, 1));
+        Some(crate::layer::Rect {
+            x: w.x,
+            y: w.y,
+            w: width,
+            h: height,
+        })
+    }
+
+    fn configure_toplevel(
+        &mut self,
+        ctx: &Ctx,
+        toplevel: Resource,
+        surface: Resource,
+        rect: crate::layer::Rect,
+        mode: crate::window::Mode,
+        resizing: bool,
+    ) {
+        let Some(xs) = self.toplevels.get(&toplevel).and_then(|t| t.xdg) else {
+            return;
+        };
+        let activated = self.seat.keyboard_focus == Some(surface);
+        let states = crate::window::xdg_states(mode, activated, resizing);
+        let serial = ctx.next_serial();
+        let ok = ctx
+            .post(
+                toplevel,
+                xdg_shell::xdg_toplevel::event::CONFIGURE,
+                &[Arg::Int(rect.w), Arg::Int(rect.h), Arg::Array(&states)],
+            )
+            .and_then(|_| {
+                ctx.post(
+                    xs,
+                    xdg_shell::xdg_surface::event::CONFIGURE,
+                    &[Arg::Uint(serial)],
+                )
+            });
+        match ok {
+            Ok(()) => {
+                if let Some(x) = self.xdg.get_mut(&xs) {
+                    x.sent(serial);
+                }
+                debug!(
+                    COMPOSITOR,
+                    "window configure: {}x{} mode={mode:?} serial={serial}",
+                    rect.w,
+                    rect.h
+                );
+            }
+            Err(e) => warn!(COMPOSITOR, "window configure: {e}"),
+        }
+    }
+
     fn toplevel_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
         use xdg_shell::xdg_toplevel::request::*;
         let surface = self
@@ -957,28 +1017,86 @@ impl Compositor {
             .and_then(|t| t.xdg)
             .and_then(|xs| self.xdg.get(&xs))
             .and_then(|x| x.surface);
-        let Some(t) = self.toplevels.get_mut(&res) else {
-            return;
-        };
-        let changed = match (opcode, args.first()) {
-            (SET_TITLE, Some(ReqArg::Str(Some(s)))) => {
-                t.title = s.clone();
-                true
-            }
-            (SET_APP_ID, Some(ReqArg::Str(Some(s)))) => {
-                t.app_id = s.clone();
-                true
-            }
-            // Parent, menus, interactive move/resize, size limits,
-            // maximize/fullscreen/minimize: the compositor may ignore them;
-            // window management arrives in Phase 12.
-            _ => false,
-        };
-        if changed {
-            if let Some(surface) = surface {
-                self.foreign_changed(ctx, surface);
+
+        if let Some(t) = self.toplevels.get_mut(&res) {
+            match (opcode, args) {
+                (SET_TITLE, [ReqArg::Str(Some(s)), ..]) => {
+                    t.title = s.clone();
+                    if let Some(surface) = surface {
+                        self.foreign_changed(ctx, surface);
+                    }
+                    return;
+                }
+                (SET_APP_ID, [ReqArg::Str(Some(s)), ..]) => {
+                    t.app_id = s.clone();
+                    if let Some(surface) = surface {
+                        self.foreign_changed(ctx, surface);
+                    }
+                    return;
+                }
+                (SET_MIN_SIZE, [ReqArg::Int(w), ReqArg::Int(h), ..]) => {
+                    t.wm.min = ((*w).max(0), (*h).max(0));
+                    return;
+                }
+                (SET_MAX_SIZE, [ReqArg::Int(w), ReqArg::Int(h), ..]) => {
+                    t.wm.max = ((*w).max(0), (*h).max(0));
+                    return;
+                }
+                _ => {}
             }
         }
+
+        let Some(surface) = surface else { return };
+        let Some(current) = self.window_rect(surface) else { return };
+        let fallback = current;
+
+        let target = match opcode {
+            SET_MAXIMIZED => {
+                let usable = self.usable;
+                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                t.wm.maximize(current, usable)
+            }
+            UNSET_MAXIMIZED => {
+                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                t.wm.restore(fallback)
+            }
+            SET_FULLSCREEN => {
+                let output = self.output_rect();
+                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                t.wm.fullscreen(current, output)
+            }
+            UNSET_FULLSCREEN => {
+                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                t.wm.restore(fallback)
+            }
+            _ => return,
+        };
+
+        let (target_w, target_h, mode) = {
+            let Some(t) = self.toplevels.get(&res) else { return };
+            let (w, h) = t.wm.constrain(target.w, target.h);
+            (w, h, t.wm.mode)
+        };
+        let target = crate::layer::Rect {
+            w: target_w,
+            h: target_h,
+            ..target
+        };
+        if let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) {
+            w.x = target.x;
+            w.y = target.y;
+        }
+        self.configure_toplevel(ctx, res, surface, target, mode, false);
+        self.needs_redraw = true;
+        info!(
+            COMPOSITOR,
+            "window state: {} -> {mode:?} {}x{} at {},{}",
+            self.title_of(surface),
+            target.w,
+            target.h,
+            target.x,
+            target.y
+        );
     }
 }
 
