@@ -166,6 +166,35 @@ pub fn launcher(fonts: &FontSet, names: &[&str], selected: usize) -> Result<Canv
     Ok(c)
 }
 
+/// Returns the logical Dock item under `x`. Item zero is the rightmost
+/// cell, matching the RTL renderer. The compact +N overflow cell is not
+/// activatable because it represents more than one toplevel.
+pub fn dock_item_at(width: u32, count: usize, x: f64) -> Option<usize> {
+    if count == 0 || !(0.0..f64::from(width)).contains(&x) {
+        return None;
+    }
+    let visible = count.min(DOCK_MAX);
+    let inner = width.saturating_sub(DOCK_PAD * 2);
+    if inner == 0 {
+        return None;
+    }
+    let cell = inner / visible as u32;
+    if cell == 0 {
+        return None;
+    }
+    let x = x as u32;
+    if x < DOCK_PAD || x >= DOCK_PAD + inner {
+        return None;
+    }
+    let from_left = ((x - DOCK_PAD) / cell).min(visible as u32 - 1) as usize;
+    let logical = visible - 1 - from_left;
+    if count > DOCK_MAX && logical == DOCK_MAX - 1 {
+        None
+    } else {
+        Some(logical)
+    }
+}
+
 /// Draws the bottom Dock. The first four mapped toplevels are shown from
 /// right to left. If more are open, the last slot becomes a compact +N count.
 pub fn dock(width: u32, fonts: &FontSet, names: &[String]) -> Result<Canvas, String> {
@@ -263,6 +292,14 @@ mod tests {
         // Deterministic: the same inputs give the same pixels.
         assert_eq!(c, bar(1280, &fonts(), "16:20").unwrap());
         assert_ne!(c, bar(1280, &fonts(), "16:21").unwrap());
+    }
+
+    #[test]
+    fn dock_hit_testing_matches_rtl_cells() {
+        assert_eq!(dock_item_at(DOCK_WIDTH, 2, 500.0), Some(0));
+        assert_eq!(dock_item_at(DOCK_WIDTH, 2, 60.0), Some(1));
+        assert_eq!(dock_item_at(DOCK_WIDTH, 0, 300.0), None);
+        assert_eq!(dock_item_at(DOCK_WIDTH, 6, 80.0), None, "overflow cell");
     }
 
     #[test]
