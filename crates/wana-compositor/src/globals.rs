@@ -32,8 +32,8 @@ use wana_input::keyboard::Keyboard;
 use wana_log::{debug, info, warn, Subsystem};
 use wana_render::compose::Texture;
 use wana_wayland::protocols::{
-    ext_foreign_toplevel_list_v1 as foreign, wayland, wlr_layer_shell_unstable_v1 as layer_shell,
-    xdg_shell,
+    ext_foreign_toplevel_list_v1 as foreign, wana_shell_control_v1 as shell_control, wayland,
+    wlr_layer_shell_unstable_v1 as layer_shell, xdg_shell,
 };
 use wana_wayland::server::{interface_name, request_name, Arg, Ctx, Handler, ReqArg, Resource};
 use wana_wayland::sys::wl_interface;
@@ -105,6 +105,10 @@ pub fn globals() -> Vec<Global> {
         Global {
             privileged: true,
             ..cap(&foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE, 1)
+        },
+        Global {
+            privileged: true,
+            ..cap(&shell_control::WANA_SHELL_CONTROL_V1_INTERFACE, 1)
         },
     ]
 }
@@ -178,6 +182,7 @@ pub struct Compositor {
     foreign_handles: HashMap<Resource, ForeignHandle>,
     foreign_identifiers: HashMap<Resource, String>,
     next_foreign_identifier: u64,
+    pub(crate) shell_controls: Vec<Resource>,
     regions: HashMap<Resource, ()>,
     positioners: HashMap<Resource, ()>,
     pub windows: Vec<Window>,
@@ -233,6 +238,7 @@ impl Compositor {
             foreign_handles: HashMap::new(),
             foreign_identifiers: HashMap::new(),
             next_foreign_identifier: 1,
+            shell_controls: Vec::new(),
             regions: HashMap::new(),
             positioners: HashMap::new(),
             windows: Vec::new(),
@@ -854,6 +860,24 @@ impl Compositor {
         }
     }
 
+    pub(crate) fn shell_toggle_launcher(&mut self, ctx: &Ctx) {
+        self.shell_controls.retain(|r| ctx.is_alive(*r));
+        for control in self.shell_controls.clone() {
+            if let Err(e) = ctx.post(
+                control,
+                shell_control::wana_shell_control_v1::event::TOGGLE_LAUNCHER,
+                &[],
+            ) {
+                warn!(COMPOSITOR, "shell-control toggle_launcher: {e}");
+            }
+        }
+        info!(
+            COMPOSITOR,
+            "shell-control: toggle_launcher sent to {} shell object(s)",
+            self.shell_controls.len()
+        );
+    }
+
     // --- xdg_wm_base / xdg_surface / xdg_toplevel ---------------------------
     fn wm_base_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
         use xdg_shell::xdg_wm_base::request::*;
@@ -1029,6 +1053,9 @@ impl Handler for Compositor {
         ) {
             self.foreign_list_bound(ctx, res);
         }
+        if std::ptr::eq(g.interface, &shell_control::WANA_SHELL_CONTROL_V1_INTERFACE) {
+            self.shell_controls.push(res);
+        }
         if let Err(e) = self.send_initial(ctx, g.interface, res) {
             warn!(COMPOSITOR, "{}: {e}", interface_name(g.interface));
         }
@@ -1061,6 +1088,8 @@ impl Handler for Compositor {
             self.toplevel_request(ctx, res, opcode, &args);
         } else if is(&foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE) {
             self.foreign_list_request(ctx, res, opcode);
+        } else if is(&shell_control::WANA_SHELL_CONTROL_V1_INTERFACE) {
+            // v1 only has the destructor; the protocol layer owns destruction.
         } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE) {
             self.layer_shell_request(ctx, res, opcode, &args);
         } else if is(&layer_shell::ZWLR_LAYER_SURFACE_V1_INTERFACE) {
@@ -1134,6 +1163,8 @@ impl Handler for Compositor {
             // remain valid until the client destroys them.
         } else if self.foreign_handles.remove(&res).is_some() {
             // Handle lifetime is controlled by the shell client.
+        } else if self.shell_controls.iter().any(|r| *r == res) {
+            self.shell_controls.retain(|r| *r != res);
         } else {
             self.regions.remove(&res);
             self.positioners.remove(&res);
@@ -1152,13 +1183,17 @@ mod tests {
     #[test]
     fn versions_are_capped_by_the_protocol_xml() {
         let g = globals();
-        assert_eq!(g.len(), 7);
+        assert_eq!(g.len(), 8);
         assert_eq!(
             g.iter()
                 .filter(|x| x.privileged)
                 .map(|x| interface_name(x.interface))
                 .collect::<Vec<_>>(),
-            ["zwlr_layer_shell_v1", "ext_foreign_toplevel_list_v1"],
+            [
+                "zwlr_layer_shell_v1",
+                "ext_foreign_toplevel_list_v1",
+                "wana_shell_control_v1"
+            ],
             "shell protocols are privileged"
         );
         for x in &g {
