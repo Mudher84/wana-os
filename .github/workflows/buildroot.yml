@@ -147,6 +147,9 @@ jobs:
       - name: Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)
         run: make dock-boot-test
 
+      - name: Window management (maximize, fullscreen, restore, constraints and minimize through xdg_toplevel)
+        run: make window-management-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
