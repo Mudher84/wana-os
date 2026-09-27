@@ -416,12 +416,29 @@ impl Compositor {
     }
 
     fn key(&mut self, ctx: &Ctx, code: u32, pressed: bool) {
+        const KEY_LEFTMETA: u32 = 125;
+
         if !self.seat.key(code, pressed) {
             return;
         }
         let Some(kb) = self.xkb.as_mut() else { return };
         let info = kb.key(code, pressed);
         let mods = kb.modifiers();
+
+        // Left Super is compositor-owned. Both press and release are consumed
+        // so the focused application never sees half of a global shortcut.
+        if code == KEY_LEFTMETA {
+            if pressed {
+                self.shell_toggle_launcher(ctx);
+            }
+            debug!(
+                COMPOSITOR,
+                "global shortcut: Left Super {}",
+                if pressed { "pressed" } else { "released" }
+            );
+            return;
+        }
+
         let Some(surface) = self.seat.keyboard_focus else {
             return;
         };
