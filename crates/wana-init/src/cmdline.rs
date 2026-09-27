@@ -10,6 +10,7 @@
 //! | `wana.shell=0` | do not start the debug shell on the console |
 //! | `wana.udev=0` | do not start udevd (static `/dev` from devtmpfs only) |
 //! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
+//! | `wana.live=1` | booted from the read-only Live ISO/initramfs path |
 
 use wana_log::Level;
 
@@ -30,6 +31,8 @@ pub struct Options {
     pub udev: bool,
     /// Program (absolute path) and arguments to run once after `ready`.
     pub run: Option<Vec<String>>,
+    /// Booted from the Live ISO path.
+    pub live: bool,
     /// Unknown `wana.*` options or bad values, reported as warnings.
     pub warnings: Vec<String>,
 }
@@ -42,6 +45,7 @@ impl Default for Options {
             shell: true,
             udev: true,
             run: None,
+            live: false,
             warnings: Vec::new(),
         }
     }
@@ -67,6 +71,10 @@ pub fn parse(cmdline: &str) -> Options {
                 other => opts
                     .warnings
                     .push(format!("wana.test: unknown action {other:?}")),
+            },
+            "live" => match parse_bool(value) {
+                Some(on) => opts.live = on,
+                None => opts.warnings.push(format!("wana.live: unknown value {value:?}")),
             },
             "shell" | "udev" => match parse_bool(value) {
                 Some(on) if key == "shell" => opts.shell = on,
@@ -114,6 +122,14 @@ mod tests {
         assert_eq!(o.test, Some(TestAction::PowerOff));
         assert!(!o.shell);
         assert!(o.warnings.is_empty());
+    }
+
+    #[test]
+    fn live_mode_is_explicit_and_validated() {
+        let o = parse("wana.live=1");
+        assert!(o.live);
+        assert!(o.warnings.is_empty());
+        assert_eq!(parse("wana.live=maybe").warnings.len(), 1);
     }
 
     #[test]
