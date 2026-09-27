@@ -22,6 +22,14 @@
       no suitable public Wayland protocol.
     </description>
     <request name="destroy" type="destructor"/>
+    <request name="activate_toplevel">
+      <description summary="activate a mapped toplevel by its shell identifier">
+        Requests that the compositor restore the toplevel if minimized, raise
+        it in the window stack and give it keyboard focus. The identifier is
+        one previously delivered by ext-foreign-toplevel-list-v1.
+      </description>
+      <arg name="identifier" type="string"/>
+    </request>
     <event name="toggle_launcher">
       <description summary="toggle the application launcher">
         Sent when the compositor consumes the configured global launcher
