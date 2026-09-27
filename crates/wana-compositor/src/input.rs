@@ -422,6 +422,26 @@ impl Compositor {
         let Some(kb) = self.xkb.as_mut() else { return };
         let info = kb.key(code, pressed);
         let mods = kb.modifiers();
+
+        // Wana's global launcher shortcut (decision 0004). evdev:
+        // Space=57, LeftMeta=125, RightMeta=126. The Space press/release is
+        // consumed so the focused application never sees half of the chord.
+        const KEY_SPACE: u32 = 57;
+        const KEY_LEFTMETA: u32 = 125;
+        const KEY_RIGHTMETA: u32 = 126;
+        let meta_down = self.seat.keys.contains(&KEY_LEFTMETA)
+            || self.seat.keys.contains(&KEY_RIGHTMETA);
+        if pressed && code == KEY_SPACE && meta_down {
+            self.launcher_shortcut_space = true;
+            self.shell_toggle_launcher(ctx);
+            info!(COMPOSITOR, "global shortcut Super+Space -> shell launcher toggle");
+            return;
+        }
+        if !pressed && code == KEY_SPACE && self.launcher_shortcut_space {
+            self.launcher_shortcut_space = false;
+            return;
+        }
+
         let Some(surface) = self.seat.keyboard_focus else {
             return;
         };
