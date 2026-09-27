@@ -300,6 +300,27 @@ window-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
 
+# Phase 12 step 1: xdg_toplevel window-state management. The client asks
+# for maximize, restore, fullscreen, constrained maximize and minimize and
+# validates every configure/state transition itself.
+WINDOW_MGMT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,120,--run,/usr/bin/wana-wl-test,--window-management wana.test=poweroff wana.shell=0
+window-management-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-window-management.img "$(WINDOW_MGMT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-window-management.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/window-management-boot.log \
+		--expect '\[COMPOSITOR\] info: client: window-management maximized: 1280x800 states .*1' \
+		--expect '\[COMPOSITOR\] info: client: window-management restored-from-maximize: 480x320 states' \
+		--expect '\[COMPOSITOR\] info: client: window-management fullscreen: 1280x800 states .*2' \
+		--expect '\[COMPOSITOR\] info: client: window-management restored-from-fullscreen: 480x320 states' \
+		--expect '\[COMPOSITOR\] info: client: window-management maximized-constrained: 900x700 states .*1' \
+		--expect '\[COMPOSITOR\] info: client: window-management minimized request accepted' \
+		--expect '\[COMPOSITOR\] info: window minimized: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
+
 # Phase 10 step 4: input, focus and z-order through the compositor.
 # wana-wl-test --zorder maps "back" (larger than the screen, placed at 0,0,
 # amber) and then "front" (480x320, accent) on top, which takes keyboard
@@ -543,8 +564,15 @@ wayland-host-test: fonts
 		grep -q 'shell restart 3/3' $$dir/shell-restart.log && \
 		grep -q 'shell restart limit reached (3); applications remain running' $$dir/shell-restart.log && \
 		echo "[COMPOSITOR] check: crashed shell restarts three times, then stops without killing compositor: PASS" && \
-	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
-		grep -q 'client: frame presented' $$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
+	$(WAYLAND_HOST_RUN) > $dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $dir/window.log && \
+		grep -q 'client: frame presented' $dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
+	$(WAYLAND_HOST_RUN) --window-management > $dir/wm.log 2>&1 && \
+		grep -q 'client: window-management maximized: 1280x800 states' $dir/wm.log && \
+		grep -q 'client: window-management restored-from-maximize: 480x320 states' $dir/wm.log && \
+		grep -q 'client: window-management fullscreen: 1280x800 states' $dir/wm.log && \
+		grep -q 'client: window-management maximized-constrained: 900x700 states' $dir/wm.log && \
+		grep -q 'client: window-management minimized request accepted' $dir/wm.log && \
+		echo "[COMPOSITOR] check: xdg maximize/fullscreen/restore/minimize policy: PASS" && \
 	$(WAYLAND_HOST_RUN) --attach-before-configure > $$dir/early.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: xdg_surface@[0-9]* code 3' $$dir/early.log && \
 		echo "[COMPOSITOR] check: buffer before configure -> xdg_surface.unconfigured_buffer: PASS" && \
