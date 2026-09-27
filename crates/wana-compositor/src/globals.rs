@@ -7,6 +7,7 @@
 //! | `wl_output` | 4 | geometry, mode, scale, name, description, done from DRM | |
 //! | `wl_seat` | 7 | `seat0`: pointer (enter/leave/motion/button/axis/frame, set_cursor) and keyboard (xkb keymap, enter/leave/key/modifiers, repeat info), capabilities from the devices present (`input.rs`) | touch |
 //! | `xdg_wm_base` | 1 | xdg_surface + xdg_toplevel with the configure handshake | popups, interactive move/resize |
+//! | `zwlr_layer_shell_v1` | 4 | privileged: only the shell sees it (decision 0003); layer surfaces with anchors, margins, exclusive zones, keyboard interactivity, stacking (`shell_surfaces.rs`, `layer.rs`) | popups |
 //!
 //! A version is advertised only when every request of that version is
 //! handled or answered with a clear protocol error; it is never above the
@@ -29,7 +30,7 @@ use std::rc::Rc;
 use wana_input::keyboard::Keyboard;
 use wana_log::{debug, info, warn, Subsystem};
 use wana_render::compose::Texture;
-use wana_wayland::protocols::{wayland, xdg_shell};
+use wana_wayland::protocols::{wayland, wlr_layer_shell_unstable_v1 as layer_shell, xdg_shell};
 use wana_wayland::server::{interface_name, request_name, Arg, Ctx, Handler, ReqArg, Resource};
 use wana_wayland::sys::wl_interface;
 
@@ -76,6 +77,8 @@ pub struct OutputInfo {
 pub struct Global {
     pub interface: &'static wl_interface,
     pub version: u32,
+    /// Only privileged clients (the shell) see it.
+    pub privileged: bool,
 }
 
 /// The advertised globals, versions capped at the protocol XML's.
@@ -83,6 +86,7 @@ pub fn globals() -> Vec<Global> {
     let cap = |i: &'static wl_interface, v: u32| Global {
         interface: i,
         version: v.min(i.version as u32),
+        privileged: false,
     };
     vec![
         cap(&wayland::WL_COMPOSITOR_INTERFACE, 4),
@@ -90,6 +94,10 @@ pub fn globals() -> Vec<Global> {
         cap(&wayland::WL_OUTPUT_INTERFACE, 4),
         cap(&wayland::WL_SEAT_INTERFACE, 7),
         cap(&xdg_shell::XDG_WM_BASE_INTERFACE, 1),
+        Global {
+            privileged: true,
+            ..cap(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE, 4)
+        },
     ]
 }
 
@@ -138,6 +146,11 @@ pub struct Compositor {
     /// Upload pixels to GL textures (a GL context is current).
     gpu: bool,
     pub(crate) surfaces: HashMap<Resource, Surface>,
+    /// Layer surfaces (by zwlr_layer_surface_v1) and their creation order.
+    pub(crate) layers: HashMap<Resource, crate::shell_surfaces::LayerSurface>,
+    pub(crate) layer_order: Vec<Resource>,
+    /// The output minus the layer surfaces' exclusive zones.
+    pub(crate) usable: crate::layer::Rect,
     pub(crate) content: HashMap<Resource, Content>,
     pools: HashMap<Resource, SharedPool>,
     buffers: HashMap<Resource, (SharedPool, BufferLayout)>,
@@ -174,7 +187,16 @@ impl Compositor {
             None
         };
         let seat = Seat::new(output.width, output.height);
+        let usable = crate::layer::Rect {
+            x: 0,
+            y: 0,
+            w: output.width,
+            h: output.height,
+        };
         Compositor {
+            layers: HashMap::new(),
+            layer_order: Vec::new(),
+            usable,
             output,
             globals,
             binds,
@@ -197,21 +219,11 @@ impl Compositor {
         }
     }
 
-    /// Textures of the mapped windows, bottom to top, with positions, then
-    /// the cursor.
-    pub fn scene(&self) -> Vec<(&Texture, i32, i32)> {
-        self.windows
-            .iter()
-            .filter_map(|w| match self.content.get(&w.surface) {
-                Some(Content::Texture(t)) => Some((t, w.x, w.y)),
-                _ => None,
-            })
-            .chain(self.cursor_image())
-            .collect()
-    }
-
     /// `"title" (app_id)` of the window on `surface`, for the log.
     pub(crate) fn title_of(&self, surface: Resource) -> String {
+        if let Some(l) = self.layer_of(surface) {
+            return format!("layer {:?}", l.namespace);
+        }
         let Some(Role::Xdg(xs)) = self.surfaces.get(&surface).map(|s| s.role) else {
             return format!("surface {surface:?}");
         };
@@ -479,7 +491,11 @@ impl Compositor {
             return;
         };
         let attach = std::mem::replace(&mut s.attach, Attach::Unchanged);
-        if let Role::Xdg(xs) = s.role {
+        if let Role::Layer(ls) = s.role {
+            if !self.layer_commit(ctx, ls, attach) {
+                return;
+            }
+        } else if let Role::Xdg(xs) = s.role {
             let Some(xdg) = self.xdg.get_mut(&xs) else {
                 return;
             };
@@ -557,6 +573,7 @@ impl Compositor {
         }
         s.scale = s.pending_scale;
         self.update_mapping(ctx, res);
+        self.layer_update_mapping(ctx, res);
     }
 
     /// Copies the buffer's pixels (texture or size), releases the buffer.
@@ -621,13 +638,8 @@ impl Compositor {
         match (visible, index) {
             (true, None) => {
                 let (w, h) = s.content.unwrap_or((0, 0));
-                let (x, y) = place(
-                    self.mapped_total,
-                    self.output.width,
-                    self.output.height,
-                    w,
-                    h,
-                );
+                let u = self.usable;
+                let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
                 self.windows.push(Window { surface, x, y });
                 let title = self.title_of(surface);
@@ -831,6 +843,10 @@ impl Handler for Compositor {
             self.xdg_surface_request(ctx, res, opcode, &args);
         } else if is(&xdg_shell::XDG_TOPLEVEL_INTERFACE) {
             self.toplevel_request(res, opcode, &args);
+        } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE) {
+            self.layer_shell_request(ctx, res, opcode, &args);
+        } else if is(&layer_shell::ZWLR_LAYER_SURFACE_V1_INTERFACE) {
+            self.layer_surface_request(ctx, res, opcode, &args);
         } else if is(&wayland::WL_SEAT_INTERFACE) {
             self.seat_request(ctx, res, opcode, &args);
         } else if is(&wayland::WL_POINTER_INTERFACE) {
@@ -860,6 +876,11 @@ impl Handler for Compositor {
                     x.surface = None;
                 }
             }
+            if let Role::Layer(ls) = s.role {
+                self.layer_surface_gone(ctx, ls);
+            }
+        } else if self.layers.contains_key(&res) {
+            self.layer_destroyed(ctx, res);
         } else if self.buffers.remove(&res).is_some() {
             // A pending attach of this buffer becomes "no buffer" at commit.
         } else if self.pools.remove(&res).is_some() {
@@ -905,7 +926,15 @@ mod tests {
     #[test]
     fn versions_are_capped_by_the_protocol_xml() {
         let g = globals();
-        assert_eq!(g.len(), 5);
+        assert_eq!(g.len(), 6);
+        assert_eq!(
+            g.iter()
+                .filter(|x| x.privileged)
+                .map(|x| interface_name(x.interface))
+                .collect::<Vec<_>>(),
+            ["zwlr_layer_shell_v1"],
+            "only layer-shell is privileged"
+        );
         for x in &g {
             assert!(x.version >= 1 && x.version <= x.interface.version as u32);
         }

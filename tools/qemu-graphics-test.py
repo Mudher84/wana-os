@@ -18,6 +18,9 @@ Input (Phase 9): --input virtio adds a virtio keyboard and tablet; when a
 log line matches --send-on, each --send monitor command is sent in order:
   --input virtio --send-on 'waiting for input' \\
       --send 'sendkey w' --send 'mouse_move 40 30' --send 'mouse_button 1'
+A --send of the form 'wait:REGEX' pauses the list until a later log line
+matches REGEX (e.g. open a menu with a click, wait until it is shown, then
+type into it).
 """
 
 import argparse
@@ -127,7 +130,8 @@ def main():
     ap.add_argument("--input", choices=["virtio", "ps2"], default="ps2",
                     help="input devices: q35 built-in PS/2 only, or also virtio keyboard + tablet")
     ap.add_argument("--send-on", help="regex; send the --send monitor commands when a log line matches")
-    ap.add_argument("--send", action="append", default=[], help="QEMU monitor command (repeatable)")
+    ap.add_argument("--send", action="append", default=[],
+                    help="QEMU monitor command, or wait:REGEX to pause until a log line matches (repeatable)")
     args = ap.parse_args()
 
     ovmf = next((p for p in OVMF_CANDIDATES if os.path.isfile(p)), None)
@@ -161,6 +165,21 @@ def main():
     os.set_blocking(proc.stdout.fileno(), False)
     deadline = time.time() + args.timeout
     text, pending, shot_taken, sent = b"", b"", False, False
+    queue = None  # --send items still to go, once --send-on matched
+
+    def send_until_wait():
+        """Sends queued commands up to the next wait:REGEX (returned compiled)."""
+        batch = []
+        while queue and not queue[0].startswith("wait:"):
+            batch.append(queue.pop(0))
+        if batch:
+            monitor(mon, batch)
+            log("info", f"sent {len(batch)} monitor command(s): {'; '.join(batch)}")
+        if queue:
+            log("info", f"waiting for {queue[0][5:]!r} before sending more")
+            return re.compile(queue[0][5:].encode())
+        return None
+    waiting = None
     trigger = re.compile(args.screendump_on.encode()) if args.screendump_on else None
     send_trigger = re.compile(args.send_on.encode()) if args.send_on else None
     with open(args.log, "wb") as logf:
@@ -181,9 +200,11 @@ def main():
                     shot_taken = True
                     log("info", f"screendump taken -> {args.screendump}")
                 if send_trigger and not sent and send_trigger.search(line):
-                    monitor(mon, args.send)
-                    sent = True
-                    log("info", f"sent {len(args.send)} monitor command(s): {'; '.join(args.send)}")
+                    queue, sent = list(args.send), True
+                    waiting = send_until_wait()
+                elif waiting and waiting.search(line):
+                    queue.pop(0)
+                    waiting = send_until_wait()
         if proc.poll() is None:
             log("info", f"timeout reached after {args.timeout}s")
             proc.kill()
@@ -224,6 +245,9 @@ def main():
 
     if send_trigger and not sent:
         log("error", "input was never sent (--send-on line never appeared)", sys.stderr)
+        fail = True
+    if queue:
+        log("error", f"input stopped at {queue[0]!r} (that line never appeared)", sys.stderr)
         fail = True
 
     if args.screendump:

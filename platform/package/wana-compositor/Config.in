@@ -19,8 +19,9 @@ config BR2_PACKAGE_WANA_COMPOSITOR
 	  Wana OS Wayland compositor, on libwayland-server (decision
 	  0001) with protocol tables generated from the protocol XML,
 	  drawing with GLES (wana-render) on DRM/KMS (wana-drm), with
-	  input from libinput + xkbcommon (wana-input); and
-	  wana-wl-test, the Wayland test client.
+	  input from libinput + xkbcommon (wana-input); wana-shell,
+	  the desktop shell it starts on a private connection
+	  (decision 0003); and wana-wl-test, the Wayland test client.
 
 comment "wana-compositor needs EGL, OpenGL ES and GBM (mesa3d)"
 	depends on !(BR2_PACKAGE_HAS_LIBEGL && BR2_PACKAGE_HAS_LIBGLES && BR2_PACKAGE_HAS_LIBGBM)

@@ -32,18 +32,34 @@
 //! the rendering's SHA-256 (it is deterministic) and a fully inked pixel.
 //! Fonts from `--fonts DIR` (default /usr/share/fonts/wana).
 //!
+//! `--expect-global NAME` / `--expect-no-global NAME` (repeatable): only
+//! checks which globals this client sees, then exits (0 if all as expected).
+//! Run as the shell (on its private connection) and as an ordinary client,
+//! it tests the privilege filter of decision 0003.
+//! `--try-bind-hidden INTERFACE`: binds the registry name right after the
+//! last advertised one as INTERFACE (what a malicious client guessing a
+//! hidden global would do) and expects the connection to end with
+//! wl_display.error invalid_object on the registry.
+//!
+//! `--layers` / `--layer-invalid-size` (as the shell): layer surfaces, see
+//! `layers.rs`.
+//!
+//! `--no-inherited-fds` (with any mode): first checks that this process
+//! received no descriptor besides stdin/stdout/stderr, e.g. that a program
+//! started by the shell does not hold the shell's privileged connection.
+//!
 //! Keys are decoded with the compositor's keymap and modifier state.
 //! Lines are tagged `[COMPOSITOR] info: client: ...`.
 
-mod client;
 mod input;
+mod layers;
 mod text;
 mod window;
 
-use client::{Connection, Proxy, Req, Val};
 use input::{Devices, Goal};
 use std::process::ExitCode;
 use std::time::Duration;
+use wana_client::client::{self, Connection, Proxy, Req, Val};
 use wana_log::{error, info, Subsystem};
 use wana_render::scene::{ACCENT, BORDER};
 use wana_wayland::protocols::{wayland, xdg_shell};
@@ -68,6 +84,12 @@ enum Mode {
     Input(String),
     ZOrder(String),
     Text,
+    /// (global, expected visible)
+    Globals(Vec<(String, bool)>),
+    TryBindHidden(String),
+    /// As the shell: background + top bar layer surfaces, then a window.
+    Layers,
+    LayerInvalidSize,
 }
 
 fn main() -> ExitCode {
@@ -75,12 +97,34 @@ fn main() -> ExitCode {
     let mut mode = Mode::Window;
     let mut hold = 0u64;
     let mut fonts_dir = std::path::PathBuf::from(text::DEFAULT_DIR);
+    let mut check_fds = false;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
             "--text" => mode = Mode::Text,
+            "--no-inherited-fds" => check_fds = true,
+            "--layers" => mode = Mode::Layers,
+            "--layer-invalid-size" => mode = Mode::LayerInvalidSize,
+            "--try-bind-hidden" => match it.next() {
+                Some(iface) => mode = Mode::TryBindHidden(iface),
+                None => {
+                    error!(LOG, "client: --try-bind-hidden needs an interface name");
+                    return ExitCode::from(2);
+                }
+            },
+            "--expect-global" | "--expect-no-global" => {
+                let Some(name) = it.next() else {
+                    error!(LOG, "client: {a} needs a global name");
+                    return ExitCode::from(2);
+                };
+                let visible = a == "--expect-global";
+                match &mut mode {
+                    Mode::Globals(v) => v.push((name, visible)),
+                    _ => mode = Mode::Globals(vec![(name, visible)]),
+                }
+            }
             "--fonts" => match it.next() {
                 Some(d) => fonts_dir = d.into(),
                 None => {
@@ -104,6 +148,12 @@ fn main() -> ExitCode {
                 error!(LOG, "client: unknown argument {other}");
                 return ExitCode::from(2);
             }
+        }
+    }
+    if check_fds {
+        if let Err(e) = inherited_fds() {
+            error!(LOG, "client: {e}");
+            return ExitCode::FAILURE;
         }
     }
     match run(&mode, hold, &fonts_dir) {
@@ -136,9 +186,13 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         .expect("registry");
     conn.roundtrip()?;
     let mut g = Globals::default();
+    let mut seen: Vec<(String, u32)> = Vec::new();
+    let mut seen_names: Vec<u32> = Vec::new();
     while let Some(ev) = conn.next_event() {
         if ev.target == registry && ev.opcode == wayland::wl_registry::event::GLOBAL {
             if let [Val::Uint(name), Val::Str(iface), Val::Uint(version)] = &ev.args[..] {
+                seen.push((iface.clone(), *version));
+                seen_names.push(*name);
                 match iface.as_str() {
                     "wl_compositor" => g.compositor = Some((*name, *version)),
                     "wl_shm" => g.shm = Some((*name, *version)),
@@ -148,6 +202,12 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
                 }
             }
         }
+    }
+    if let Mode::Globals(expect) = mode {
+        return check_globals(&seen, expect);
+    }
+    if let Mode::TryBindHidden(iface) = mode {
+        return try_bind_hidden(&conn, registry, &seen_names, iface);
     }
     let bind = |glob: Option<(u32, u32)>,
                 iface: &'static wana_wayland::sys::wl_interface,
@@ -181,6 +241,63 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
     };
     let wm_base = shell.wm_base;
     info!(LOG, "client: bound wl_compositor, wl_shm, xdg_wm_base");
+
+    if matches!(mode, Mode::Layers | Mode::LayerInvalidSize) {
+        let name = seen
+            .iter()
+            .zip(&seen_names)
+            .find(|((n, _), _)| n == "zwlr_layer_shell_v1")
+            .map(|(_, id)| *id)
+            .ok_or("zwlr_layer_shell_v1 not advertised (am I the shell?)")?;
+        let layer_shell = conn
+            .request(
+                registry,
+                wayland::wl_registry::request::BIND,
+                Some((
+                    &wana_wayland::protocols::wlr_layer_shell_unstable_v1::ZWLR_LAYER_SHELL_V1_INTERFACE,
+                    4,
+                )),
+                &[
+                    Req::Uint(name),
+                    Req::Str("zwlr_layer_shell_v1"),
+                    Req::Uint(4),
+                    Req::NewId,
+                ],
+            )?
+            .expect("layer shell");
+        if *mode == Mode::LayerInvalidSize {
+            return layers::invalid_size(&conn, &shell, layer_shell);
+        }
+        layers::map(
+            &conn,
+            &shell,
+            layer_shell,
+            layers::Spec {
+                namespace: "wana-desktop",
+                layer: layers::BACKGROUND,
+                anchor: layers::ANCHOR_ALL,
+                width: 0,
+                height: 0,
+                zone: -1,
+                rgb: layers::DESKTOP_RGB,
+            },
+        )?;
+        layers::map(
+            &conn,
+            &shell,
+            layer_shell,
+            layers::Spec {
+                namespace: "wana-bar",
+                layer: layers::TOP,
+                anchor: layers::ANCHOR_TOP_BAR,
+                width: 0,
+                height: layers::BAR_HEIGHT,
+                zone: layers::BAR_HEIGHT as i32,
+                rgb: layers::BAR_RGB,
+            },
+        )?;
+        info!(LOG, "client: background and bar layers mapped");
+    }
 
     // Input objects exist before any window maps, so no focus event is lost.
     let mut devices = match mode {
@@ -303,6 +420,83 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
     Ok(())
 }
 
+/// Fails if any descriptor other than 0, 1 and 2 was inherited.
+fn inherited_fds() -> Result<(), String> {
+    let mut fds: Vec<i32> = std::fs::read_dir("/proc/self/fd")
+        .map_err(|e| format!("/proc/self/fd: {e}"))?
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    fds.sort_unstable();
+    // The listing had a descriptor of its own (the lowest free one, not
+    // necessarily the highest); it is closed now, so only descriptors that
+    // still resolve are real.
+    let extra: Vec<String> = fds
+        .iter()
+        .filter(|&&fd| fd > 2)
+        .filter_map(|fd| {
+            let target = std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()?;
+            Some(format!("{fd} -> {}", target.display()))
+        })
+        .collect();
+    if extra.is_empty() {
+        info!(LOG, "client: inherited descriptors: 0 1 2 only");
+        Ok(())
+    } else {
+        Err(format!("inherited descriptors: {}", extra.join(", ")))
+    }
+}
+
+/// Binds the first registry name after the advertised ones as `iface`.
+fn try_bind_hidden(
+    conn: &Connection,
+    registry: Proxy,
+    names: &[u32],
+    iface: &str,
+) -> Result<(), String> {
+    let table: &'static wana_wayland::sys::wl_interface = match iface {
+        "zwlr_layer_shell_v1" => {
+            &wana_wayland::protocols::wlr_layer_shell_unstable_v1::ZWLR_LAYER_SHELL_V1_INTERFACE
+        }
+        other => return Err(format!("--try-bind-hidden: unknown interface {other}")),
+    };
+    let name = names.iter().max().copied().unwrap_or(0) + 1;
+    info!(
+        LOG,
+        "client: binding hidden global name {name} as {iface} (not advertised to this client)"
+    );
+    conn.request(
+        registry,
+        wayland::wl_registry::request::BIND,
+        Some((table, 1)),
+        &[Req::Uint(name), Req::Str(iface), Req::Uint(1), Req::NewId],
+    )?;
+    expect_error(conn, "wl_registry", 0)
+}
+
+/// Checks the advertised globals against `expect` (name, visible).
+fn check_globals(seen: &[(String, u32)], expect: &[(String, bool)]) -> Result<(), String> {
+    let mut wrong = Vec::new();
+    for (name, visible) in expect {
+        let found = seen.iter().find(|(n, _)| n == name);
+        match (found, visible) {
+            (Some((_, v)), true) => info!(LOG, "client: global {name} v{v} visible, as expected"),
+            (None, false) => info!(LOG, "client: global {name} not visible, as expected"),
+            (Some((_, v)), false) => wrong.push(format!("{name} v{v} is visible")),
+            (None, true) => wrong.push(format!("{name} is not visible")),
+        }
+    }
+    if wrong.is_empty() {
+        info!(
+            LOG,
+            "client: globals as expected ({} advertised)",
+            seen.len()
+        );
+        Ok(())
+    } else {
+        Err(format!("globals: {}", wrong.join("; ")))
+    }
+}
+
 /// Dispatches events until `pick` returns a value; answers pings.
 /// Every event also goes to `devices` (input can arrive at any time, e.g.
 /// the keymap and keyboard enter while waiting for a configure). Events
@@ -338,7 +532,7 @@ pub(crate) fn wait_for<T>(
 }
 
 /// Expects the connection to end with `interface` error `code`.
-fn expect_error(conn: &Connection, interface: &str, code: u32) -> Result<(), String> {
+pub(crate) fn expect_error(conn: &Connection, interface: &str, code: u32) -> Result<(), String> {
     let err = match conn.roundtrip() {
         Ok(()) => conn.roundtrip().err(),
         Err(e) => Some(e),

@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -46,9 +46,12 @@ help:
 	@echo "    make compositor-boot-test  boot disk.img, wayland-info must list wana-compositor globals"
 	@echo "    make window-boot-test    boot disk.img, a client window must appear (screenshot pixel check)"
 	@echo "    make seat-boot-test      boot disk.img, QEMU click raises + focuses a window, typed keys reach it"
-	@echo "    make wayland-host-test   headless compositor + test client on this host (3 protocol scenarios)"
+	@echo "    make wayland-host-test   headless compositor, test client and shell on this host (10 scenarios)"
 	@echo "    make text-boot-test      boot disk.img, wana-text: pinned fonts, Arabic shaping, BiDi, layout"
 	@echo "    make text-window-boot-test  boot disk.img, Arabic text drawn by wana-text in a window (hash + screenshot)"
+	@echo "    make layer-boot-test     boot disk.img, the shell maps a background and a top bar; a window goes below the bar"
+	@echo "    make shell-boot-test     boot disk.img, wana-shell: desktop + Arabic top bar, autostarted app below it"
+	@echo "    make launcher-boot-test  boot disk.img, a click on the bar opens the launcher, Down + Enter start an app"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -234,7 +237,7 @@ input-boot-test:
 # describes the virtio-gpu display found through wana-drm as wl_output, and
 # serves one real client, wayland-info, which must list every global with
 # its contents (shm formats, output mode, seat name).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
@@ -256,10 +259,16 @@ compositor-boot-test:
 		--expect 'name: seat0' \
 		--expect "interface: 'xdg_wm_base', +version: +1," \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
-		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0' \
+		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0' \
+		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4' \
+		--expect '\[COMPOSITOR\] info: shell: started /usr/bin/wana-wl-test .* on a private connection' \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
+		--reject "interface: 'zwlr_layer_shell_v1'" \
 		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
 
 # Phase 10 step 3: a client window on screen. wana-compositor draws with
@@ -391,11 +400,115 @@ text-window-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
 
+# Phase 11 shell step 2 (decision 0003): layer surfaces. wana-wl-test runs
+# as the shell on the private connection: a background (all edges, zone -1)
+# and a 40 px top bar (zone 40) through the configure handshake, then an
+# ordinary window, which must be centered in what the bar leaves: 400,260.
+# Pixels: the bar, the desktop left of and above the window, the window's
+# top border and its interior.
+LAYER_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--shell,/usr/bin/wana-wl-test,--shell-arg,--layers,--shell-arg,--hold,--shell-arg,3,--exit-with-shell wana.test=poweroff wana.shell=0
+layer-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-layer.img "$(LAYER_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-layer.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/layer-boot.log \
+		--screendump-on 'client: holding window' --screendump out/test/layer.ppm \
+		--pixel 0.5,0.025=0b0f1a --pixel 0.078125,0.5=1b3a5c --pixel 0.5,0.3125=1b3a5c \
+		--pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: client: layer "wana-desktop" configured 1280x800' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-desktop" on layer background at 0,0 1280x800 \(exclusive zone -1\)' \
+		--expect '\[COMPOSITOR\] info: client: layer "wana-bar" configured 1280x40' \
+		--expect '\[COMPOSITOR\] info: usable area for windows: 0,40 1280x760' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-bar" on layer top at 0,0 1280x40 \(exclusive zone 40\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
+
+# Phase 11 shell step 3a: wana-shell itself. The compositor starts it on
+# the private connection; it maps the desktop (gradient) and the top bar
+# ("وانا" at the right, the time at the left in Arabic-Indic digits, fixed
+# with --clock so the bar's pixels are compared by hash), then autostarts an
+# ordinary client through the public socket, which must not inherit any
+# descriptor and whose window goes below the bar.
+SHELL_SHA_DESKTOP := c203532a708e005885a04bb854150ee8b4ed80eeef930d613d377756e9bf4839
+SHELL_SHA_BAR := 1359d3bd16029f7e54f4b04c42f0a23df6c55d872ffea676aad584f10a39b5a8
+SHELL_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,150,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--autostart,--shell-arg,/usr/bin/wana-wl-test,--shell-arg,--autostart-arg,--shell-arg,--no-inherited-fds,--shell-arg,--autostart-arg,--shell-arg,--hold,--shell-arg,--autostart-arg,--shell-arg,3,--shell-arg,--exit-with-autostart wana.test=poweroff wana.shell=0
+shell-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-shell.img "$(SHELL_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-shell.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/shell-boot.log \
+		--screendump-on 'client: holding window' --screendump out/test/shell.ppm \
+		--pixel 0.5,0.025=0b0f1a --pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
+		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[SHELL\] info: desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' \
+		--expect '\[SHELL\] info: bar mapped: 1280x40, time ١٦:٢٠, sha256 $(SHELL_SHA_BAR)' \
+		--expect '\[COMPOSITOR\] info: usable area for windows: 0,40 1280x760' \
+		--expect '\[SHELL\] info: ready' \
+		--expect '\[SHELL\] info: autostart: /usr/bin/wana-wl-test --no-inherited-fds --hold 3' \
+		--expect '\[COMPOSITOR\] info: client: inherited descriptors: 0 1 2 only' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
+		--expect '\[SHELL\] info: autostart exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Shell step 3b: a click on the bar's start ("وانا", the top-right corner:
+# the pointer is pushed there) opens the launcher; once it is shown (and
+# photographed), Down selects the second app and Enter starts it through
+# the public socket. The app draws the Arabic text window and exits, which
+# ends the shell (--exit-with-launched) and the boot.
+LAUNCHER_SHA := 05aea7f6617f5b2511e1f7a1b2ed775c67f8e85d3946b43354e074b8a45cc378
+LAUNCHER_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,200,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--apps,--shell-arg,/usr/share/wana-shell/apps.test,--shell-arg,--exit-with-launched wana.test=poweroff wana.shell=0
+launcher-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-launcher.img "$(LAUNCHER_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-launcher.img --gpu virtio --input virtio --timeout 300 --memory 1024 \
+		--log out/logs/launcher-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'mouse_move 300 -300' --send 'mouse_move 300 -300' --send 'mouse_move 300 -300' \
+		--send 'mouse_move 300 -300' --send 'mouse_move 300 -300' --send 'mouse_move 300 -300' \
+		--send 'mouse_button 1' --send 'mouse_button 0' \
+		--send 'wait:launcher shown' --send 'sendkey down' \
+		--send 'wait:launcher: selected 2/2' --send 'sendkey ret' \
+		--screendump-on 'launcher shown' --screendump out/test/launcher.ppm \
+		--pixel 0.5,0.025=0b0f1a --pixel 0.328125,0.525=4f8cff --pixel 0.328125,0.585=1e2638 \
+		--expect '\[SHELL\] info: apps: 2 from /usr/share/wana-shell/apps.test' \
+		--expect '\[SHELL\] info: ready' \
+		--expect '\[SHELL\] info: launcher opened from the bar' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 \(exclusive zone 0\)' \
+		--expect '\[COMPOSITOR\] info: keyboard focus: layer "wana-launcher"' \
+		--expect '\[SHELL\] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' \
+		--expect '\[SHELL\] info: launcher: selected 2/2 "نص عربي"' \
+		--expect '\[SHELL\] info: launcher closed' \
+		--expect '\[SHELL\] info: app "نص عربي": /usr/bin/wana-wl-test --no-inherited-fds --text --hold 2 \(pid [0-9]+\)' \
+		--expect '\[COMPOSITOR\] info: layer surface destroyed: "wana-launcher"' \
+		--expect '\[COMPOSITOR\] info: client: inherited descriptors: 0 1 2 only' \
+		--expect '\[COMPOSITOR\] info: client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test text" \(org.wana.test\) 600x209' \
+		--expect '\[COMPOSITOR\] info: keyboard focus: "wana-wl-test text" \(org.wana.test\)' \
+		--expect '\[SHELL\] info: app "نص عربي" exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
 WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
+# The shell alone, the compositor stopping with it (layer surfaces).
+WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+	--exit-with-shell --shell target/release/wana-wl-test --shell-arg
+# The same compositor with a shell on the private connection (decision 0003).
+WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1
 wayland-host-test: fonts
-	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test
+	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test -p wana-shell
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
 	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
 		grep -q 'client: frame presented' $$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
@@ -408,7 +521,46 @@ wayland-host-test: fonts
 		echo "[COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS" && \
 	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
 		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
-		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" || \
+		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
+		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
+		echo "[COMPOSITOR] check: layer-shell visible to the shell only: PASS" && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
+		grep -q 'binds: .*zwlr_layer_shell_v1 0' $$dir/bind.log && \
+		echo "[COMPOSITOR] check: binding the hidden global by guessing its name -> invalid_object: PASS" && \
+	$(WAYLAND_HOST_LAYERS) --layers > $$dir/layers.log 2>&1 && \
+		grep -q 'usable area for windows: 0,40 1280x760' $$dir/layers.log && \
+		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$dir/layers.log && \
+		echo "[COMPOSITOR] check: background + bar layer surfaces, window placed below the bar: PASS" && \
+	$(WAYLAND_HOST_LAYERS) --layer-invalid-size > $$dir/badlayer.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: zwlr_layer_surface_v1@[0-9]* code 1' $$dir/badlayer.log && \
+		echo "[COMPOSITOR] check: layer width 0 without both side anchors -> invalid_size: PASS" && \
+	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --exit-with-shell \
+		--shell target/release/wana-shell --shell-arg --fonts --shell-arg $(CURDIR)/out/fonts --shell-arg --clock --shell-arg 16:20 \
+		--shell-arg --autostart --shell-arg $(CURDIR)/target/release/wana-wl-test --shell-arg --autostart-arg --shell-arg --no-inherited-fds \
+		--shell-arg --exit-with-autostart \
+		> $$dir/shell.log 2>&1 && \
+		grep -q 'desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' $$dir/shell.log && \
+		grep -q 'bar mapped: 1280x40, time ١٦:٢٠, sha256 $(SHELL_SHA_BAR)' $$dir/shell.log && \
+		grep -q 'client: inherited descriptors: 0 1 2 only' $$dir/shell.log && \
+		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$dir/shell.log && \
+		echo "[COMPOSITOR] check: wana-shell desktop + bar (hashes), autostarted app below the bar, no inherited fds: PASS" && \
+	printf 'نافذة تجريبية\t%s\t--hold\t1\nنص عربي\t%s\t--no-inherited-fds\t--text\t--fonts\t%s\n' \
+		$(CURDIR)/target/release/wana-wl-test $(CURDIR)/target/release/wana-wl-test $(CURDIR)/out/fonts > $$dir/apps && \
+	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --exit-with-shell \
+		--shell target/release/wana-shell --shell-arg --fonts --shell-arg $(CURDIR)/out/fonts --shell-arg --clock --shell-arg 16:20 \
+		--shell-arg --apps --shell-arg $$dir/apps --shell-arg --test-launch --shell-arg 2 --shell-arg --exit-with-launched \
+		> $$dir/launcher.log 2>&1 && \
+		grep -q 'layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160' $$dir/launcher.log && \
+		grep -q 'keyboard focus: layer "wana-launcher"' $$dir/launcher.log && \
+		grep -q 'launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' $$dir/launcher.log && \
+		grep -q 'layer surface destroyed: "wana-launcher"' $$dir/launcher.log && \
+		grep -q 'client: inherited descriptors: 0 1 2 only' $$dir/launcher.log && \
+		grep -q 'window mapped: "wana-wl-test text"' $$dir/launcher.log && \
+		grep -q 'app "نص عربي" exited successfully' $$dir/launcher.log && \
+		echo "[COMPOSITOR] check: launcher (hash, exclusive keyboard) starts an app through the public socket: PASS" || \
 	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$dir/*.log >&2; exit 1; }
 
 br-%: buildroot-src

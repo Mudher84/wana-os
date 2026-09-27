@@ -15,16 +15,18 @@ mod scanner;
 #[cfg(test)]
 mod tests;
 
-/// Generated protocol tables and opcodes: `protocols::wayland` (core) and
-/// `protocols::xdg_shell`.
+/// Generated protocol tables and opcodes: `protocols::wayland` (core),
+/// `protocols::xdg_shell` and `protocols::wlr_layer_shell_unstable_v1`.
 pub mod protocols {
     include!(concat!(env!("OUT_DIR"), "/protocols.rs"));
 }
 
-/// Number of interfaces in the generated protocol tables.
-pub fn interface_count() -> (usize, usize) {
+/// Number of interfaces in the generated protocol tables: core, xdg-shell,
+/// layer-shell.
+pub fn interface_count() -> (usize, usize, usize) {
     (
         protocols::wayland::INTERFACES.len(),
         protocols::xdg_shell::INTERFACES.len(),
+        protocols::wlr_layer_shell_unstable_v1::INTERFACES.len(),
     )
 }

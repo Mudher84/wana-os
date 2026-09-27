@@ -1,0 +1,4 @@
+# Wana OS launcher apps: one per line, fields separated by a TAB:
+# name<TAB>/absolute/program<TAB>argument...
+نافذة تجريبية	/usr/bin/wana-wl-test	--hold	600
+نص عربي	/usr/bin/wana-wl-test	--text	--hold	600

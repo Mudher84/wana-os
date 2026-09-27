@@ -297,6 +297,313 @@ Components (see the amendment to decision 0002: no FreeType):
   headless): success.
 - Result: **PASS**
 
+## Shell step 1: layer-shell protocol and the shell's privilege
+
+Decision 0003 (accepted: option A) chooses the protocol and the privilege model. This step builds both, before any
+layer surface exists.
+
+Components:
+- `crates/wana-wayland/protocols/wlr-layer-shell-unstable-v1.xml`: v4, unchanged from the source, with its sha256
+  in `protocols/README.md`. `build.rs` generates its tables like the others; its reference to `xdg_popup` resolves
+  to the xdg-shell tables. Its destructors (`destroy`) are applied by the protocol layer.
+- `wana-wayland`:
+  - `create_privileged_global`: a global only privileged clients can see;
+  - `add_privileged_client(fd)`: serves a client on a socket the compositor created (`wl_client_create`). Only this
+    path makes a client privileged;
+  - `wl_display_set_global_filter`: libwayland asks it both before advertising a global to a client and before
+    letting that client bind it;
+  - when a privileged client is destroyed, its mark is removed, so a later client allocated at the same address
+    cannot inherit it.
+- `wana-compositor`:
+  - `zwlr_layer_shell_v1` v4 is created as a privileged global. `get_layer_surface` ends the client with an
+    implementation error naming step 2 until layer surfaces exist;
+  - `--shell PROGRAM [--shell-arg ARG]...`: the compositor creates a socketpair, keeps its end as the shell's
+    privileged connection, and starts the shell with the other end as `WAYLAND_SOCKET`. The descriptor is
+    close-on-exec everywhere except in the shell, cleared in `pre_exec`;
+  - the log names the shell's connection, because on a socketpair the kernel reports the credentials of the pair's
+    creator (the compositor), not of the shell;
+  - if the shell exits it is logged. Restarting it comes with the shell itself (step 3).
+- `wana-wl-test`:
+  - `--expect-global NAME` / `--expect-no-global NAME`;
+  - `--try-bind-hidden INTERFACE`: binds the registry name right after the last advertised one, which is what a
+    client guessing a hidden global's number would do.
+
+### T18: Privilege on the host (headless, the real libwayland)
+
+- `make wayland-host-test`, 6 of 6. The new scenarios:
+  - the shell (private connection) sees 6 globals including `zwlr_layer_shell_v1 v4`; an ordinary client on the
+    public socket sees 5, without it;
+  - binding the hidden global by guessing its name:
+    ```
+    [COMPOSITOR] info: client: binding hidden global name 6 as zwlr_layer_shell_v1 (not advertised to this client)
+    wl_registry@2: error 0: invalid global zwlr_layer_shell_v1 (6)
+    [COMPOSITOR] info: client: got the expected protocol error: wl_registry@2 code 0
+    [COMPOSITOR] info: binds: wl_compositor 0, wl_shm 0, wl_output 0, wl_seat 0, xdg_wm_base 0, zwlr_layer_shell_v1 0
+    ```
+    libwayland refuses the bind itself, so the request never reaches the compositor's code: the global's bind
+    count stays 0.
+- Result: **PASS**
+
+### T19: Privilege in a QEMU boot (local, the extended `make compositor-boot-test`)
+
+- The compositor starts `wana-wl-test --expect-global zwlr_layer_shell_v1` as the shell, and `wayland-info` as an
+  ordinary client.
+- `wayland-info` lists exactly the five public globals (`wl_compositor`, `wl_shm`, `wl_output`, `wl_seat`,
+  `xdg_wm_base`). The reject pattern `interface: 'zwlr_layer_shell_v1'` is absent.
+- The shell logs `global zwlr_layer_shell_v1 v4 visible, as expected`, and the compositor logs
+  `client connected: the shell (private connection)`.
+- All the earlier expectations of the test still pass.
+- Result: **PASS**
+
+### T20: Buildroot image + `make compositor-boot-test` (with the shell) in CI
+
+- Actual: *pending*
+
+## Shell step 2: layer surfaces
+
+Components:
+- `wana-compositor/src/layer.rs`: the rules, free of libwayland and unit-tested.
+  - Validation: a size of 0 needs both opposite anchors (`invalid_size`); the anchor is 4 bits (`invalid_anchor`);
+    layer 0..3, keyboard interactivity 0..2.
+  - The exclusive edge: a positive zone counts only when the surface is anchored to one edge, or one edge and both
+    perpendicular ones.
+  - Arrangement:
+    - surfaces with a positive zone first, from overlay down to background, each against the area still usable,
+      each taking its zone plus margin off that edge;
+    - then the others in the usable area (zone 0) or on the whole output (zone -1);
+    - a size of 0 stretches between the anchors minus the margins, and an unanchored axis is centered.
+- `wana-compositor/src/shell_surfaces.rs`: the protocol.
+  - `get_layer_surface` checks the surface's role (`role`), a buffer already attached (`already_constructed`) and
+    the layer (`invalid_layer`).
+  - State is double-buffered and validated at commit.
+  - The handshake is xdg's: an initial commit without a buffer, then configure (serial, width, height), then ack;
+    a buffer before the ack is `invalid_surface_state`.
+  - A null buffer unmaps the surface and returns it to its state right after `get_layer_surface`.
+  - After every layer commit the surfaces are arranged again. Each one whose size changed gets a new configure, and
+    windows are placed in the area left for them.
+  - A surface reserves its zone only while mapped, so windows do not move for a panel that is not on screen yet.
+  - `get_popup` is refused for now with an implementation error.
+- Stacking (`stack()`): background, then bottom, then windows, then top, then overlay. Drawing and input both use
+  it.
+- Input:
+  - the pointer hit test covers layer surfaces too;
+  - a click on a layer surface with keyboard interactivity `none` does not take the keyboard, and does not raise
+    anything;
+  - a mapped top/overlay surface with `exclusive` interactivity holds the keyboard until it unmaps. This is for the
+    launcher and the lock screen.
+- `surface::place` centers new windows in the usable area instead of the whole output.
+- The compositor has `--exit-with-shell` for tests: it stops when the shell exits and returns the shell's result.
+- `wana-wl-test`:
+  - `--layers`, run as the shell: a background (all edges, zone -1) and a 40 px top bar (zone 40), each through the
+    handshake, then an ordinary window;
+  - `--layer-invalid-size`: width 0 anchored only to the top.
+
+### T21: Unit tests (local)
+
+- Validation and anchor, layer and keyboard ranges.
+- The exclusive edge for every anchor case in the protocol text (one edge, one edge and both perpendicular edges, a
+  corner, parallel edges, all edges, zone 0).
+- Arrangement:
+  - a background at -1 covers the output while the bar takes 40 px;
+  - zones stack in layer order and include margins: a top bar with margin 4, a left panel below it, a bottom dock
+    centered in what is left;
+  - a zone 0 notification moves below the bar;
+  - an unanchored launcher is centered.
+- Window placement inside the usable area: 400,260 below a 40 px bar.
+- All passed on their first run. 122 tests in the workspace.
+- Result: **PASS**
+
+### T22: On the host (headless) and in a QEMU boot (local, the exact `make layer-boot-test` expectations)
+
+- `make wayland-host-test`: 8 of 8. The new scenarios:
+  - background + bar, and the window below the bar;
+  - width 0 without both side anchors: `zwlr_layer_surface_v1 error 1: width 0 needs anchors to both the left and
+    the right edge`.
+- QEMU:
+  ```
+  [COMPOSITOR] info: client: layer "wana-desktop" configured 1280x800 (serial 1)
+  [COMPOSITOR] info: layer surface mapped: "wana-desktop" on layer background at 0,0 1280x800 (exclusive zone -1)
+  [COMPOSITOR] info: client: layer "wana-bar" configured 1280x40 (serial 2)
+  [COMPOSITOR] info: usable area for windows: 0,40 1280x760
+  [COMPOSITOR] info: layer surface mapped: "wana-bar" on layer top at 0,0 1280x40 (exclusive zone 40)
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260 (surface 17)
+  [BOOT] info: pixel (640,20) = #0b0f1a expected #0b0f1a
+  [BOOT] info: pixel (100,400) = #1b3a5c expected #1b3a5c
+  [BOOT] info: pixel (640,250) = #1b3a5c expected #1b3a5c
+  [BOOT] info: pixel (640,262) = #ffffff expected #ffffff
+  [BOOT] info: pixel (640,420) = #4f8cff expected #4f8cff
+  ```
+  - The pixels are: the bar, then the desktop left of and above the window (not the compositor's own background),
+    then the window's top border at y 262, now 20 px lower than before, then its interior.
+  - When the shell exits, its layers are destroyed and the usable area goes back to the whole output.
+- All 10 expectations and 5 pixels passed, and no `[INIT|COMPOSITOR|DRM|RENDER]` warning or error appeared.
+- Result: **PASS**
+
+### T23: Buildroot image + `make layer-boot-test` in CI
+
+- Actual: *pending*
+
+## Shell step 3a: wana-shell with the desktop and the top bar
+
+Components:
+- `crates/wana-client` (new), shared by the shell and the test client:
+  - the libwayland-client binding, moved from `wana-wl-test`, plus `wait(timeout)`: the shell redraws its clock
+    between events;
+  - `shm::Buffer`: memfd-backed XRGB8888 buffers. The compositor copies at commit, so a buffer is destroyed right
+    after the commit that uses it;
+  - `layer::LayerSurface`: create, set the state, initial commit, wait for the configure, ack.
+- `crates/wana-shell` (new):
+  - it binds `zwlr_layer_shell_v1`, which only works on the private connection; anywhere else it fails with "not
+    started as the shell";
+  - the desktop is a background layer surface (all edges, zone -1) with a vertical gradient;
+  - the top bar is a top layer surface, 40 px, zone 40, RTL: "وانا" at the start (right) and the time at the end
+    (left) in Arabic-Indic digits, laid out and drawn with wana-text;
+  - the time is UTC until time zones become configurable (Settings), and the bar is redrawn when the minute
+    changes. `--clock HH:MM` fixes it for tests;
+  - `draw.rs` is pure (state to pixels) and unit-tested; every rendering is logged with its SHA-256.
+- Autostart (`--autostart PROGRAM [--autostart-arg ARG]... [--exit-with-autostart]`), after the shell's
+  surfaces are mapped:
+  - the program starts with a clean environment and the public socket (`WAYLAND_DISPLAY`, which the compositor now
+    passes to the shell);
+  - the shell marks its privileged descriptor close-on-exec itself, in addition to libwayland doing so, so no
+    started program can hold it;
+  - starting programs from the shell also removes a race: the test's window cannot map before the bar reserves its
+    zone.
+- `wana-wl-test --no-inherited-fds`: fails if the process received any descriptor besides 0, 1 and 2.
+  - Its first version picked the wrong descriptor to ignore: it assumed the listing's own descriptor was the
+    highest, but it is the lowest free one.
+  - Checked with a deliberately inherited descriptor, it now reports `5 -> /dev/null` and exits 1. On a clean
+    process it passes.
+- Buildroot: `wana-compositor` builds and installs `/usr/bin/wana-shell`.
+
+### T24: Unit tests (local)
+
+- The gradient's end colors, and its interpolation rounding.
+- Arabic-Indic digits (`16:20` becomes `١٦:٢٠`).
+- The clock (UTC hours and minutes).
+- The bar:
+  - ink only at the right (the brand) and at the left (the time), none in the middle, the padding kept;
+  - the same inputs give the same pixels, and another minute gives different ones.
+- 126 tests in the workspace.
+- Result: **PASS**
+
+### T25: The shell on the host (headless) and in a QEMU boot (local, the exact `make shell-boot-test` expectations)
+
+- `make wayland-host-test`: 9 of 9. The new scenario checks the desktop and bar hashes, the autostarted client
+  with no inherited descriptors, and its window below the bar.
+- QEMU:
+  ```
+  [SHELL] info: wana-shell 0.1.0 starting
+  [COMPOSITOR] info: client connected: the shell (private connection)
+  [SHELL] info: desktop mapped: 1280x800, sha256 c203532a708e005885a04bb854150ee8b4ed80eeef930d613d377756e9bf4839
+  [SHELL] info: bar mapped: 1280x40, time ١٦:٢٠, sha256 1359d3bd16029f7e54f4b04c42f0a23df6c55d872ffea676aad584f10a39b5a8
+  [COMPOSITOR] info: usable area for windows: 0,40 1280x760
+  [SHELL] info: ready
+  [SHELL] info: autostart: /usr/bin/wana-wl-test --no-inherited-fds --hold 3 (pid …)
+  [COMPOSITOR] info: client: inherited descriptors: 0 1 2 only
+  [COMPOSITOR] info: window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260 (surface …)
+  [BOOT] info: pixel (640,20) = #0b0f1a expected #0b0f1a
+  [BOOT] info: pixel (640,262) = #ffffff expected #ffffff
+  [BOOT] info: pixel (640,420) = #4f8cff expected #4f8cff
+  ```
+- All 13 expectations and 3 pixels passed, and no `[INIT|COMPOSITOR|DRM|RENDER|SHELL]` warning or error appeared.
+  The screenshot shows the gradient desktop, the bar with "وانا" at the right and "١٦:٢٠" at the left, and the
+  window below the bar.
+- Result: **PASS**
+
+### T26: Buildroot image + `make shell-boot-test` in CI
+
+- Actual: *pending*
+
+## Shell step 3b: the launcher
+
+Components (`crates/wana-shell`):
+- `apps.rs`: the apps come from a pinned file, one per line, fields separated by a TAB:
+  `name<TAB>/absolute/program<TAB>argument...`.
+  - A TAB separator lets names contain spaces without a quoting syntax.
+  - A bad line is rejected with its number. A missing or broken file leaves the launcher empty and is logged as a
+    warning; the desktop stays up.
+  - The image installs `/etc/wana/apps`: two entries for now, both `wana-wl-test`, the only Wayland app so far.
+  - It also installs `/usr/share/wana-shell/apps.test` for the boot test: short-lived apps that check they inherit
+    no descriptor.
+- `launcher.rs`: a pure state machine over evdev key codes, so navigation does not depend on the keyboard layout:
+  - Up, Down, Home and End select (no wrap-around);
+  - Enter or keypad Enter starts the selected app;
+  - Escape closes the launcher.
+- The launcher surface:
+  - an overlay layer surface, unanchored, so the compositor centers it in the usable area;
+  - keyboard interactivity is exclusive, so it holds the keyboard while open;
+  - drawn by `draw::launcher`: a title ("التطبيقات"), then one row per app, right-aligned (RTL), with the
+    selected row in the accent color.
+- Opening and closing:
+  - a click on the bar's start (the right 160 px, where "وانا" is) opens it, and a second click closes it;
+  - a click on a row starts that app;
+  - closing destroys the surface; the compositor then gives the keyboard back to the top window.
+- The first frame of the launcher is logged once presented (a frame callback), with the rendering's SHA-256.
+- Apps start like the autostart: through the public socket, with a clean environment.
+- The shell now binds `wl_seat` and creates the pointer and keyboard when the capabilities appear. The keymap
+  descriptor is closed unread, since the shell uses key codes.
+- Test flags:
+  - `--exit-with-launched` ends the shell with the result of the first app started from the launcher;
+  - `--test-launch N` opens the launcher once ready and starts app N as soon as it is shown. It exists for the
+    headless host, which has no input devices.
+- `tools/qemu-graphics-test.py`: a `--send` of the form `wait:REGEX` pauses the input list until a log line
+  matches. The test clicks, waits until the launcher is shown, presses Down, waits for the new selection, then
+  presses Enter. Nothing depends on timing.
+- The key binding to open the launcher is not in this step. The compositor would have to tell the shell about it,
+  which needs a private protocol, so it comes with its own decision.
+
+### T27: Unit tests (local)
+
+- Parsing the apps file: names with spaces; errors that name the line; both shipped lists parse.
+- The menu: moving at the ends, Enter, keypad Enter, Escape, other keys, an empty list.
+- The launcher drawing:
+  - border, background and accent where expected;
+  - the title and the names at the right, nothing at the left of a short name;
+  - another selection gives different pixels;
+  - finding the row under a point.
+- 132 tests in the workspace.
+- Result: **PASS**
+
+### T28: The launcher on the host (headless) and in a QEMU boot (local, the exact `make launcher-boot-test` expectations)
+
+- `make wayland-host-test`: 10 of 10. The new scenario uses `--test-launch 2` and checks:
+  - the launcher's position and hash;
+  - that it takes the keyboard;
+  - that it is destroyed when the app starts;
+  - that the app inherits no descriptor, maps its window and exits successfully.
+- QEMU: the input is sent through the QEMU monitor. Six pointer moves push the cursor to the top-right corner,
+  then comes a click. After `wait:launcher shown` it sends `sendkey down`, and after `wait:launcher: selected 2/2`
+  it sends `sendkey ret`.
+  ```
+  [SHELL] info: apps: 2 from /usr/share/wana-shell/apps.test
+  [SHELL] info: launcher opened from the bar
+  [COMPOSITOR] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 (exclusive zone 0)
+  [COMPOSITOR] info: keyboard focus: layer "wana-launcher"
+  [SHELL] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 05aea7f6617f5b2511e1f7a1b2ed775c67f8e85d3946b43354e074b8a45cc378
+  [SHELL] info: launcher: selected 2/2 "نص عربي"
+  [SHELL] info: launcher closed
+  [SHELL] info: app "نص عربي": /usr/bin/wana-wl-test --no-inherited-fds --text --hold 2 (pid …)
+  [COMPOSITOR] info: layer surface destroyed: "wana-launcher"
+  [COMPOSITOR] info: client: inherited descriptors: 0 1 2 only
+  [COMPOSITOR] info: client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 7e7cc3f09afa024bc2e3df715aae86f0cbe818d8684b7b4159196b8472342790
+  [COMPOSITOR] info: keyboard focus: "wana-wl-test text" (org.wana.test)
+  [SHELL] info: app "نص عربي" exited successfully
+  [BOOT] info: pixel (640,20) = #0b0f1a expected #0b0f1a
+  [BOOT] info: pixel (420,420) = #4f8cff expected #4f8cff
+  [BOOT] info: pixel (420,468) = #1e2638 expected #1e2638
+  ```
+- All 19 expectations and 3 pixels passed under TCG (no KVM), and no `[INIT|COMPOSITOR|DRM|RENDER|SHELL]`
+  warning or error appeared.
+- The launcher's hash is the same on the host and in the image.
+- The screenshot shows the panel centered below the bar: the title, then "نافذة تجريبية" selected, then
+  "نص عربي".
+- Result: **PASS**
+
+### T29: Buildroot image + `make launcher-boot-test` in CI
+
+- Actual: *pending*
+
 ## Status
 
 - Text step 1 (pinned fonts): **PASS** (T1-T4).
@@ -304,5 +611,10 @@ Components (see the amendment to decision 0002: no FreeType):
 - Text step 3 (layout): **PASS** (T9-T11).
 - Text step 4 (drawing): **PASS** (T12-T16).
 - Text step 5 (reproducibility re-check with the text stack in the image): pending.
-- The shell: [decision 0003](../decisions/0003-shell-surfaces.md) (shell surfaces and privilege) is proposed and
-  waiting for the owner.
+- Shell step 1 (layer-shell protocol + privilege, [decision 0003](../decisions/0003-shell-surfaces.md) accepted):
+  T18-T19 pass locally; T20 (CI) is pending.
+- Shell step 2 (layer surfaces): T21-T22 pass locally; T23 (CI) is pending.
+- Shell step 3a (wana-shell: desktop, Arabic top bar, autostart): T24-T25 pass locally; T26 (CI) is pending.
+- Shell step 3b (launcher): T27-T28 pass locally; T29 (CI) is pending.
+- Shell step 3c (dock via ext-foreign-toplevel-list; restarting a crashed shell) and the launcher's key binding
+  (a private protocol, with its own decision): next.

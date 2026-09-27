@@ -12,6 +12,7 @@ rust-version.workspace = true
 [dependencies]
 wana-log = { path = "../wana-log" }
 wana-wayland = { path = "../wana-wayland" }
+wana-client = { path = "../wana-client" }
 wana-render = { path = "../wana-render" }
 wana-input = { path = "../wana-input" }
 wana-text = { path = "../wana-text" }

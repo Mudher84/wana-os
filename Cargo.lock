@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "wana-client"
+version = "0.1.0"
+dependencies = [
+ "wana-wayland",
+]
+
+[[package]]
 name = "wana-compositor"
 version = "0.1.0"
 dependencies = [
@@ -47,6 +54,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-shell"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
+ "wana-wayland",
+]
+
+[[package]]
 name = "wana-text"
 version = "0.1.0"
 dependencies = [
@@ -64,6 +81,7 @@ dependencies = [
 name = "wana-wl-test"
 version = "0.1.0"
 dependencies = [
+ "wana-client",
  "wana-input",
  "wana-log",
  "wana-render",

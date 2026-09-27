@@ -1,0 +1,19 @@
+[package]
+name = "wana-shell"
+description = "Wana OS desktop shell: background, top bar, launcher (decision 0003)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# A privileged Wayland client of wana-compositor (started by it on a private
+# connection). No crates.io dependencies.
+[dependencies]
+wana-log = { path = "../wana-log" }
+wana-wayland = { path = "../wana-wayland" }
+wana-client = { path = "../wana-client" }
+wana-text = { path = "../wana-text" }
+
+[lints]
+workspace = true
