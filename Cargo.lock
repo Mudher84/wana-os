@@ -54,6 +54,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-settings"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
+]
+
+[[package]]
 name = "wana-shell"
 version = "0.1.0"
 dependencies = [
