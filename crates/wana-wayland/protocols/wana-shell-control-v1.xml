@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="wana_shell_control_v1">
+  <copyright>
+    SPDX-License-Identifier: GPL-2.0-or-later
+
+    Wana OS project.
+  </copyright>
+
+  <interface name="wana_shell_control_v1" version="1">
+    <description summary="private Wana desktop-shell control">
+      Private compositor-to-shell control channel.
+
+      This global is exposed only to the compositor-created wana-shell
+      connection. Ordinary Wayland clients must never see or bind it.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the shell control object">
+        Destroys this shell control object.
+      </description>
+    </request>
+
+    <event name="toggle_launcher">
+      <description summary="toggle the application launcher">
+        Requests that wana-shell open the launcher if it is closed, or close
+        it if it is already open.
+      </description>
+    </event>
+  </interface>
+</protocol>
