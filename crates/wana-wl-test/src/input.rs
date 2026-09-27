@@ -17,7 +17,7 @@ extern "C" {
 const PROT_READ: i32 = 1;
 const MAP_PRIVATE: i32 = 2;
 const MAP_FAILED: *mut u8 = !0usize as *mut u8;
-const BTN_LEFT: u32 = 0x110;
+pub const BTN_LEFT: u32 = 0x110;
 const CAP_POINTER: u32 = 1;
 const CAP_KEYBOARD: u32 = 2;
 
