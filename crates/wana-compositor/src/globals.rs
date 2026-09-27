@@ -525,10 +525,13 @@ impl Compositor {
                 return;
             }
         } else if let Role::Xdg(xs) = s.role {
-            let Some(xdg) = self.xdg.get_mut(&xs) else {
-                return;
+            let outcome = {
+                let Some(xdg) = self.xdg.get_mut(&xs) else {
+                    return;
+                };
+                xdg_commit(xdg, attach)
             };
-            match xdg_commit(xdg, attach) {
+            match outcome {
                 XdgCommit::UnconfiguredBuffer => {
                     ctx.post_error(
                         xs,
@@ -546,32 +549,8 @@ impl Compositor {
                     return;
                 }
                 XdgCommit::SendInitialConfigure => {
-                    if let Some(tl) = xdg.toplevel {
-                        let serial = ctx.next_serial();
-                        let ok = ctx
-                            .post(
-                                tl,
-                                xdg_shell::xdg_toplevel::event::CONFIGURE,
-                                &[Arg::Int(0), Arg::Int(0), Arg::Array(&[])],
-                            )
-                            .and_then(|_| {
-                                ctx.post(
-                                    xs,
-                                    xdg_shell::xdg_surface::event::CONFIGURE,
-                                    &[Arg::Uint(serial)],
-                                )
-                            });
-                        match ok {
-                            Ok(()) => {
-                                xdg.sent(serial);
-                                debug!(
-                                    COMPOSITOR,
-                                    "xdg_surface@{}: configure serial {serial}",
-                                    ctx.id(xs)
-                                );
-                            }
-                            Err(e) => warn!(COMPOSITOR, "configure: {e}"),
-                        }
+                    if let Some(tl) = self.xdg.get(&xs).and_then(|x| x.toplevel) {
+                        self.send_toplevel_configure(ctx, tl);
                     }
                 }
                 XdgCommit::Apply => {}
