@@ -37,12 +37,12 @@ mod toplevels;
 
 use apps::App;
 use launcher::{Action, Menu};
-use toplevels::Toplevels;
 use std::fs::File;
 use std::os::unix::io::FromRawFd;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
+use toplevels::Toplevels;
 use wana_client::client::{Connection, Event, Proxy, Req, Val};
 use wana_client::layer::{self, LayerSurface, Spec};
 use wana_client::shm::Buffer;
@@ -52,8 +52,7 @@ use wana_text::layout::FontSet;
 use wana_text::raster::Canvas;
 use wana_text::{fonts, sha256};
 use wana_wayland::protocols::{
-    ext_foreign_toplevel_list_v1 as foreign, wayland,
-    wlr_layer_shell_unstable_v1 as proto,
+    ext_foreign_toplevel_list_v1 as foreign, wayland, wlr_layer_shell_unstable_v1 as proto,
 };
 
 const SHELL: Subsystem = Subsystem::Shell;
