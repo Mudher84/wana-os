@@ -296,6 +296,9 @@ impl Compositor {
         if self.seat.cursor != Cursor::Hidden {
             self.needs_redraw = true;
         }
+        if self.window_grab.is_some() {
+            self.update_window_grab(ctx);
+        }
         if self.update_pointer_focus(ctx) {
             return; // enter carries the position
         }
