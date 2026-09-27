@@ -377,6 +377,7 @@ impl Compositor {
         out.extend(
             self.windows
                 .iter()
+                .filter(|w| self.window_visible(w.surface))
                 .filter_map(|w| size(w.surface).map(|(sw, sh)| (w.surface, w.x, w.y, sw, sh))),
         );
         out.extend(layers(&[layer::TOP, layer::OVERLAY]));
