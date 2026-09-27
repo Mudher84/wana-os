@@ -190,6 +190,7 @@ pub struct Compositor {
     pub needs_redraw: bool,
     /// Windows mapped so far (for placement and the log).
     mapped_total: usize,
+    pub(crate) wm_grab: Option<crate::wm::Grab>,
     pub(crate) seat: Seat,
     /// The compositor's keyboard state (xkb), if a keymap was compiled.
     pub(crate) xkb: Option<Keyboard>,
@@ -243,6 +244,7 @@ impl Compositor {
             windows: Vec::new(),
             needs_redraw: true,
             mapped_total: 0,
+            wm_grab: None,
             seat,
             xkb: None,
             keymap: None,
