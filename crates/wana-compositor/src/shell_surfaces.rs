@@ -378,9 +378,21 @@ impl Compositor {
             self.windows
                 .iter()
                 .filter(|w| !self.window_minimized(w.surface))
+                .filter(|w| !self.window_fullscreen(w.surface))
                 .filter_map(|w| size(w.surface).map(|(sw, sh)| (w.surface, w.x, w.y, sw, sh))),
         );
-        out.extend(layers(&[layer::TOP, layer::OVERLAY]));
+        // Panels and the Dock live on TOP. A fullscreen application must
+        // cover them, while OVERLAY remains available for the launcher and
+        // future lock/permission surfaces.
+        out.extend(layers(&[layer::TOP]));
+        out.extend(
+            self.windows
+                .iter()
+                .filter(|w| !self.window_minimized(w.surface))
+                .filter(|w| self.window_fullscreen(w.surface))
+                .filter_map(|w| size(w.surface).map(|(sw, sh)| (w.surface, w.x, w.y, sw, sh))),
+        );
+        out.extend(layers(&[layer::OVERLAY]));
         out
     }
 
