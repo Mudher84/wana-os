@@ -409,9 +409,7 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         win.present(&conn, wm_base, None)?;
         info!(
             LOG,
-            "client: maximized buffer applied: {}x{}",
-            win.width,
-            win.height
+            "client: maximized buffer applied: {}x{}", win.width, win.height
         );
     }
 
