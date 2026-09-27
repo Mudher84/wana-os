@@ -140,6 +140,9 @@ struct Toplevel {
     xdg: Option<Resource>,
     title: String,
     app_id: String,
+    pending_mode: crate::wm::Mode,
+    limits: crate::wm::Limits,
+    wm: Option<crate::wm::WindowState>,
 }
 
 #[derive(Debug, Default)]
@@ -652,6 +655,116 @@ impl Compositor {
         true
     }
 
+    fn output_rect(&self) -> crate::layer::Rect {
+        crate::layer::Rect {
+            x: 0,
+            y: 0,
+            w: self.output.width,
+            h: self.output.height,
+        }
+    }
+
+    fn toplevel_of_surface(&self, surface: Resource) -> Option<Resource> {
+        let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
+            return None;
+        };
+        self.xdg.get(&xs)?.toplevel
+    }
+
+    pub(crate) fn window_visible(&self, surface: Resource) -> bool {
+        let Some(tl) = self.toplevel_of_surface(surface) else {
+            return true;
+        };
+        self.toplevels
+            .get(&tl)
+            .and_then(|t| t.wm)
+            .map_or(true, crate::wm::WindowState::visible)
+    }
+
+    fn sync_window_position_from_wm(&mut self, surface: Resource) {
+        let Some(tl) = self.toplevel_of_surface(surface) else {
+            return;
+        };
+        let Some(state) = self.toplevels.get(&tl).and_then(|t| t.wm) else {
+            return;
+        };
+        if let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) {
+            w.x = state.rect.x;
+            w.y = state.rect.y;
+        }
+        self.needs_redraw = true;
+    }
+
+    fn configure_values(&self, tl: Resource) -> (i32, i32, Vec<u8>) {
+        let Some(t) = self.toplevels.get(&tl) else {
+            return (0, 0, Vec::new());
+        };
+        if let Some(state) = t.wm {
+            let size = match state.mode {
+                crate::wm::Mode::Maximized | crate::wm::Mode::Fullscreen => {
+                    (state.rect.w, state.rect.h)
+                }
+                crate::wm::Mode::Normal | crate::wm::Mode::Minimized => (0, 0),
+            };
+            return (size.0, size.1, state.configure_states());
+        }
+        match t.pending_mode {
+            crate::wm::Mode::Maximized => {
+                let r = self.usable;
+                (
+                    r.w,
+                    r.h,
+                    crate::wm::STATE_MAXIMIZED.to_ne_bytes().to_vec(),
+                )
+            }
+            crate::wm::Mode::Fullscreen => {
+                let r = self.output_rect();
+                (
+                    r.w,
+                    r.h,
+                    crate::wm::STATE_FULLSCREEN.to_ne_bytes().to_vec(),
+                )
+            }
+            crate::wm::Mode::Normal | crate::wm::Mode::Minimized => (0, 0, Vec::new()),
+        }
+    }
+
+    fn send_toplevel_configure(&mut self, ctx: &Ctx, tl: Resource) {
+        let Some(xs) = self.toplevels.get(&tl).and_then(|t| t.xdg) else {
+            return;
+        };
+        let (width, height, states) = self.configure_values(tl);
+        let serial = ctx.next_serial();
+        let ok = ctx
+            .post(
+                tl,
+                xdg_shell::xdg_toplevel::event::CONFIGURE,
+                &[Arg::Int(width), Arg::Int(height), Arg::Array(&states)],
+            )
+            .and_then(|_| {
+                ctx.post(
+                    xs,
+                    xdg_shell::xdg_surface::event::CONFIGURE,
+                    &[Arg::Uint(serial)],
+                )
+            });
+        match ok {
+            Ok(()) => {
+                if let Some(xdg) = self.xdg.get_mut(&xs) {
+                    xdg.sent(serial);
+                }
+                debug!(
+                    COMPOSITOR,
+                    "xdg_surface@{}: configure serial {serial} size={}x{}",
+                    ctx.id(xs),
+                    width,
+                    height
+                );
+            }
+            Err(e) => warn!(COMPOSITOR, "configure: {e}"),
+        }
+    }
+
     /// Maps or unmaps the toplevel of `surface` after a commit.
     fn update_mapping(&mut self, ctx: &Ctx, surface: Resource) {
         let Some(s) = self.surfaces.get(&surface) else {
@@ -667,16 +780,47 @@ impl Compositor {
                 let u = self.usable;
                 let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
-                self.windows.push(Window { surface, x, y });
+
+                let mut state = crate::wm::WindowState::new(crate::layer::Rect {
+                    x,
+                    y,
+                    w,
+                    h,
+                });
+                if let Some(tl) = xdg.toplevel {
+                    if let Some(t) = self.toplevels.get(&tl) {
+                        state.limits = t.limits;
+                        match t.pending_mode {
+                            crate::wm::Mode::Normal => {}
+                            crate::wm::Mode::Maximized => state.maximize(self.usable),
+                            crate::wm::Mode::Fullscreen => state.fullscreen(self.output_rect()),
+                            crate::wm::Mode::Minimized => state.minimize(),
+                        }
+                    }
+                    if let Some(t) = self.toplevels.get_mut(&tl) {
+                        t.wm = Some(state);
+                    }
+                }
+
+                self.windows.push(Window {
+                    surface,
+                    x: state.rect.x,
+                    y: state.rect.y,
+                });
                 self.foreign_mapped(ctx, surface);
                 let title = self.title_of(surface);
                 info!(
                     COMPOSITOR,
-                    "window mapped: {title} {w}x{h} at {x},{y} (surface {})",
+                    "window mapped: {title} {w}x{h} at {},{} mode={:?} (surface {})",
+                    state.rect.x,
+                    state.rect.y,
+                    state.mode,
                     ctx.id(surface)
                 );
-                // A new window gets the keyboard (applied by sync_focus).
-                self.seat.focus_request = Some(surface);
+                // A visible new window gets the keyboard (applied by sync_focus).
+                if state.visible() {
+                    self.seat.focus_request = Some(surface);
+                }
                 self.needs_redraw = true;
             }
             (false, Some(i)) => {
