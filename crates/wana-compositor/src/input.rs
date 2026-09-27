@@ -427,6 +427,22 @@ impl Compositor {
         let Some(kb) = self.xkb.as_mut() else { return };
         let info = kb.key(code, pressed);
         let mods = kb.modifiers();
+
+        // Compositor shortcuts use evdev codes so they are layout-independent.
+        // Left/right Alt + Tab cycles windows; Alt + F4 requests a clean close.
+        let alt = self.seat.keys.contains(&56) || self.seat.keys.contains(&100);
+        if pressed && alt && code == 15 {
+            self.cycle_window_focus(ctx);
+            return;
+        }
+        if pressed && alt && code == 62 {
+            if let Some(surface) = self.seat.keyboard_focus {
+                self.request_window_close(ctx, surface);
+                info!(COMPOSITOR, "shortcut Alt+F4 -> {}", self.title_of(surface));
+            }
+            return;
+        }
+
         let Some(surface) = self.seat.keyboard_focus else {
             return;
         };
@@ -464,6 +480,26 @@ impl Compositor {
         );
     }
 
+    fn cycle_window_focus(&mut self, ctx: &Ctx) {
+        if self.windows.len() < 2 {
+            return;
+        }
+        let current = self.seat.keyboard_focus;
+        let index = current
+            .and_then(|s| self.windows.iter().position(|w| w.surface == s))
+            .unwrap_or(self.windows.len() - 1);
+        let next = if index == 0 {
+            self.windows.len() - 1
+        } else {
+            index - 1
+        };
+        let surface = self.windows[next].surface;
+        self.raise(surface);
+        self.set_keyboard_focus(ctx, Some(surface));
+        self.needs_redraw = true;
+        info!(COMPOSITOR, "shortcut Alt+Tab -> {}", self.title_of(surface));
+    }
+
     /// Moves keyboard focus, with leave to the old client's keyboards and
     /// enter (+ modifiers) to the new one's.
     fn set_keyboard_focus(&mut self, ctx: &Ctx, surface: Option<Resource>) {
@@ -493,6 +529,12 @@ impl Compositor {
                 info!(COMPOSITOR, "keyboard focus: {}", self.title_of(s));
             }
             None => info!(COMPOSITOR, "keyboard focus: none"),
+        }
+        if let Some(old) = old {
+            self.refresh_window_state(ctx, old);
+        }
+        if let Some(new) = surface {
+            self.refresh_window_state(ctx, new);
         }
     }
 
