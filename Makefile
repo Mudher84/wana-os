@@ -538,7 +538,7 @@ launcher-shortcut-boot-test:
 # the shell receives its toplevel metadata and redraws the Dock while the
 # window remains in the same usable area (Dock zone 0 does not reserve it).
 DOCK_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,180,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--autostart,--shell-arg,/usr/bin/wana-wl-test,--shell-arg,--autostart-arg,--shell-arg,--hold,--shell-arg,--autostart-arg,--shell-arg,3,--shell-arg,--exit-with-autostart wana.test=poweroff wana.shell=0
-dock-boot-test:
+dock-boot-test: launcher-shortcut-boot-test
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock.img "$(DOCK_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-dock.img --gpu virtio --timeout 260 --memory 1024 \
