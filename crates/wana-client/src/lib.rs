@@ -5,3 +5,4 @@
 pub mod client;
 pub mod layer;
 pub mod shm;
+pub mod window;
