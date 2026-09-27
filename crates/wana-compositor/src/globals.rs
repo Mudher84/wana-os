@@ -690,7 +690,11 @@ impl Compositor {
             (false, Some(i)) => {
                 self.windows.remove(i);
                 if minimized {
-                    info!(COMPOSITOR, "window hidden while minimized (surface {})", ctx.id(surface));
+                    info!(
+                        COMPOSITOR,
+                        "window hidden while minimized (surface {})",
+                        ctx.id(surface)
+                    );
                 } else {
                     self.foreign_closed(ctx, surface);
                     info!(COMPOSITOR, "window unmapped (surface {})", ctx.id(surface));
@@ -977,15 +981,13 @@ impl Compositor {
     }
 
     pub(crate) fn refresh_window_state(&mut self, ctx: &Ctx, surface: Resource) {
-        let Some(rect) = self.window_rect(surface) else { return };
-        let Some(toplevel) = self
-            .surfaces
-            .get(&surface)
-            .and_then(|s| match s.role {
-                Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
-                _ => None,
-            })
-        else {
+        let Some(rect) = self.window_rect(surface) else {
+            return;
+        };
+        let Some(toplevel) = self.surfaces.get(&surface).and_then(|s| match s.role {
+            Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
+            _ => None,
+        }) else {
             return;
         };
         let mode = self
@@ -997,14 +999,10 @@ impl Compositor {
     }
 
     pub(crate) fn request_window_close(&self, ctx: &Ctx, surface: Resource) {
-        let Some(toplevel) = self
-            .surfaces
-            .get(&surface)
-            .and_then(|s| match s.role {
-                Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
-                _ => None,
-            })
-        else {
+        let Some(toplevel) = self.surfaces.get(&surface).and_then(|s| match s.role {
+            Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
+            _ => None,
+        }) else {
             return;
         };
         let _ = ctx.post(toplevel, xdg_shell::xdg_toplevel::event::CLOSE, &[]);
@@ -1045,9 +1043,7 @@ impl Compositor {
                 }
                 debug!(
                     COMPOSITOR,
-                    "window configure: {}x{} mode={mode:?} serial={serial}",
-                    rect.w,
-                    rect.h
+                    "window configure: {}x{} mode={mode:?} serial={serial}", rect.w, rect.h
                 );
             }
             Err(e) => warn!(COMPOSITOR, "window configure: {e}"),
@@ -1142,7 +1138,9 @@ impl Compositor {
     }
 
     pub(crate) fn finish_window_grab(&mut self, ctx: &Ctx) {
-        let Some(grab) = self.window_grab.take() else { return };
+        let Some(grab) = self.window_grab.take() else {
+            return;
+        };
         if matches!(grab.kind, crate::window::GrabKind::Resize(_)) {
             if let Some(rect) = self.window_rect(grab.surface) {
                 self.configure_toplevel(
@@ -1209,13 +1207,7 @@ impl Compositor {
                 return;
             };
             if self.seat.seats.contains(seat) {
-                self.begin_window_grab(
-                    ctx,
-                    res,
-                    surface,
-                    *serial,
-                    crate::window::GrabKind::Move,
-                );
+                self.begin_window_grab(ctx, res, surface, *serial, crate::window::GrabKind::Move);
             }
             return;
         }
@@ -1256,33 +1248,45 @@ impl Compositor {
             return;
         }
 
-        let Some(current) = self.window_rect(surface) else { return };
+        let Some(current) = self.window_rect(surface) else {
+            return;
+        };
         let fallback = current;
 
         let target = match opcode {
             SET_MAXIMIZED => {
                 let usable = self.usable;
-                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                let Some(t) = self.toplevels.get_mut(&res) else {
+                    return;
+                };
                 t.wm.maximize(current, usable)
             }
             UNSET_MAXIMIZED => {
-                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                let Some(t) = self.toplevels.get_mut(&res) else {
+                    return;
+                };
                 t.wm.restore(fallback)
             }
             SET_FULLSCREEN => {
                 let output = self.output_rect();
-                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                let Some(t) = self.toplevels.get_mut(&res) else {
+                    return;
+                };
                 t.wm.fullscreen(current, output)
             }
             UNSET_FULLSCREEN => {
-                let Some(t) = self.toplevels.get_mut(&res) else { return };
+                let Some(t) = self.toplevels.get_mut(&res) else {
+                    return;
+                };
                 t.wm.restore(fallback)
             }
             _ => return,
         };
 
         let (target_w, target_h, mode) = {
-            let Some(t) = self.toplevels.get(&res) else { return };
+            let Some(t) = self.toplevels.get(&res) else {
+                return;
+            };
             let (w, h) = t.wm.constrain(target.w, target.h);
             (w, h, t.wm.mode)
         };
