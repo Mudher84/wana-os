@@ -35,6 +35,7 @@ mod shell;
 mod shell_surfaces;
 mod shm;
 mod surface;
+mod window;
 
 use globals::{Compositor, OutputInfo};
 use std::fs;
