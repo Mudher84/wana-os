@@ -448,12 +448,11 @@ fn wait_left_button(
             return None;
         }
         match &ev.args[..] {
-            [
-                Val::Uint(serial),
-                _,
-                Val::Uint(button),
-                Val::Uint(state),
-            ] if *button == BTN_LEFT && (*state == 1) == pressed => Some(*serial),
+            [Val::Uint(serial), _, Val::Uint(button), Val::Uint(state)]
+                if *button == BTN_LEFT && (*state == 1) == pressed =>
+            {
+                Some(*serial)
+            }
             _ => None,
         }
     })
@@ -507,9 +506,7 @@ fn wm_drag_test(conn: &Connection, shell: &Shell, devices: &mut Devices) -> Resu
     }
     info!(
         LOG,
-        "client: wm resize state active {}x{}",
-        started.width,
-        started.height
+        "client: wm resize state active {}x{}", started.width, started.height
     );
 
     let changed = loop {
@@ -524,15 +521,15 @@ fn wm_drag_test(conn: &Connection, shell: &Shell, devices: &mut Devices) -> Resu
     };
     info!(
         LOG,
-        "client: wm resize changed to {}x{}",
-        changed.width,
-        changed.height
+        "client: wm resize changed to {}x{}", changed.width, changed.height
     );
 
     let _ = wait_left_button(conn, shell.wm_base, devices, false)?;
     let ended = win.wait_toplevel_configure(conn, shell.wm_base, Some(devices))?;
     if ended.states.contains(&RESIZING) {
-        return Err(format!("resize state remained active after release: {ended:?}"));
+        return Err(format!(
+            "resize state remained active after release: {ended:?}"
+        ));
     }
     info!(LOG, "client: wm resize state ended");
     info!(LOG, "client: window-management drag test PASS");
@@ -560,22 +557,14 @@ fn wm_state_test(conn: &Connection, shell: &Shell) -> Result<(), String> {
         None,
         &[],
     )?;
-    conn.request(
-        win.surface,
-        wayland::wl_surface::request::COMMIT,
-        None,
-        &[],
-    )?;
+    conn.request(win.surface, wayland::wl_surface::request::COMMIT, None, &[])?;
     let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
     if (cfg.width, cfg.height) != (1280, 800) || !cfg.states.contains(&MAXIMIZED) {
         return Err(format!("maximize configure mismatch: {cfg:?}"));
     }
     info!(
         LOG,
-        "client: wm maximize configure {}x{} states {:?}",
-        cfg.width,
-        cfg.height,
-        cfg.states
+        "client: wm maximize configure {}x{} states {:?}", cfg.width, cfg.height, cfg.states
     );
     win.present(conn, shell.wm_base, None)?;
 
@@ -603,10 +592,7 @@ fn wm_state_test(conn: &Connection, shell: &Shell) -> Result<(), String> {
     }
     info!(
         LOG,
-        "client: wm fullscreen configure {}x{} states {:?}",
-        cfg.width,
-        cfg.height,
-        cfg.states
+        "client: wm fullscreen configure {}x{} states {:?}", cfg.width, cfg.height, cfg.states
     );
 
     conn.request(
