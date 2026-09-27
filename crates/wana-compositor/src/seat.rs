@@ -78,6 +78,10 @@ pub struct Seat {
     /// Buttons held (evdev codes).
     pub buttons: Vec<u32>,
     pub pointer_focus: Option<Focus>,
+    /// Last real pointer-button press delivered to a surface. Interactive
+    /// xdg_toplevel move/resize must present this exact serial while the
+    /// implicit button grab is still active.
+    pub last_button_serial: Option<(Resource, u32)>,
     pub keyboard_focus: Option<Resource>,
     /// A window that should get keyboard focus (just mapped).
     pub focus_request: Option<Resource>,
@@ -99,6 +103,7 @@ impl Seat {
             active: false,
             buttons: Vec::new(),
             pointer_focus: None,
+            last_button_serial: None,
             keyboard_focus: None,
             focus_request: None,
             keys: Vec::new(),
@@ -186,6 +191,9 @@ impl Seat {
         }
         if matches!(self.cursor, Cursor::Surface { surface, .. } if surface == res) {
             self.cursor = Cursor::Default;
+        }
+        if self.last_button_serial.is_some_and(|(s, _)| s == res) {
+            self.last_button_serial = None;
         }
         if self.pointer_focus.is_some_and(|f| f.surface == res) {
             self.pointer_focus = None;
