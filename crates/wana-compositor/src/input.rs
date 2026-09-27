@@ -32,6 +32,47 @@ const KEYMAP_FORMAT_XKB_V1: u32 = 1;
 const AXIS_VERTICAL: u32 = 0;
 const AXIS_HORIZONTAL: u32 = 1;
 const AXIS_SOURCE_WHEEL: u32 = 0;
+const KEY_SPACE: u32 = 57;
+const KEY_LEFTMETA: u32 = 125;
+const KEY_RIGHTMETA: u32 = 126;
+
+#[derive(Debug, Default)]
+pub(crate) struct ShellShortcut {
+    left_super: bool,
+    right_super: bool,
+    consumed_space: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShortcutAction {
+    None,
+    Consume,
+    ToggleLauncher,
+}
+
+impl ShellShortcut {
+    fn key(&mut self, code: u32, pressed: bool) -> ShortcutAction {
+        match code {
+            KEY_LEFTMETA => {
+                self.left_super = pressed;
+                ShortcutAction::None
+            }
+            KEY_RIGHTMETA => {
+                self.right_super = pressed;
+                ShortcutAction::None
+            }
+            KEY_SPACE if pressed && (self.left_super || self.right_super) => {
+                self.consumed_space = true;
+                ShortcutAction::ToggleLauncher
+            }
+            KEY_SPACE if !pressed && self.consumed_space => {
+                self.consumed_space = false;
+                ShortcutAction::Consume
+            }
+            _ => ShortcutAction::None,
+        }
+    }
+}
 
 mod err {
     pub const POINTER_ROLE: u32 = 0;
@@ -422,6 +463,15 @@ impl Compositor {
         let Some(kb) = self.xkb.as_mut() else { return };
         let info = kb.key(code, pressed);
         let mods = kb.modifiers();
+        match self.shell_shortcut.key(code, pressed) {
+            ShortcutAction::ToggleLauncher => {
+                self.shell_toggle_launcher(ctx);
+                info!(COMPOSITOR, "shortcut Super+Space: toggle launcher");
+                return;
+            }
+            ShortcutAction::Consume => return,
+            ShortcutAction::None => {}
+        }
         let Some(surface) = self.seat.keyboard_focus else {
             return;
         };
@@ -809,6 +859,27 @@ mod tests {
         let a = now_ms();
         std::thread::sleep(std::time::Duration::from_millis(5));
         assert!(now_ms().wrapping_sub(a) >= 5);
+    }
+
+    #[test]
+    fn shell_shortcut_is_layout_independent_and_consumes_space_pair() {
+        let mut s = ShellShortcut::default();
+        assert_eq!(s.key(KEY_LEFTMETA, true), ShortcutAction::None);
+        assert_eq!(s.key(KEY_SPACE, true), ShortcutAction::ToggleLauncher);
+        assert_eq!(s.key(KEY_LEFTMETA, false), ShortcutAction::None);
+        assert_eq!(s.key(KEY_SPACE, false), ShortcutAction::Consume);
+
+        assert_eq!(s.key(KEY_RIGHTMETA, true), ShortcutAction::None);
+        assert_eq!(s.key(KEY_SPACE, true), ShortcutAction::ToggleLauncher);
+        assert_eq!(s.key(KEY_SPACE, false), ShortcutAction::Consume);
+        assert_eq!(s.key(KEY_RIGHTMETA, false), ShortcutAction::None);
+    }
+
+    #[test]
+    fn space_without_super_is_not_a_shell_shortcut() {
+        let mut s = ShellShortcut::default();
+        assert_eq!(s.key(KEY_SPACE, true), ShortcutAction::None);
+        assert_eq!(s.key(KEY_SPACE, false), ShortcutAction::None);
     }
 
     #[test]
