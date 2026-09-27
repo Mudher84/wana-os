@@ -709,6 +709,214 @@ impl Compositor {
         }
     }
 
+    pub(crate) fn window_minimized(&self, surface: Resource) -> bool {
+        self.toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| t.minimized)
+    }
+
+    fn toplevel_for_surface(&self, surface: Resource) -> Option<Resource> {
+        let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
+            return None;
+        };
+        self.xdg.get(&xs)?.toplevel
+    }
+
+    fn send_window_configure(
+        &mut self,
+        ctx: &Ctx,
+        surface: Resource,
+        width: i32,
+        height: i32,
+        states: &[u32],
+    ) {
+        let Some(Role::Xdg(xs)) = self.surfaces.get(&surface).map(|s| s.role) else {
+            return;
+        };
+        let Some(toplevel) = self.xdg.get(&xs).and_then(|x| x.toplevel) else {
+            return;
+        };
+        let serial = ctx.next_serial();
+        let bytes: Vec<u8> = states.iter().flat_map(|s| s.to_ne_bytes()).collect();
+        let posted = ctx
+            .post(
+                toplevel,
+                xdg_shell::xdg_toplevel::event::CONFIGURE,
+                &[Arg::Int(width), Arg::Int(height), Arg::Array(&bytes)],
+            )
+            .and_then(|_| {
+                ctx.post(
+                    xs,
+                    xdg_shell::xdg_surface::event::CONFIGURE,
+                    &[Arg::Uint(serial)],
+                )
+            });
+        match posted {
+            Ok(()) => {
+                if let Some(x) = self.xdg.get_mut(&xs) {
+                    x.sent(serial);
+                }
+            }
+            Err(e) => warn!(COMPOSITOR, "window configure: {e}"),
+        }
+    }
+
+    pub(crate) fn set_maximized(&mut self, ctx: &Ctx, surface: Resource, on: bool) {
+        const STATE_MAXIMIZED: u32 = 1;
+        let Some(toplevel) = self.toplevel_for_surface(surface) else {
+            return;
+        };
+        let Some(t) = self.toplevels.get_mut(&toplevel) else {
+            return;
+        };
+        if t.maximized == on && !t.fullscreen {
+            return;
+        }
+        if on {
+            t.maximized = true;
+            t.fullscreen = false;
+            if let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) {
+                if w.restore.is_none() {
+                    w.restore = Some((w.x, w.y));
+                }
+                w.x = self.usable.x;
+                w.y = self.usable.y;
+            }
+            self.send_window_configure(
+                ctx,
+                surface,
+                self.usable.w,
+                self.usable.h,
+                &[STATE_MAXIMIZED],
+            );
+            info!(COMPOSITOR, "window maximized: {}", self.title_of(surface));
+        } else {
+            t.maximized = false;
+            if let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) {
+                if let Some((x, y)) = w.restore.take() {
+                    w.x = x;
+                    w.y = y;
+                }
+            }
+            self.send_window_configure(ctx, surface, 0, 0, &[]);
+            info!(COMPOSITOR, "window unmaximized: {}", self.title_of(surface));
+        }
+        self.needs_redraw = true;
+    }
+
+    pub(crate) fn toggle_maximized(&mut self, ctx: &Ctx, surface: Resource) {
+        let on = self
+            .toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| t.maximized);
+        self.set_maximized(ctx, surface, !on);
+    }
+
+    pub(crate) fn set_fullscreen(&mut self, ctx: &Ctx, surface: Resource, on: bool) {
+        const STATE_FULLSCREEN: u32 = 2;
+        let Some(toplevel) = self.toplevel_for_surface(surface) else {
+            return;
+        };
+        let Some(t) = self.toplevels.get_mut(&toplevel) else {
+            return;
+        };
+        if t.fullscreen == on {
+            return;
+        }
+        if on {
+            t.fullscreen = true;
+            t.maximized = false;
+            if let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) {
+                if w.restore.is_none() {
+                    w.restore = Some((w.x, w.y));
+                }
+                w.x = 0;
+                w.y = 0;
+            }
+            self.send_window_configure(
+                ctx,
+                surface,
+                self.output.width,
+                self.output.height,
+                &[STATE_FULLSCREEN],
+            );
+            info!(COMPOSITOR, "window fullscreen: {}", self.title_of(surface));
+        } else {
+            t.fullscreen = false;
+            if let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) {
+                if let Some((x, y)) = w.restore.take() {
+                    w.x = x;
+                    w.y = y;
+                }
+            }
+            self.send_window_configure(ctx, surface, 0, 0, &[]);
+            info!(COMPOSITOR, "window left fullscreen: {}", self.title_of(surface));
+        }
+        self.needs_redraw = true;
+    }
+
+    pub(crate) fn set_minimized(&mut self, surface: Resource, on: bool) {
+        let Some(toplevel) = self.toplevel_for_surface(surface) else {
+            return;
+        };
+        let Some(t) = self.toplevels.get_mut(&toplevel) else {
+            return;
+        };
+        if t.minimized == on {
+            return;
+        }
+        t.minimized = on;
+        if !on {
+            self.seat.focus_request = Some(surface);
+        }
+        self.needs_redraw = true;
+        info!(
+            COMPOSITOR,
+            "window {}: {}",
+            if on { "minimized" } else { "restored" },
+            self.title_of(surface)
+        );
+    }
+
+    pub(crate) fn restore_last_minimized(&mut self) -> Option<Resource> {
+        let surface = self
+            .windows
+            .iter()
+            .rev()
+            .map(|w| w.surface)
+            .find(|s| self.window_minimized(*s))?;
+        self.set_minimized(surface, false);
+        Some(surface)
+    }
+
+    pub(crate) fn move_window(&mut self, surface: Resource, dx: i32, dy: i32) -> bool {
+        let managed = self
+            .toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| !t.minimized && !t.maximized && !t.fullscreen);
+        if !managed {
+            return false;
+        }
+        let Some((cw, ch)) = self.surfaces.get(&surface).and_then(|s| s.content) else {
+            return false;
+        };
+        let u = self.usable;
+        let Some(w) = self.windows.iter_mut().find(|w| w.surface == surface) else {
+            return false;
+        };
+        w.x = (w.x + dx).clamp(u.x, u.x + (u.w - cw).max(0));
+        w.y = (w.y + dy).clamp(u.y, u.y + (u.h - ch).max(0));
+        self.needs_redraw = true;
+        info!(
+            COMPOSITOR,
+            "window moved: {} to {},{}",
+            self.title_of(surface),
+            w.x,
+            w.y
+        );
+        true
+    }
+
     pub(crate) fn shell_toggle_launcher(&self, ctx: &Ctx) {
         for control in &self.shell_controls {
             let _ = ctx.post(
