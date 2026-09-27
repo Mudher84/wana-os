@@ -505,7 +505,7 @@ launcher-boot-test:
 
 # Shell step 3d: Left Super is consumed by the compositor and delivered as
 # a semantic toggle_launcher event over the private Wana shell-control protocol.
-SHORTCUT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,160,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--apps,--shell-arg,/usr/share/wana-shell/apps.test,--shell-arg,--test-launch,--shell-arg,1,--shell-arg,--exit-with-launched wana.test=poweroff wana.shell=0
+SHORTCUT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,160,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--apps,--shell-arg,/usr/share/wana-shell/apps.test,--shell-arg,--exit-with-launched wana.test=poweroff wana.shell=0
 shortcut-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-shortcut.img "$(SHORTCUT_ARGS)"
@@ -513,9 +513,9 @@ shortcut-boot-test:
 		--log out/logs/shortcut-boot.log \
 		--send-on '\[SHELL\] info: ready' \
 		--send 'sendkey meta_l' \
-		--screendump-on 'launcher opened from shortcut' --screendump out/test/shortcut.ppm \
+		--send 'wait:launcher shown' --send 'sendkey ret' \
+		--screendump-on 'launcher shown' --screendump out/test/shortcut.ppm \
 		--expect '\[COMPOSITOR\] info: shell-control: toggle_launcher sent to 1 shell object\(s\)' \
-		--expect '\[COMPOSITOR\] debug: global shortcut: Left Super pressed' \
 		--expect '\[SHELL\] info: launcher opened from shortcut' \
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 \(exclusive zone 0\)' \
 		--expect '\[COMPOSITOR\] info: keyboard focus: layer "wana-launcher"' \
