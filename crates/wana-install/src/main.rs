@@ -47,8 +47,14 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 fn validate(a: &Args) -> Result<(), String> {
-    if !a.image.is_file() {
-        return Err(format!("installer image is not a regular file: {}", a.image.display()));
+    let source_meta = fs::metadata(&a.image)
+        .map_err(|e| format!("installer source {}: {e}", a.image.display()))?;
+    let source_type = source_meta.file_type();
+    if !source_type.is_file() && !source_type.is_block_device() {
+        return Err(format!(
+            "installer source is not a regular file or block device: {}",
+            a.image.display()
+        ));
     }
     if same_file(&a.image, &a.target) {
         return Err("installer source and target are the same file/device".into());
@@ -72,11 +78,12 @@ fn validate(a: &Args) -> Result<(), String> {
 fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
     let mut src = File::open(image).map_err(|e| format!("open {}: {e}", image.display()))?;
     let source_len = src
-        .metadata()
-        .map_err(|e| format!("stat {}: {e}", image.display()))?
-        .len();
+        .seek(SeekFrom::End(0))
+        .map_err(|e| format!("size {}: {e}", image.display()))?;
+    src.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("rewind {}: {e}", image.display()))?;
     if source_len == 0 {
-        return Err("installer image is empty".into());
+        return Err("installer source is empty".into());
     }
 
     let mut dst = OpenOptions::new()
