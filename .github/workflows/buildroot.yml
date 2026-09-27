@@ -153,6 +153,9 @@ jobs:
       - name: Settings (native Arabic xdg app, persistent defaults, screenshot pixels)
         run: make settings-boot-test
 
+      - name: Networking (virtio-net discovery through kernel + udev + wana-network)
+        run: make network-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
