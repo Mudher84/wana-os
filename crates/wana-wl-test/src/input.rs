@@ -34,6 +34,7 @@ pub struct Goal {
 /// The seat's pointer and keyboard, and what arrived through them.
 #[derive(Debug)]
 pub struct Devices {
+    seat: Proxy,
     pointer: Proxy,
     keyboard: Proxy,
     xkb: Option<Keyboard>,
@@ -44,6 +45,7 @@ pub struct Devices {
     motions: u32,
     /// Window a left press went to, until its release.
     left_down: Option<&'static str>,
+    last_left_press_serial: Option<u32>,
     clicks: Vec<&'static str>,
     /// Last pointer position (surface-local).
     at: (f64, f64),
@@ -95,6 +97,7 @@ impl Devices {
             )?
             .expect("keyboard");
         Ok(Devices {
+            seat,
             pointer,
             keyboard,
             xkb: None,
@@ -103,12 +106,25 @@ impl Devices {
             pointer_focus: None,
             motions: 0,
             left_down: None,
+            last_left_press_serial: None,
             clicks: Vec::new(),
             at: (0.0, 0.0),
             typed: String::new(),
             cursor: None,
             cursor_due: None,
         })
+    }
+
+    pub fn seat(&self) -> Proxy {
+        self.seat
+    }
+
+    pub fn take_left_press_serial(&mut self) -> Option<u32> {
+        self.last_left_press_serial.take()
+    }
+
+    pub fn left_held(&self) -> bool {
+        self.left_down.is_some()
     }
 
     /// Sets `surface` (with a committed buffer) as the cursor image on
@@ -292,13 +308,17 @@ impl Devices {
                     self.motions += 1;
                     self.at = (fixed(x), fixed(y));
                 }
-                (pev::BUTTON, [_, _, Val::Uint(button), Val::Uint(state)]) => {
+                (
+                    pev::BUTTON,
+                    [Val::Uint(serial), _, Val::Uint(button), Val::Uint(state)],
+                ) => {
                     let Some(on) = self.pointer_focus else {
                         return Err(format!("button {button} without pointer focus"));
                     };
                     if *button == BTN_LEFT {
                         if *state == 1 {
                             self.left_down = Some(on);
+                            self.last_left_press_serial = Some(*serial);
                         } else if self.left_down.take() == Some(on) {
                             self.clicks.push(on);
                             info!(
