@@ -294,15 +294,15 @@ mod tests {
 
     #[test]
     fn dock_hit_test_follows_rtl_slots_and_ignores_overflow() {
-        assert_eq!(dock_index_at(800.0, DOCK_WIDTH, 2), Some(0));
-        assert_eq!(dock_index_at(500.0, DOCK_WIDTH, 2), Some(1));
-        assert_eq!(dock_index_at(100.0, DOCK_WIDTH, 2), None);
+        assert_eq!(dock_index_at(420.0, DOCK_WIDTH, 2), Some(0));
+        assert_eq!(dock_index_at(150.0, DOCK_WIDTH, 2), Some(1));
+        assert_eq!(dock_index_at(4.0, DOCK_WIDTH, 2), None);
 
         // Five windows render as three actionable windows plus +2.
-        assert_eq!(dock_index_at(850.0, DOCK_WIDTH, 5), Some(0));
-        assert_eq!(dock_index_at(700.0, DOCK_WIDTH, 5), Some(1));
-        assert_eq!(dock_index_at(550.0, DOCK_WIDTH, 5), Some(2));
-        assert_eq!(dock_index_at(420.0, DOCK_WIDTH, 5), None);
+        assert_eq!(dock_index_at(480.0, DOCK_WIDTH, 5), Some(0));
+        assert_eq!(dock_index_at(350.0, DOCK_WIDTH, 5), Some(1));
+        assert_eq!(dock_index_at(210.0, DOCK_WIDTH, 5), Some(2));
+        assert_eq!(dock_index_at(70.0, DOCK_WIDTH, 5), None);
     }
 
     #[test]
