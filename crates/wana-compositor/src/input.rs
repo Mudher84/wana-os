@@ -426,7 +426,10 @@ impl Compositor {
         // Compositor-owned Super shortcuts. A consumed press records its
         // key code so the matching release is consumed as well.
         const KEY_TAB: u32 = 15;
+        const KEY_F: u32 = 33;
+        const KEY_LEFTSHIFT: u32 = 42;
         const KEY_M: u32 = 50;
+        const KEY_RIGHTSHIFT: u32 = 54;
         const KEY_SPACE: u32 = 57;
         const KEY_UP: u32 = 103;
         const KEY_LEFT: u32 = 105;
@@ -442,6 +445,8 @@ impl Compositor {
 
         let meta_down =
             self.seat.keys.contains(&KEY_LEFTMETA) || self.seat.keys.contains(&KEY_RIGHTMETA);
+        let shift_down =
+            self.seat.keys.contains(&KEY_LEFTSHIFT) || self.seat.keys.contains(&KEY_RIGHTSHIFT);
         if pressed && meta_down {
             let focused = self
                 .seat
@@ -455,6 +460,26 @@ impl Compositor {
                         "global shortcut Super+Space -> shell launcher toggle"
                     );
                     true
+                }
+                KEY_F => {
+                    if let Some(surface) = focused {
+                        self.toggle_fullscreen(ctx, surface);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                KEY_UP if shift_down => {
+                    focused.is_some_and(|surface| self.resize_window(ctx, surface, 0, -64))
+                }
+                KEY_DOWN if shift_down => {
+                    focused.is_some_and(|surface| self.resize_window(ctx, surface, 0, 64))
+                }
+                KEY_LEFT if shift_down => {
+                    focused.is_some_and(|surface| self.resize_window(ctx, surface, -64, 0))
+                }
+                KEY_RIGHT if shift_down => {
+                    focused.is_some_and(|surface| self.resize_window(ctx, surface, 64, 0))
                 }
                 KEY_UP => {
                     if let Some(surface) = focused {
