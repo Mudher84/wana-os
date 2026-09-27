@@ -10,6 +10,8 @@
 //!   every minute;
 //! - the Dock: a bottom layer surface fed by ext-foreign-toplevel-list-v1,
 //!   showing the currently mapped application windows;
+//! - Super+Space: received from the compositor over Wana's private
+//!   shell-control protocol and toggles the launcher;
 //! - the launcher: a click on the bar's start ("وانا") opens an overlay
 //!   panel listing the apps of a pinned file (`apps.rs`). It holds the
 //!   keyboard exclusively while open: Up/Down/Home/End select, Enter (or a
@@ -52,7 +54,8 @@ use wana_text::layout::FontSet;
 use wana_text::raster::Canvas;
 use wana_text::{fonts, sha256};
 use wana_wayland::protocols::{
-    ext_foreign_toplevel_list_v1 as foreign, wayland, wlr_layer_shell_unstable_v1 as proto,
+    ext_foreign_toplevel_list_v1 as foreign, wana_shell_control_v1 as control_proto, wayland,
+    wlr_layer_shell_unstable_v1 as proto,
 };
 
 const SHELL: Subsystem = Subsystem::Shell;
@@ -370,6 +373,12 @@ fn run(args: &Args) -> Result<(), String> {
     )
     .map_err(|e| format!("{e}: foreign toplevel list is restricted to wana-shell"))?;
     let mut toplevels = Toplevels::new(foreign_list);
+    let shell_control = bind(
+        "wana_shell_control_v1",
+        &control_proto::WANA_SHELL_CONTROL_V1_INTERFACE,
+        1,
+    )
+    .map_err(|e| format!("{e}: shell control is restricted to wana-shell"))?;
 
     fonts::verify_dir(&args.fonts)?;
     let set = FontSet {
@@ -547,6 +556,28 @@ fn run(args: &Args) -> Result<(), String> {
                 || layer::closed(&ev, dock.layer_surface)
             {
                 return Err("the compositor closed a shell surface".into());
+            }
+            if ev.target == shell_control
+                && ev.opcode == control_proto::wana_shell_control_v1::event::TOGGLE_LAUNCHER
+            {
+                if launcher.is_some() {
+                    close_launcher(&conn, &mut launcher);
+                    info!(SHELL, "launcher toggled closed by Super+Space");
+                } else if apps.is_empty() {
+                    warn!(SHELL, "launcher: no apps ({})", args.apps.display());
+                } else {
+                    launcher = Some(open_launcher(
+                        &conn,
+                        compositor,
+                        layer_shell,
+                        shm,
+                        &set,
+                        &apps,
+                        &mut events,
+                    )?);
+                    info!(SHELL, "launcher toggled open by Super+Space");
+                }
+                continue;
             }
             if toplevels.event(&conn, &ev)? {
                 let labels = toplevels.labels();
