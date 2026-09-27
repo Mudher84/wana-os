@@ -19,6 +19,14 @@ pub struct Shell {
     pub wm_base: Proxy,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToplevelConfigure {
+    pub width: i32,
+    pub height: i32,
+    pub states: Vec<u32>,
+    pub serial: u32,
+}
+
 #[derive(Debug)]
 pub struct Window {
     /// Name used in the client's log lines.
@@ -236,6 +244,55 @@ impl Window {
             &[Req::Uint(serial)],
         )?;
         Ok(())
+    }
+
+    /// Waits for the next xdg_toplevel.configure paired with its
+    /// xdg_surface.configure, acks the serial and returns the decoded state.
+    pub fn wait_toplevel_configure(
+        &self,
+        conn: &Connection,
+        wm_base: Proxy,
+        devices: Option<&mut Devices>,
+    ) -> Result<ToplevelConfigure, String> {
+        let mut pending: Option<(i32, i32, Vec<u8>)> = None;
+        let tl = self.toplevel;
+        let xs = self.xdg;
+        let ((width, height, bytes), serial) = wait_for(conn, wm_base, devices, |ev| {
+            if ev.target == tl && ev.opcode == xdg_shell::xdg_toplevel::event::CONFIGURE {
+                if let [Val::Int(w), Val::Int(h), Val::Array(states)] = &ev.args[..] {
+                    pending = Some((*w, *h, states.clone()));
+                }
+                return None;
+            }
+            if ev.target == xs && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE {
+                if let Some(Val::Uint(serial)) = ev.args.first() {
+                    return pending.take().map(|cfg| (cfg, *serial));
+                }
+            }
+            None
+        })?;
+        if bytes.len() % 4 != 0 {
+            return Err(format!(
+                "xdg_toplevel.configure state array has {} byte(s), not u32 aligned",
+                bytes.len()
+            ));
+        }
+        let states = bytes
+            .chunks_exact(4)
+            .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+            .collect();
+        conn.request(
+            xs,
+            xdg_shell::xdg_surface::request::ACK_CONFIGURE,
+            None,
+            &[Req::Uint(serial)],
+        )?;
+        Ok(ToplevelConfigure {
+            width,
+            height,
+            states,
+            serial,
+        })
     }
 
     /// Commits the buffer with a frame callback and waits until the
