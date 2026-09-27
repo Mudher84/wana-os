@@ -614,7 +614,11 @@ fn wm_state_test(conn: &Connection, shell: &Shell) -> Result<(), String> {
         &[],
     )?;
     let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
-    if cfg.width != 0 || cfg.height != 0 || cfg.states.contains(&MAXIMIZED) || cfg.states.contains(&FULLSCREEN) {
+    if cfg.width != 0
+        || cfg.height != 0
+        || cfg.states.contains(&MAXIMIZED)
+        || cfg.states.contains(&FULLSCREEN)
+    {
         return Err(format!("minimize configure mismatch: {cfg:?}"));
     }
     info!(LOG, "client: wm minimized");
@@ -639,12 +643,7 @@ fn wm_state_test(conn: &Connection, shell: &Shell) -> Result<(), String> {
         None,
         &[Req::Object(None), Req::Int(0), Req::Int(0)],
     )?;
-    conn.request(
-        win.surface,
-        wayland::wl_surface::request::COMMIT,
-        None,
-        &[],
-    )?;
+    conn.request(win.surface, wayland::wl_surface::request::COMMIT, None, &[])?;
     conn.roundtrip()?;
     info!(LOG, "client: window-management state test PASS");
     Ok(())
