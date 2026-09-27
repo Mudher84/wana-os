@@ -150,13 +150,7 @@ pub fn moved(initial: Rect, dx: f64, dy: f64) -> Rect {
     }
 }
 
-pub fn resized(
-    state: &State,
-    initial: Rect,
-    edge: ResizeEdge,
-    dx: f64,
-    dy: f64,
-) -> Rect {
+pub fn resized(state: &State, initial: Rect, edge: ResizeEdge, dx: f64, dy: f64) -> Rect {
     let dx = dx.round() as i32;
     let dy = dy.round() as i32;
     let mut x = initial.x;
@@ -213,9 +207,24 @@ pub fn xdg_states(mode: Mode, activated: bool, resizing: bool) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    const NORMAL: Rect = Rect { x: 100, y: 80, w: 640, h: 480 };
-    const USABLE: Rect = Rect { x: 0, y: 40, w: 1280, h: 760 };
-    const OUTPUT: Rect = Rect { x: 0, y: 0, w: 1280, h: 800 };
+    const NORMAL: Rect = Rect {
+        x: 100,
+        y: 80,
+        w: 640,
+        h: 480,
+    };
+    const USABLE: Rect = Rect {
+        x: 0,
+        y: 40,
+        w: 1280,
+        h: 760,
+    };
+    const OUTPUT: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 1280,
+        h: 800,
+    };
 
     #[test]
     fn maximize_and_fullscreen_restore_the_original_geometry() {
@@ -244,7 +253,11 @@ mod tests {
     fn moving_keeps_size_and_changes_origin() {
         assert_eq!(
             moved(NORMAL, 20.4, -10.6),
-            Rect { x: 120, y: 69, ..NORMAL }
+            Rect {
+                x: 120,
+                y: 69,
+                ..NORMAL
+            }
         );
     }
 
