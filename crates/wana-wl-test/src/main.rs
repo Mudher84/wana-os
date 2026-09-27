@@ -527,6 +527,12 @@ fn try_bind_hidden(
         "zwlr_layer_shell_v1" => {
             &wana_wayland::protocols::wlr_layer_shell_unstable_v1::ZWLR_LAYER_SHELL_V1_INTERFACE
         }
+        "ext_foreign_toplevel_list_v1" => {
+            &wana_wayland::protocols::ext_foreign_toplevel_list_v1::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE
+        }
+        "wana_shell_control_v1" => {
+            &wana_wayland::protocols::wana_shell_control_v1::WANA_SHELL_CONTROL_V1_INTERFACE
+        }
         other => return Err(format!("--try-bind-hidden: unknown interface {other}")),
     };
     let name = names.iter().max().copied().unwrap_or(0) + 1;
