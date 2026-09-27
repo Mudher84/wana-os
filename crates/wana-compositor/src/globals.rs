@@ -57,6 +57,8 @@ mod err {
     pub const XDG_SURFACE_ALREADY_CONSTRUCTED: u32 = 2;
     pub const XDG_SURFACE_UNCONFIGURED_BUFFER: u32 = 3;
     pub const XDG_SURFACE_INVALID_SERIAL: u32 = 4;
+    pub const XDG_TOPLEVEL_INVALID_RESIZE_EDGE: u32 = 0;
+    pub const XDG_TOPLEVEL_INVALID_SIZE: u32 = 2;
     pub const WL_SURFACE_INVALID_SCALE: u32 = 0;
 }
 
@@ -708,6 +710,40 @@ impl Compositor {
         }
     }
 
+    fn apply_pending_mode(&mut self, tl: Resource) {
+        let usable = self.usable;
+        let output = self.output_rect();
+        let Some(t) = self.toplevels.get_mut(&tl) else {
+            return;
+        };
+        let Some(mut state) = t.wm else {
+            return;
+        };
+        state.limits = t.limits;
+        match t.pending_mode {
+            crate::wm::Mode::Normal => state.normal(),
+            crate::wm::Mode::Maximized => state.maximize(usable),
+            crate::wm::Mode::Fullscreen => state.fullscreen(output),
+            crate::wm::Mode::Minimized => state.minimize(),
+        }
+        t.wm = Some(state);
+        if let Some(xs) = t.xdg {
+            if let Some(surface) = self.xdg.get(&xs).and_then(|x| x.surface) {
+                self.sync_window_position_from_wm(surface);
+                if !state.visible() {
+                    if self.seat.keyboard_focus == Some(surface) {
+                        self.seat.keyboard_focus = None;
+                    }
+                    if self.seat.pointer_focus.is_some_and(|p| p.surface == surface) {
+                        self.seat.pointer_focus = None;
+                    }
+                } else {
+                    self.seat.focus_request = Some(surface);
+                }
+            }
+        }
+    }
+
     fn send_toplevel_configure(&mut self, ctx: &Ctx, tl: Resource) {
         let Some(xs) = self.toplevels.get(&tl).and_then(|t| t.xdg) else {
             return;
@@ -1080,27 +1116,91 @@ impl Compositor {
             .and_then(|t| t.xdg)
             .and_then(|xs| self.xdg.get(&xs))
             .and_then(|x| x.surface);
-        let Some(t) = self.toplevels.get_mut(&res) else {
-            return;
-        };
-        let changed = match (opcode, args.first()) {
-            (SET_TITLE, Some(ReqArg::Str(Some(s)))) => {
-                t.title = s.clone();
-                true
+
+        let mut metadata_changed = false;
+        let mut state_changed = false;
+        {
+            let Some(t) = self.toplevels.get_mut(&res) else {
+                return;
+            };
+            match opcode {
+                SET_TITLE => {
+                    if let Some(ReqArg::Str(Some(s))) = args.first() {
+                        t.title = s.clone();
+                        metadata_changed = true;
+                    }
+                }
+                SET_APP_ID => {
+                    if let Some(ReqArg::Str(Some(s))) = args.first() {
+                        t.app_id = s.clone();
+                        metadata_changed = true;
+                    }
+                }
+                SET_MIN_SIZE | SET_MAX_SIZE => {
+                    let (Some(w), Some(h)) = (int(args, 0), int(args, 1)) else {
+                        return;
+                    };
+                    if w < 0 || h < 0 {
+                        ctx.post_error(
+                            res,
+                            err::XDG_TOPLEVEL_INVALID_SIZE,
+                            "xdg_toplevel size limits must be non-negative",
+                        );
+                        return;
+                    }
+                    if opcode == SET_MIN_SIZE {
+                        t.limits.min_w = w.max(1);
+                        t.limits.min_h = h.max(1);
+                        if let Some(state) = t.wm.as_mut() {
+                            state.set_min_size(w, h);
+                        }
+                    } else {
+                        t.limits.max_w = w;
+                        t.limits.max_h = h;
+                        if let Some(state) = t.wm.as_mut() {
+                            state.set_max_size(w, h);
+                        }
+                    }
+                }
+                SET_MAXIMIZED => {
+                    t.pending_mode = crate::wm::Mode::Maximized;
+                    state_changed = true;
+                }
+                UNSET_MAXIMIZED => {
+                    if t.pending_mode == crate::wm::Mode::Maximized {
+                        t.pending_mode = crate::wm::Mode::Normal;
+                        state_changed = true;
+                    }
+                }
+                SET_FULLSCREEN => {
+                    t.pending_mode = crate::wm::Mode::Fullscreen;
+                    state_changed = true;
+                }
+                UNSET_FULLSCREEN => {
+                    if t.pending_mode == crate::wm::Mode::Fullscreen {
+                        t.pending_mode = crate::wm::Mode::Normal;
+                        state_changed = true;
+                    }
+                }
+                SET_MINIMIZED => {
+                    t.pending_mode = crate::wm::Mode::Minimized;
+                    state_changed = true;
+                }
+                // parent, menu and interactive move/resize are handled in
+                // the next Phase 12 step after pointer serial validation.
+                _ => {}
             }
-            (SET_APP_ID, Some(ReqArg::Str(Some(s)))) => {
-                t.app_id = s.clone();
-                true
-            }
-            // Parent, menus, interactive move/resize, size limits,
-            // maximize/fullscreen/minimize: the compositor may ignore them;
-            // window management arrives in Phase 12.
-            _ => false,
-        };
-        if changed {
+        }
+
+        if metadata_changed {
             if let Some(surface) = surface {
                 self.foreign_changed(ctx, surface);
             }
+        }
+        if state_changed {
+            self.apply_pending_mode(res);
+            self.send_toplevel_configure(ctx, res);
+            self.needs_redraw = true;
         }
     }
 }
