@@ -24,7 +24,10 @@ const EXTENSIONS: &[&str] = &[
     "staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml",
 ];
 /// Protocols kept in this crate, relative to its `protocols/` directory.
-const PINNED: &[&str] = &["wlr-layer-shell-unstable-v1.xml"];
+const PINNED: &[&str] = &[
+    "wlr-layer-shell-unstable-v1.xml",
+    "wana-shell-control-v1.xml",
+];
 
 fn from_env(var: &str, default: &str) -> PathBuf {
     println!("cargo:rerun-if-env-changed={var}");
