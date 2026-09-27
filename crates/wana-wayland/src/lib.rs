@@ -17,18 +17,20 @@ mod tests;
 
 /// Generated protocol tables and opcodes: `protocols::wayland` (core),
 /// `protocols::xdg_shell`, `protocols::wlr_layer_shell_unstable_v1` and
-/// `protocols::ext_foreign_toplevel_list_v1`.
+/// `protocols::ext_foreign_toplevel_list_v1` and
+/// `protocols::wana_shell_control_v1`.
 pub mod protocols {
     include!(concat!(env!("OUT_DIR"), "/protocols.rs"));
 }
 
 /// Number of interfaces in the generated protocol tables: core, xdg-shell,
-/// layer-shell and foreign-toplevel-list.
-pub fn interface_count() -> (usize, usize, usize, usize) {
+/// layer-shell, foreign-toplevel-list and Wana shell-control.
+pub fn interface_count() -> (usize, usize, usize, usize, usize) {
     (
         protocols::wayland::INTERFACES.len(),
         protocols::xdg_shell::INTERFACES.len(),
         protocols::wlr_layer_shell_unstable_v1::INTERFACES.len(),
         protocols::ext_foreign_toplevel_list_v1::INTERFACES.len(),
+        protocols::wana_shell_control_v1::INTERFACES.len(),
     )
 }
