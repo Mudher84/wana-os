@@ -1183,7 +1183,11 @@ mod tests {
                 .filter(|x| x.privileged)
                 .map(|x| interface_name(x.interface))
                 .collect::<Vec<_>>(),
-            ["zwlr_layer_shell_v1", "ext_foreign_toplevel_list_v1", "wana_shell_control_v1"],
+            [
+                "zwlr_layer_shell_v1",
+                "ext_foreign_toplevel_list_v1",
+                "wana_shell_control_v1"
+            ],
             "shell protocols are privileged"
         );
         for x in &g {
