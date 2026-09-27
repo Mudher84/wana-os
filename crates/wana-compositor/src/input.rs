@@ -61,10 +61,15 @@ impl ShellShortcut {
                 self.right_super = pressed;
                 ShortcutAction::None
             }
-            KEY_SPACE if pressed && (self.left_super || self.right_super) => {
+            KEY_SPACE
+                if pressed
+                    && (self.left_super || self.right_super)
+                    && !self.consumed_space =>
+            {
                 self.consumed_space = true;
                 ShortcutAction::ToggleLauncher
             }
+            KEY_SPACE if pressed && self.consumed_space => ShortcutAction::Consume,
             KEY_SPACE if !pressed && self.consumed_space => {
                 self.consumed_space = false;
                 ShortcutAction::Consume
@@ -457,21 +462,33 @@ impl Compositor {
     }
 
     fn key(&mut self, ctx: &Ctx, code: u32, pressed: bool) {
+        // Global shortcuts are recognized before Seat records the key. A
+        // consumed Space therefore never appears in wl_keyboard.enter's held
+        // key array if focus moves to the launcher while the combo is down.
+        match self.shell_shortcut.key(code, pressed) {
+            ShortcutAction::ToggleLauncher => {
+                if let Some(kb) = self.xkb.as_mut() {
+                    let _ = kb.key(code, pressed);
+                }
+                self.shell_toggle_launcher(ctx);
+                info!(COMPOSITOR, "shortcut Super+Space: toggle launcher");
+                return;
+            }
+            ShortcutAction::Consume => {
+                if let Some(kb) = self.xkb.as_mut() {
+                    let _ = kb.key(code, pressed);
+                }
+                return;
+            }
+            ShortcutAction::None => {}
+        }
+
         if !self.seat.key(code, pressed) {
             return;
         }
         let Some(kb) = self.xkb.as_mut() else { return };
         let info = kb.key(code, pressed);
         let mods = kb.modifiers();
-        match self.shell_shortcut.key(code, pressed) {
-            ShortcutAction::ToggleLauncher => {
-                self.shell_toggle_launcher(ctx);
-                info!(COMPOSITOR, "shortcut Super+Space: toggle launcher");
-                return;
-            }
-            ShortcutAction::Consume => return,
-            ShortcutAction::None => {}
-        }
         let Some(surface) = self.seat.keyboard_focus else {
             return;
         };
@@ -866,6 +883,11 @@ mod tests {
         let mut s = ShellShortcut::default();
         assert_eq!(s.key(KEY_LEFTMETA, true), ShortcutAction::None);
         assert_eq!(s.key(KEY_SPACE, true), ShortcutAction::ToggleLauncher);
+        assert_eq!(
+            s.key(KEY_SPACE, true),
+            ShortcutAction::Consume,
+            "key repeat must not toggle the launcher again"
+        );
         assert_eq!(s.key(KEY_LEFTMETA, false), ShortcutAction::None);
         assert_eq!(s.key(KEY_SPACE, false), ShortcutAction::Consume);
 
