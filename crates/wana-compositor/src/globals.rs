@@ -1163,7 +1163,7 @@ impl Handler for Compositor {
             // remain valid until the client destroys them.
         } else if self.foreign_handles.remove(&res).is_some() {
             // Handle lifetime is controlled by the shell client.
-        } else if self.shell_controls.iter().any(|r| *r == res) {
+        } else if self.shell_controls.contains(&res) {
             self.shell_controls.retain(|r| *r != res);
         } else {
             self.regions.remove(&res);
