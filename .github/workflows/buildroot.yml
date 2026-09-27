@@ -147,6 +147,12 @@ jobs:
       - name: Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)
         run: make dock-boot-test
 
+      - name: Launcher shortcut (Super routed privately to wana-shell)
+        run: make launcher-shortcut-boot-test
+
+      - name: Dock activation (restore, raise and focus a minimized toplevel)
+        run: make dock-activate-boot-test
+
       - name: Window management (maximize, fullscreen, restore, constraints and minimize through xdg_toplevel)
         run: make window-management-boot-test
 
