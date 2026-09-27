@@ -662,7 +662,12 @@ impl Compositor {
         };
         let Role::Xdg(xs) = s.role else { return };
         let Some(xdg) = self.xdg.get(&xs) else { return };
-        let visible = xdg.toplevel.is_some() && xdg.acked.is_some() && s.content.is_some();
+        let minimized = xdg
+            .toplevel
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| t.wm.mode == crate::window::Mode::Minimized);
+        let visible =
+            xdg.toplevel.is_some() && xdg.acked.is_some() && s.content.is_some() && !minimized;
         let index = self.windows.iter().position(|w| w.surface == surface);
         match (visible, index) {
             (true, None) => {
@@ -684,8 +689,12 @@ impl Compositor {
             }
             (false, Some(i)) => {
                 self.windows.remove(i);
-                self.foreign_closed(ctx, surface);
-                info!(COMPOSITOR, "window unmapped (surface {})", ctx.id(surface));
+                if minimized {
+                    info!(COMPOSITOR, "window hidden while minimized (surface {})", ctx.id(surface));
+                } else {
+                    self.foreign_closed(ctx, surface);
+                    info!(COMPOSITOR, "window unmapped (surface {})", ctx.id(surface));
+                }
                 self.needs_redraw = true;
             }
             _ => {}
