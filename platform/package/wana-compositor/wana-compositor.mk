@@ -24,7 +24,7 @@ WANA_COMPOSITOR_CARGO_ENV = \
 	WANA_WAYLAND_XML=$(STAGING_DIR)/usr/share/wayland/wayland.xml \
 	WANA_WAYLAND_PROTOCOLS_DIR=$(STAGING_DIR)/usr/share/wayland-protocols
 
-WANA_COMPOSITOR_CARGO_BUILD_OPTS = -p wana-compositor -p wana-shell -p wana-wl-test -p wana-settings
+WANA_COMPOSITOR_CARGO_BUILD_OPTS = -p wana-compositor -p wana-shell -p wana-wl-test -p wana-settings -p wana-network
 
 WANA_COMPOSITOR_BIN_DIR = $(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)
 
@@ -33,6 +33,7 @@ define WANA_COMPOSITOR_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-shell $(TARGET_DIR)/usr/bin/wana-shell
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-wl-test $(TARGET_DIR)/usr/bin/wana-wl-test
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-settings $(TARGET_DIR)/usr/bin/wana-settings
+	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-network $(TARGET_DIR)/usr/bin/wana-network
 	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps $(TARGET_DIR)/etc/wana/apps
 	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps.test $(TARGET_DIR)/usr/share/wana-shell/apps.test
 endef
