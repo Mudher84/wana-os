@@ -57,6 +57,7 @@ pub struct Devices {
     /// Serial of the last pointer button event, used by xdg interactive
     /// move/resize tests.
     last_button_serial: Option<u32>,
+    last_button_down_serial: Option<u32>,
 }
 
 impl Devices {
@@ -114,6 +115,7 @@ impl Devices {
             cursor: None,
             cursor_due: None,
             last_button_serial: None,
+            last_button_down_serial: None,
         })
     }
 
@@ -129,6 +131,21 @@ impl Devices {
 
     pub fn last_button_serial(&self) -> Option<u32> {
         self.last_button_serial
+    }
+
+    pub fn wait_left_press(
+        &mut self,
+        conn: &Connection,
+        wm_base: Proxy,
+    ) -> Result<u32, String> {
+        self.last_button_down_serial = None;
+        let serial = wait_for(conn, wm_base, None, |ev| {
+            if let Err(e) = self.event(ev).and_then(|()| self.apply_cursor(conn)) {
+                return Some(Err(e));
+            }
+            self.last_button_down_serial.map(Ok)
+        })??;
+        Ok(serial)
     }
 
     /// Answers a pending pointer enter with set_cursor.
@@ -308,6 +325,9 @@ impl Devices {
                 }
                 (pev::BUTTON, [Val::Uint(serial), _, Val::Uint(button), Val::Uint(state)]) => {
                     self.last_button_serial = Some(*serial);
+                    if *state == 1 && *button == BTN_LEFT {
+                        self.last_button_down_serial = Some(*serial);
+                    }
                     let Some(on) = self.pointer_focus else {
                         return Err(format!("button {button} without pointer focus"));
                     };
