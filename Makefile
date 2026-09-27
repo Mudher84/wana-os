@@ -583,16 +583,16 @@ wayland-host-test: fonts
 		echo "[COMPOSITOR] check: crashed shell restarts three times, then stops without killing compositor: PASS" && \
 	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
 		grep -q 'client: frame presented' $$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
-	$(WAYLAND_HOST_RUN) --wm-state > $dir/wm-state.log 2>&1 && \
-		grep -q 'client: wm maximize configure 1280x800 states' $dir/wm-state.log && \
-		grep -q 'client: wm restored from maximize' $dir/wm-state.log && \
-		grep -q 'client: wm fullscreen configure 1280x800 states' $dir/wm-state.log && \
-		grep -q 'client: wm restored from fullscreen' $dir/wm-state.log && \
-		grep -q 'client: wm minimized' $dir/wm-state.log && \
-		grep -q 'client: wm restored from minimize through maximize' $dir/wm-state.log && \
-		grep -q 'client: window-management state test PASS' $dir/wm-state.log && \
+	$(WAYLAND_HOST_RUN) --wm-state > $$dir/wm-state.log 2>&1 && \
+		grep -q 'client: wm maximize configure 1280x800 states' $$dir/wm-state.log && \
+		grep -q 'client: wm restored from maximize' $$dir/wm-state.log && \
+		grep -q 'client: wm fullscreen configure 1280x800 states' $$dir/wm-state.log && \
+		grep -q 'client: wm restored from fullscreen' $$dir/wm-state.log && \
+		grep -q 'client: wm minimized' $$dir/wm-state.log && \
+		grep -q 'client: wm restored from minimize through maximize' $$dir/wm-state.log && \
+		grep -q 'client: window-management state test PASS' $$dir/wm-state.log && \
 		echo "[COMPOSITOR] check: XDG maximize/fullscreen/minimize state machine: PASS" && \
-	$(WAYLAND_HOST_RUN) --attach-before-configure > $dir/early.log 2>&1 && \
+	$(WAYLAND_HOST_RUN) --attach-before-configure > $$dir/early.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: xdg_surface@[0-9]* code 3' $$dir/early.log && \
 		echo "[COMPOSITOR] check: buffer before configure -> xdg_surface.unconfigured_buffer: PASS" && \
 	$(WAYLAND_HOST_RUN) --truncate-pool > $$dir/sigbus.log 2>&1 && \
