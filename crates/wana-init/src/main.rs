@@ -61,6 +61,9 @@ fn main() {
     }
 
     set_identity();
+    if opts.live {
+        info!(INIT, "boot mode: Live ISO");
+    }
 
     let udevd = if opts.udev {
         start_udev(&mut problems)
