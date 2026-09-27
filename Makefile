@@ -237,7 +237,8 @@ input-boot-test:
 # describes the virtio-gpu display found through wana-drm as wl_output, and
 # serves one real client, wayland-info, which must list every global with
 # its contents (shm formats, output mode, seat name).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_PRIVATE_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--exit-with-shell,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1 wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
@@ -261,16 +262,23 @@ compositor-boot-test:
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
 		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0, ext_foreign_toplevel_list_v1 0' \
 		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4, ext_foreign_toplevel_list_v1 v1' \
-		--expect '\[COMPOSITOR\] info: shell: started /usr/bin/wana-wl-test .* on a private connection' \
-		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
-		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
-		--expect '\[COMPOSITOR\] info: client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' \
-		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject "interface: 'zwlr_layer_shell_v1'" \
 		--reject "interface: 'ext_foreign_toplevel_list_v1'" \
+		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor-private.img "$(COMPOSITOR_PRIVATE_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-compositor-private.img --gpu virtio --timeout 180 \
+		--log out/logs/compositor-private-boot.log \
+		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4, ext_foreign_toplevel_list_v1 v1' \
+		--expect '\[COMPOSITOR\] info: shell: started /usr/bin/wana-wl-test .* on a private connection' \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
+		--expect '\[COMPOSITOR\] info: client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
 
 # Phase 10 step 3: a client window on screen. wana-compositor draws with
@@ -438,14 +446,12 @@ layer-boot-test:
 		--screendump-on 'client: holding window' --screendump out/test/layer.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.078125,0.5=1b3a5c --pixel 0.5,0.3125=1b3a5c \
 		--pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
-		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
 		--expect '\[COMPOSITOR\] info: client: layer "wana-desktop" configured 1280x800' \
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-desktop" on layer background at 0,0 1280x800 \(exclusive zone -1\)' \
 		--expect '\[COMPOSITOR\] info: client: layer "wana-bar" configured 1280x40' \
 		--expect '\[COMPOSITOR\] info: usable area for windows: 0,40 1280x760' \
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-bar" on layer top at 0,0 1280x40 \(exclusive zone 40\)' \
 		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
-		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
@@ -467,7 +473,6 @@ shell-boot-test:
 		--screendump-on 'client: holding window' --screendump out/test/shell.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
-		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
 		--expect '\[SHELL\] info: desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' \
 		--expect '\[SHELL\] info: bar mapped: 1280x40, time ١٦:٢٠, sha256 $(SHELL_SHA_BAR)' \
 		--expect '\[COMPOSITOR\] info: usable area for windows: 0,40 1280x760' \
@@ -476,7 +481,6 @@ shell-boot-test:
 		--expect '\[COMPOSITOR\] info: client: inherited descriptors: 0 1 2 only' \
 		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
 		--expect '\[SHELL\] info: autostart exited successfully' \
-		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
@@ -516,7 +520,6 @@ launcher-boot-test:
 		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test text" \(org.wana.test\) 600x209' \
 		--expect '\[COMPOSITOR\] info: keyboard focus: "wana-wl-test text" \(org.wana.test\)' \
 		--expect '\[SHELL\] info: app "نص عربي" exited successfully' \
-		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
@@ -539,7 +542,6 @@ dock-boot-test:
 		--expect '\[SHELL\] info: dock updated: 1 window\(s\), sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: client: holding window for 3s' \
 		--expect '\[SHELL\] info: autostart exited successfully' \
-		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
