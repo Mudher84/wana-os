@@ -432,6 +432,17 @@ impl Compositor {
         let mods = kb.modifiers();
 
         // Compositor shortcuts use evdev codes so they are layout-independent.
+        // Super is reserved for the shell launcher and is consumed here, so
+        // focused applications never receive the launcher shortcut.
+        if pressed && (code == 125 || code == 126) {
+            if self.shell_toggle_launcher(ctx) {
+                info!(COMPOSITOR, "shortcut Super -> shell launcher");
+            } else {
+                warn!(COMPOSITOR, "shortcut Super ignored: no shell control client");
+            }
+            return;
+        }
+
         // Left/right Alt + Tab cycles windows; Alt + F4 requests a clean close.
         let alt = self.seat.keys.contains(&56) || self.seat.keys.contains(&100);
         if pressed && alt && code == 15 {
