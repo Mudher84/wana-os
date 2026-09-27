@@ -528,20 +528,20 @@ WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/w
 WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--exit-with-shell --shell target/release/wana-wl-test --shell-arg
 # The same compositor with a shell on the private connection (decision 0003).
-WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1 \
 	--shell-arg --expect-global --shell-arg ext_foreign_toplevel_list_v1
 wayland-host-test: fonts
 	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test -p wana-shell
-	@dir=$(mktemp -d) && trap 'rm -rf "$dir"' EXIT && \
-	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$dir target/release/wana-compositor --timeout 5 --headless 1280x800@60 \
-		--shell /bin/sh --shell-arg -c --shell-arg 'exit 7' > $dir/shell-restart.log 2>&1 && \
-		grep -q 'shell restart 1/3' $dir/shell-restart.log && \
-		grep -q 'shell restart 2/3' $dir/shell-restart.log && \
-		grep -q 'shell restart 3/3' $dir/shell-restart.log && \
-		grep -q 'shell restart limit reached (3); applications remain running' $dir/shell-restart.log && \
+	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
+	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 5 --headless 1280x800@60 \
+		--shell /bin/sh --shell-arg -c --shell-arg 'exit 7' > $$dir/shell-restart.log 2>&1 && \
+		grep -q 'shell restart 1/3' $$dir/shell-restart.log && \
+		grep -q 'shell restart 2/3' $$dir/shell-restart.log && \
+		grep -q 'shell restart 3/3' $$dir/shell-restart.log && \
+		grep -q 'shell restart limit reached (3); applications remain running' $$dir/shell-restart.log && \
 		echo "[COMPOSITOR] check: crashed shell restarts three times, then stops without killing compositor: PASS" && \
-	$(WAYLAND_HOST_RUN) > $dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $dir/window.log && \
+	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
 		grep -q 'client: frame presented' $$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
 	$(WAYLAND_HOST_RUN) --attach-before-configure > $$dir/early.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: xdg_surface@[0-9]* code 3' $$dir/early.log && \
