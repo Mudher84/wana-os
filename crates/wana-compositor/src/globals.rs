@@ -137,6 +137,8 @@ pub struct Window {
     pub surface: Resource,
     pub x: i32,
     pub y: i32,
+    /// Position before maximize/fullscreen, restored when returning to normal.
+    pub restore: Option<(i32, i32)>,
 }
 
 #[derive(Debug, Default)]
@@ -144,6 +146,9 @@ struct Toplevel {
     xdg: Option<Resource>,
     title: String,
     app_id: String,
+    minimized: bool,
+    maximized: bool,
+    fullscreen: bool,
 }
 
 #[derive(Debug, Default)]
@@ -183,7 +188,9 @@ pub struct Compositor {
     foreign_identifiers: HashMap<Resource, String>,
     next_foreign_identifier: u64,
     pub(crate) shell_controls: Vec<Resource>,
-    pub(crate) launcher_shortcut_space: bool,
+    /// Key presses consumed by compositor-owned Super shortcuts; their
+    /// releases are consumed too so clients never see orphan key-up events.
+    pub(crate) consumed_shortcut_keys: Vec<u32>,
     regions: HashMap<Resource, ()>,
     positioners: HashMap<Resource, ()>,
     pub windows: Vec<Window>,
@@ -240,7 +247,7 @@ impl Compositor {
             foreign_identifiers: HashMap::new(),
             next_foreign_identifier: 1,
             shell_controls: Vec::new(),
-            launcher_shortcut_space: false,
+            consumed_shortcut_keys: Vec::new(),
             regions: HashMap::new(),
             positioners: HashMap::new(),
             windows: Vec::new(),
@@ -675,7 +682,12 @@ impl Compositor {
                 let u = self.usable;
                 let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
-                self.windows.push(Window { surface, x, y });
+                self.windows.push(Window {
+                    surface,
+                    x,
+                    y,
+                    restore: None,
+                });
                 self.foreign_mapped(ctx, surface);
                 let title = self.title_of(surface);
                 info!(
