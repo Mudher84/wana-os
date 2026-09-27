@@ -25,6 +25,7 @@ root="$tmp/iso"
 mkdir -p "$root/live" "$root/boot"
 cp "$out/bzImage" "$root/live/bzImage"
 cp "$out/rootfs.cpio.zst" "$root/live/rootfs.cpio.zst"
+cp "$out/disk.img" "$root/live/Wana-OS.img"
 
 # UEFI El Torito image: only GRUB + its Live config. Kernel/initramfs stay on
 # ISO9660 so the EFI image remains small.
