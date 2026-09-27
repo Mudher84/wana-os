@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -55,6 +55,7 @@ help:
 	@echo "    make settings-boot-test  boot native Settings app, verify Arabic UI + state rendering"
 	@echo "    make network-boot-test   boot with virtio-net; Wana must discover the live interface"
 	@echo "    make files-boot-test     boot native Files app and render a real directory listing"
+	@echo "    make services-boot-test  boot PID1 service supervisor and validate service graph"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -598,6 +599,22 @@ files-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 17: PID1 starts wana-services before declaring ready. The test
+# also asks the manager to validate the canonical service directory.
+SERVICES_ARGS := wana.run=/usr/sbin/wana-services,check,/etc/wana/services.d wana.test=poweroff wana.shell=0
+services-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-services.img "$(SERVICES_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
+		--log out/logs/services-boot.log --timeout 180 \
+		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: services ready: 0 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 0 service\(s\)' \
+		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
