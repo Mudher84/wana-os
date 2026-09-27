@@ -421,14 +421,38 @@ impl Compositor {
         best.map(|(_, s)| s)
     }
 
-    /// Textures in stacking order, then the cursor.
-    pub fn scene(&self) -> Vec<(&wana_render::compose::Texture, i32, i32)> {
+    /// Surface textures in stacking order, excluding the cursor. The GPU
+    /// path uses this so compositor-owned window decorations can be drawn
+    /// after surfaces but before the cursor.
+    pub fn surface_scene(&self) -> Vec<(&wana_render::compose::Texture, i32, i32)> {
         self.stack()
             .into_iter()
             .filter_map(|(s, x, y, _, _)| match self.content.get(&s) {
                 Some(Content::Texture(t)) => Some((t, x, y)),
                 _ => None,
             })
+            .collect()
+    }
+
+    /// Active normal-window rectangle for compositor-owned decorations.
+    pub fn active_decoration(&self) -> Option<(i32, i32, i32, i32)> {
+        let surface = self.seat.keyboard_focus?;
+        if self.window_minimized(surface) || self.window_fullscreen(surface) {
+            return None;
+        }
+        let toplevel = self.toplevel_for_surface(surface)?;
+        if self.toplevels.get(&toplevel).is_some_and(|t| t.maximized) {
+            return None;
+        }
+        let w = self.windows.iter().find(|w| w.surface == surface)?;
+        let (sw, sh) = self.surfaces.get(&surface)?.content?;
+        Some((w.x, w.y, sw, sh))
+    }
+
+    /// Textures in stacking order, then the cursor (kept for headless/tests).
+    pub fn scene(&self) -> Vec<(&wana_render::compose::Texture, i32, i32)> {
+        self.surface_scene()
+            .into_iter()
             .chain(self.cursor_image())
             .collect()
     }
