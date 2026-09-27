@@ -144,6 +144,25 @@ pub struct Window {
 const XDG_TOPLEVEL_STATE_MAXIMIZED: u32 = 1;
 const XDG_TOPLEVEL_STATE_FULLSCREEN: u32 = 2;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InteractiveKind {
+    Move,
+    Resize(u32),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InteractiveGrab {
+    pub surface: Resource,
+    pub kind: InteractiveKind,
+    pub start_pointer: (f64, f64),
+    pub start_x: i32,
+    pub start_y: i32,
+    pub start_w: i32,
+    pub start_h: i32,
+    pub last_w: i32,
+    pub last_h: i32,
+}
+
 #[derive(Debug, Default)]
 struct Toplevel {
     xdg: Option<Resource>,
@@ -1020,6 +1039,143 @@ impl Compositor {
         true
     }
 
+    pub(crate) fn begin_interactive(
+        &mut self,
+        ctx: &Ctx,
+        toplevel: Resource,
+        seat: Resource,
+        serial: u32,
+        kind: InteractiveKind,
+    ) {
+        let Some(surface) = self
+            .toplevels
+            .get(&toplevel)
+            .and_then(|t| t.xdg)
+            .and_then(|xs| self.xdg.get(&xs))
+            .and_then(|x| x.surface)
+        else {
+            return;
+        };
+        let same_client = ctx.client(toplevel).is_some()
+            && ctx.client(toplevel) == ctx.client(seat);
+        let valid_press = self.last_pointer_press == Some((surface, serial))
+            && !self.seat.buttons.is_empty();
+        let normal = self
+            .toplevels
+            .get(&toplevel)
+            .is_some_and(|t| !t.minimized && !t.maximized && !t.fullscreen);
+        if !same_client || !valid_press || !normal {
+            debug!(
+                COMPOSITOR,
+                "interactive request ignored: same_client={same_client} valid_press={valid_press} normal={normal}"
+            );
+            return;
+        }
+        let Some(window) = self.windows.iter().find(|w| w.surface == surface).copied() else {
+            return;
+        };
+        let Some((w, h)) = self.surfaces.get(&surface).and_then(|s| s.content) else {
+            return;
+        };
+        self.interactive_grab = Some(InteractiveGrab {
+            surface,
+            kind,
+            start_pointer: self.seat.pos,
+            start_x: window.x,
+            start_y: window.y,
+            start_w: w,
+            start_h: h,
+            last_w: w,
+            last_h: h,
+        });
+        info!(
+            COMPOSITOR,
+            "interactive {:?} started: {} serial={serial}",
+            kind,
+            self.title_of(surface)
+        );
+    }
+
+    pub(crate) fn update_interactive(&mut self, ctx: &Ctx) -> bool {
+        let Some(mut grab) = self.interactive_grab else {
+            return false;
+        };
+        let dx = (self.seat.pos.0 - grab.start_pointer.0).round() as i32;
+        let dy = (self.seat.pos.1 - grab.start_pointer.1).round() as i32;
+        let u = self.usable;
+        match grab.kind {
+            InteractiveKind::Move => {
+                let Some(window) = self.windows.iter_mut().find(|w| w.surface == grab.surface)
+                else {
+                    self.interactive_grab = None;
+                    return false;
+                };
+                let max_x = u.x + (u.w - grab.start_w).max(0);
+                let max_y = u.y + (u.h - grab.start_h).max(0);
+                window.x = (grab.start_x + dx).clamp(u.x, max_x);
+                window.y = (grab.start_y + dy).clamp(u.y, max_y);
+                self.needs_redraw = true;
+                true
+            }
+            InteractiveKind::Resize(edges) => {
+                const TOP: u32 = 1;
+                const BOTTOM: u32 = 2;
+                const LEFT: u32 = 4;
+                const RIGHT: u32 = 8;
+                let mut nw = grab.start_w;
+                let mut nh = grab.start_h;
+                let mut nx = grab.start_x;
+                let mut ny = grab.start_y;
+                if edges & LEFT != 0 {
+                    nw -= dx;
+                    nx += dx;
+                }
+                if edges & RIGHT != 0 {
+                    nw += dx;
+                }
+                if edges & TOP != 0 {
+                    nh -= dy;
+                    ny += dy;
+                }
+                if edges & BOTTOM != 0 {
+                    nh += dy;
+                }
+                nw = nw.clamp(240, u.w.max(240));
+                nh = nh.clamp(160, u.h.max(160));
+                nx = nx.clamp(u.x, u.x + (u.w - nw).max(0));
+                ny = ny.clamp(u.y, u.y + (u.h - nh).max(0));
+                if let Some(window) = self.windows.iter_mut().find(|w| w.surface == grab.surface) {
+                    if edges & LEFT != 0 {
+                        window.x = nx;
+                    }
+                    if edges & TOP != 0 {
+                        window.y = ny;
+                    }
+                }
+                if (nw, nh) != (grab.last_w, grab.last_h) {
+                    self.send_window_configure(ctx, grab.surface, nw, nh, &[]);
+                    grab.last_w = nw;
+                    grab.last_h = nh;
+                    self.interactive_grab = Some(grab);
+                }
+                self.needs_redraw = true;
+                true
+            }
+        }
+    }
+
+    pub(crate) fn end_interactive(&mut self) {
+        if let Some(grab) = self.interactive_grab.take() {
+            info!(
+                COMPOSITOR,
+                "interactive {:?} finished: {}",
+                grab.kind,
+                self.title_of(grab.surface)
+            );
+        }
+        self.last_pointer_press = None;
+    }
+
     pub(crate) fn shell_toggle_launcher(&self, ctx: &Ctx) {
         for control in &self.shell_controls {
             let _ = ctx.post(
@@ -1329,8 +1485,27 @@ impl Compositor {
             SET_FULLSCREEN => self.set_fullscreen(ctx, surface, true),
             UNSET_FULLSCREEN => self.set_fullscreen(ctx, surface, false),
             SET_MINIMIZED => self.set_minimized(surface, true),
-            // Interactive move/resize need a validated pointer-button serial;
-            // compositor-owned Super+Arrow move is implemented in this phase.
+            MOVE => {
+                if let (Some(seat), Some(serial)) = (object(args, 0), uint(args, 1)) {
+                    self.begin_interactive(ctx, res, seat, serial, InteractiveKind::Move);
+                }
+            }
+            RESIZE => {
+                if let (Some(seat), Some(serial), Some(edges)) =
+                    (object(args, 0), uint(args, 1), uint(args, 2))
+                {
+                    const VALID_EDGES: [u32; 8] = [1, 2, 4, 5, 6, 8, 9, 10];
+                    if VALID_EDGES.contains(&edges) {
+                        self.begin_interactive(
+                            ctx,
+                            res,
+                            seat,
+                            serial,
+                            InteractiveKind::Resize(edges),
+                        );
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1359,6 +1534,13 @@ fn int(args: &[ReqArg], i: usize) -> Option<i32> {
 fn uint(args: &[ReqArg], i: usize) -> Option<u32> {
     match args.get(i) {
         Some(ReqArg::Uint(v)) => Some(*v),
+        _ => None,
+    }
+}
+
+fn object(args: &[ReqArg], i: usize) -> Option<Resource> {
+    match args.get(i) {
+        Some(ReqArg::Object(Some(v))) => Some(*v),
         _ => None,
     }
 }
