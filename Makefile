@@ -547,81 +547,81 @@ dock-boot-test:
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
-WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
+WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$$$$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
 # The shell alone, the compositor stopping with it (layer surfaces).
-WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$$$$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--exit-with-shell --shell target/release/wana-wl-test --shell-arg
 # The same compositor with a shell on the private connection (decision 0003).
-WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
+WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$$$$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1 \
 	--shell-arg --expect-global --shell-arg ext_foreign_toplevel_list_v1 \
 	--shell-arg --expect-global --shell-arg wana_shell_control_v1
 wayland-host-test: fonts
 	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test -p wana-shell
-	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
-	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 5 --headless 1280x800@60 \
-		--shell /bin/sh --shell-arg -c --shell-arg 'exit 7' > $$dir/shell-restart.log 2>&1 && \
-		grep -q 'shell restart 1/3' $$dir/shell-restart.log && \
-		grep -q 'shell restart 2/3' $$dir/shell-restart.log && \
-		grep -q 'shell restart 3/3' $$dir/shell-restart.log && \
-		grep -q 'shell restart limit reached (3); applications remain running' $$dir/shell-restart.log && \
+	@dir=$$(mktemp -d) && trap 'rm -rf "$$$$$$dir"' EXIT && \
+	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$$$$$dir target/release/wana-compositor --timeout 5 --headless 1280x800@60 \
+		--shell /bin/sh --shell-arg -c --shell-arg 'exit 7' > $$$$$$dir/shell-restart.log 2>&1 && \
+		grep -q 'shell restart 1/3' $$$$$$dir/shell-restart.log && \
+		grep -q 'shell restart 2/3' $$$$$$dir/shell-restart.log && \
+		grep -q 'shell restart 3/3' $$$$$$dir/shell-restart.log && \
+		grep -q 'shell restart limit reached (3); applications remain running' $$$$$$dir/shell-restart.log && \
 		echo "[COMPOSITOR] check: crashed shell restarts three times, then stops without killing compositor: PASS" && \
-	$(WAYLAND_HOST_RUN) > $$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$dir/window.log && \
-		grep -q 'client: frame presented' $$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
-	$(WAYLAND_HOST_RUN) --attach-before-configure > $$dir/early.log 2>&1 && \
-		grep -q 'client: got the expected protocol error: xdg_surface@[0-9]* code 3' $$dir/early.log && \
+	$(WAYLAND_HOST_RUN) > $$$$$$dir/window.log 2>&1 && grep -q 'window mapped: "wana-wl-test"' $$$$$$dir/window.log && \
+		grep -q 'client: frame presented' $$$$$$dir/window.log && echo "[COMPOSITOR] check: window scenario: PASS" && \
+	$(WAYLAND_HOST_RUN) --attach-before-configure > $$$$$$dir/early.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: xdg_surface@[0-9]* code 3' $$$$$$dir/early.log && \
 		echo "[COMPOSITOR] check: buffer before configure -> xdg_surface.unconfigured_buffer: PASS" && \
-	$(WAYLAND_HOST_RUN) --truncate-pool > $$dir/sigbus.log 2>&1 && \
-		grep -q 'client: got the expected protocol error: wl_buffer@[0-9]* code 2' $$dir/sigbus.log && \
-		grep -q 'shut down; socket removed' $$dir/sigbus.log && \
+	$(WAYLAND_HOST_RUN) --truncate-pool > $$$$$$dir/sigbus.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: wl_buffer@[0-9]* code 2' $$$$$$dir/sigbus.log && \
+		grep -q 'shut down; socket removed' $$$$$$dir/sigbus.log && \
 		echo "[COMPOSITOR] check: truncated pool (SIGBUS) -> wl_shm.invalid_fd, compositor survives: PASS" && \
-	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
-		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
+	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$$$$$dir/text.log 2>&1 && \
+		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$$$$$dir/text.log && \
 		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
-	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-no-global wana_shell_control_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
-		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $dir/priv.log && \
-		grep -q 'client: global wana_shell_control_v1 v1 visible, as expected' $dir/priv.log && \
-		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $dir/priv.log && \
-		grep -q 'client: global wana_shell_control_v1 not visible, as expected' $dir/priv.log && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-no-global wana_shell_control_v1 --expect-global xdg_wm_base > $$$$$$dir/priv.log 2>&1 && \
+		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$$$$$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $$$$$dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 v1 visible, as expected' $$$$$dir/priv.log && \
+		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$$$$$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $$$$$dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 not visible, as expected' $$$$$dir/priv.log && \
 		echo "[COMPOSITOR] check: shell globals visible only to the private shell connection: PASS" && \
-	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
-		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
-		grep -q 'binds: .*zwlr_layer_shell_v1 0' $$dir/bind.log && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$$$$$dir/bind.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$$$$$dir/bind.log && \
+		grep -q 'binds: .*zwlr_layer_shell_v1 0' $$$$$$dir/bind.log && \
 		echo "[COMPOSITOR] check: binding the hidden global by guessing its name -> invalid_object: PASS" && \
-	$(WAYLAND_HOST_LAYERS) --layers > $$dir/layers.log 2>&1 && \
-		grep -q 'usable area for windows: 0,40 1280x760' $$dir/layers.log && \
-		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$dir/layers.log && \
+	$(WAYLAND_HOST_LAYERS) --layers > $$$$$$dir/layers.log 2>&1 && \
+		grep -q 'usable area for windows: 0,40 1280x760' $$$$$$dir/layers.log && \
+		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$$$$$dir/layers.log && \
 		echo "[COMPOSITOR] check: background + bar layer surfaces, window placed below the bar: PASS" && \
-	$(WAYLAND_HOST_LAYERS) --layer-invalid-size > $$dir/badlayer.log 2>&1 && \
-		grep -q 'client: got the expected protocol error: zwlr_layer_surface_v1@[0-9]* code 1' $$dir/badlayer.log && \
+	$(WAYLAND_HOST_LAYERS) --layer-invalid-size > $$$$$$dir/badlayer.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: zwlr_layer_surface_v1@[0-9]* code 1' $$$$$$dir/badlayer.log && \
 		echo "[COMPOSITOR] check: layer width 0 without both side anchors -> invalid_size: PASS" && \
-	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --exit-with-shell \
+	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$$$$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --exit-with-shell \
 		--shell target/release/wana-shell --shell-arg --fonts --shell-arg $(CURDIR)/out/fonts --shell-arg --clock --shell-arg 16:20 \
 		--shell-arg --autostart --shell-arg $(CURDIR)/target/release/wana-wl-test --shell-arg --autostart-arg --shell-arg --no-inherited-fds \
 		--shell-arg --exit-with-autostart \
-		> $$dir/shell.log 2>&1 && \
-		grep -q 'desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' $$dir/shell.log && \
-		grep -q 'bar mapped: 1280x40, time ١٦:٢٠, sha256 $(SHELL_SHA_BAR)' $$dir/shell.log && \
-		grep -q 'client: inherited descriptors: 0 1 2 only' $$dir/shell.log && \
-		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$dir/shell.log && \
+		> $$$$$$dir/shell.log 2>&1 && \
+		grep -q 'desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' $$$$$$dir/shell.log && \
+		grep -q 'bar mapped: 1280x40, time ١٦:٢٠, sha256 $(SHELL_SHA_BAR)' $$$$$$dir/shell.log && \
+		grep -q 'client: inherited descriptors: 0 1 2 only' $$$$$$dir/shell.log && \
+		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$$$$$dir/shell.log && \
 		echo "[COMPOSITOR] check: wana-shell desktop + bar (hashes), autostarted app below the bar, no inherited fds: PASS" && \
 	printf 'نافذة تجريبية\t%s\t--hold\t1\nنص عربي\t%s\t--no-inherited-fds\t--text\t--fonts\t%s\n' \
-		$(CURDIR)/target/release/wana-wl-test $(CURDIR)/target/release/wana-wl-test $(CURDIR)/out/fonts > $$dir/apps && \
-	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --exit-with-shell \
+		$(CURDIR)/target/release/wana-wl-test $(CURDIR)/target/release/wana-wl-test $(CURDIR)/out/fonts > $$$$$$dir/apps && \
+	env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$$$$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --exit-with-shell \
 		--shell target/release/wana-shell --shell-arg --fonts --shell-arg $(CURDIR)/out/fonts --shell-arg --clock --shell-arg 16:20 \
-		--shell-arg --apps --shell-arg $$dir/apps --shell-arg --test-launch --shell-arg 2 --shell-arg --exit-with-launched \
-		> $$dir/launcher.log 2>&1 && \
-		grep -q 'layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160' $$dir/launcher.log && \
-		grep -q 'keyboard focus: layer "wana-launcher"' $$dir/launcher.log && \
-		grep -q 'launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' $$dir/launcher.log && \
-		grep -q 'layer surface destroyed: "wana-launcher"' $$dir/launcher.log && \
-		grep -q 'client: inherited descriptors: 0 1 2 only' $$dir/launcher.log && \
-		grep -q 'window mapped: "wana-wl-test text"' $$dir/launcher.log && \
-		grep -q 'app "نص عربي" exited successfully' $$dir/launcher.log && \
+		--shell-arg --apps --shell-arg $$$$$$dir/apps --shell-arg --test-launch --shell-arg 2 --shell-arg --exit-with-launched \
+		> $$$$$$dir/launcher.log 2>&1 && \
+		grep -q 'layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160' $$$$$$dir/launcher.log && \
+		grep -q 'keyboard focus: layer "wana-launcher"' $$$$$$dir/launcher.log && \
+		grep -q 'launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' $$$$$$dir/launcher.log && \
+		grep -q 'layer surface destroyed: "wana-launcher"' $$$$$$dir/launcher.log && \
+		grep -q 'client: inherited descriptors: 0 1 2 only' $$$$$$dir/launcher.log && \
+		grep -q 'window mapped: "wana-wl-test text"' $$$$$$dir/launcher.log && \
+		grep -q 'app "نص عربي" exited successfully' $$$$$$dir/launcher.log && \
 		echo "[COMPOSITOR] check: launcher (hash, exclusive keyboard) starts an app through the public socket: PASS" || \
-	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$dir/*.log >&2; exit 1; }
+	{ echo "[COMPOSITOR] check: FAIL" >&2; tail -n 15 $$$$$$dir/*.log >&2; exit 1; }
 
 br-%: buildroot-src
 	$(BR_MAKE) $*
