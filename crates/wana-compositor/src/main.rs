@@ -183,10 +183,10 @@ fn run(args: &Args) -> Result<(), String> {
         "wana-compositor {} starting",
         env!("CARGO_PKG_VERSION")
     );
-    let (core, xdg, layer, foreign) = wana_wayland::interface_count();
+    let (core, xdg, layer, foreign, shell_control) = wana_wayland::interface_count();
     info!(
         COMPOSITOR,
-        "protocol tables: {core} core + {xdg} xdg-shell + {layer} layer-shell + {foreign} foreign-toplevel interfaces (generated from XML)"
+        "protocol tables: {core} core + {xdg} xdg-shell + {layer} layer-shell + {foreign} foreign-toplevel + {shell_control} shell-control interfaces (generated from XML)"
     );
     let (output, drm) = find_output(args)?;
     // The screen (GL context) is created before any client can commit, so
