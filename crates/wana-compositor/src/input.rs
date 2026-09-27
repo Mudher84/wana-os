@@ -562,7 +562,12 @@ impl Compositor {
         }
         let focused_mapped = self.seat.keyboard_focus.is_some_and(|s| self.visible(s));
         if !focused_mapped {
-            let top = self.windows.last().map(|w| w.surface);
+            let top = self
+                .windows
+                .iter()
+                .rev()
+                .find(|w| self.window_visible(w.surface))
+                .map(|w| w.surface);
             if top != self.seat.keyboard_focus {
                 self.set_keyboard_focus(ctx, top);
             }
