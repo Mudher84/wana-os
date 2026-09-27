@@ -683,11 +683,15 @@ impl Compositor {
             return (0, 0, Vec::new());
         };
         if let Some(state) = t.wm {
-            let size = match state.mode {
-                crate::wm::Mode::Maximized | crate::wm::Mode::Fullscreen => {
-                    (state.rect.w, state.rect.h)
+            let size = if state.resizing {
+                (state.rect.w, state.rect.h)
+            } else {
+                match state.mode {
+                    crate::wm::Mode::Maximized | crate::wm::Mode::Fullscreen => {
+                        (state.rect.w, state.rect.h)
+                    }
+                    crate::wm::Mode::Normal | crate::wm::Mode::Minimized => (0, 0),
                 }
-                crate::wm::Mode::Normal | crate::wm::Mode::Minimized => (0, 0),
             };
             return (size.0, size.1, state.configure_states());
         }
@@ -747,6 +751,72 @@ impl Compositor {
                 }
             }
         }
+    }
+
+    fn start_toplevel_grab(
+        &mut self,
+        ctx: &Ctx,
+        tl: Resource,
+        surface: Resource,
+        args: &[ReqArg],
+        kind: crate::wm::GrabKind,
+    ) {
+        let Some(ReqArg::Object(Some(seat_res))) = args.first() else {
+            return;
+        };
+        let Some(serial) = uint(args, 1) else {
+            return;
+        };
+        let same_client = ctx.client(*seat_res) == ctx.client(tl);
+        let known_seat = self.seat.seats.contains(seat_res);
+        let authentic = self.seat.last_button_serial == Some((surface, serial));
+        let held = !self.seat.buttons.is_empty();
+        let focused = self
+            .seat
+            .pointer_focus
+            .is_some_and(|focus| focus.surface == surface);
+        if !(same_client && known_seat && authentic && held && focused) {
+            debug!(
+                COMPOSITOR,
+                "interactive {:?} ignored for {}: invalid seat/serial/grab",
+                kind,
+                self.title_of(surface)
+            );
+            return;
+        }
+
+        let Some(state) = self.toplevels.get(&tl).and_then(|t| t.wm) else {
+            return;
+        };
+        if state.mode != crate::wm::Mode::Normal {
+            debug!(
+                COMPOSITOR,
+                "interactive {:?} ignored for {}: mode {:?}",
+                kind,
+                self.title_of(surface),
+                state.mode
+            );
+            return;
+        }
+
+        self.wm_grab = Some(crate::wm::Grab {
+            surface,
+            pointer: self.seat.pos,
+            rect: state.rect,
+            kind,
+        });
+        if matches!(kind, crate::wm::GrabKind::Resize(_)) {
+            if let Some(state) = self.toplevels.get_mut(&tl).and_then(|t| t.wm.as_mut()) {
+                state.begin_resize();
+            }
+            self.send_toplevel_configure(ctx, tl);
+        }
+        info!(
+            COMPOSITOR,
+            "interactive {:?} started: {} serial={serial}",
+            kind,
+            self.title_of(surface)
+        );
     }
 
     fn send_toplevel_configure(&mut self, ctx: &Ctx, tl: Resource) {
@@ -1124,6 +1194,23 @@ impl Compositor {
 
         let mut metadata_changed = false;
         let mut state_changed = false;
+        let mut grab_kind = None;
+        if opcode == RESIZE {
+            let Some(edge) = uint(args, 2) else {
+                return;
+            };
+            if !crate::wm::valid_resize_edge(edge) {
+                ctx.post_error(
+                    res,
+                    err::XDG_TOPLEVEL_INVALID_RESIZE_EDGE,
+                    "xdg_toplevel.resize: invalid edge",
+                );
+                return;
+            }
+            grab_kind = Some(crate::wm::GrabKind::Resize(edge));
+        } else if opcode == MOVE {
+            grab_kind = Some(crate::wm::GrabKind::Move);
+        }
         {
             let Some(t) = self.toplevels.get_mut(&res) else {
                 return;
@@ -1191,8 +1278,8 @@ impl Compositor {
                     t.pending_mode = crate::wm::Mode::Minimized;
                     state_changed = true;
                 }
-                // parent, menu and interactive move/resize are handled in
-                // the next Phase 12 step after pointer serial validation.
+                // parent and window-menu requests are intentionally ignored
+                // until their dedicated UI exists.
                 _ => {}
             }
         }
@@ -1206,6 +1293,9 @@ impl Compositor {
             self.apply_pending_mode(res);
             self.send_toplevel_configure(ctx, res);
             self.needs_redraw = true;
+        }
+        if let (Some(surface), Some(kind)) = (surface, grab_kind) {
+            self.start_toplevel_grab(ctx, res, surface, args, kind);
         }
     }
 }
