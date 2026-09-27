@@ -90,6 +90,7 @@ enum Mode {
     /// As the shell: background + top bar layer surfaces, then a window.
     Layers,
     LayerInvalidSize,
+    WindowManagement,
 }
 
 fn main() -> ExitCode {
@@ -107,6 +108,7 @@ fn main() -> ExitCode {
             "--no-inherited-fds" => check_fds = true,
             "--layers" => mode = Mode::Layers,
             "--layer-invalid-size" => mode = Mode::LayerInvalidSize,
+            "--window-management" => mode = Mode::WindowManagement,
             "--try-bind-hidden" => match it.next() {
                 Some(iface) => mode = Mode::TryBindHidden(iface),
                 None => {
@@ -382,7 +384,75 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         return expect_error(&conn, "wl_buffer", 2);
     }
     win.present(&conn, wm_base, devices.as_mut())?;
-    windows.push(win);
+
+    if *mode == Mode::WindowManagement {
+        use xdg_shell::xdg_toplevel::request as req;
+
+        let expect = |label: &str,
+                      got: (i32, i32, Vec<u32>),
+                      size: (i32, i32),
+                      state: Option<u32>|
+         -> Result<(), String> {
+            if (got.0, got.1) != size {
+                return Err(format!(
+                    "{label}: configure size {}x{}, expected {}x{}",
+                    got.0, got.1, size.0, size.1
+                ));
+            }
+            if let Some(s) = state {
+                if !got.2.contains(&s) {
+                    return Err(format!("{label}: state {s} missing from {:?}", got.2));
+                }
+            } else if got.2.contains(&1) || got.2.contains(&2) {
+                return Err(format!("{label}: maximize/fullscreen state remained: {:?}", got.2));
+            }
+            info!(
+                LOG,
+                "client: window-management {label}: {}x{} states {:?}",
+                got.0,
+                got.1,
+                got.2
+            );
+            Ok(())
+        };
+
+        let got = win.request_state(&conn, wm_base, req::SET_MAXIMIZED, &[], None)?;
+        expect("maximized", got, (1280, 800), Some(1))?;
+
+        let got = win.request_state(&conn, wm_base, req::UNSET_MAXIMIZED, &[], None)?;
+        expect("restored-from-maximize", got, (WIDTH, HEIGHT), None)?;
+
+        let got = win.request_state(
+            &conn,
+            wm_base,
+            req::SET_FULLSCREEN,
+            &[Req::Object(None)],
+            None,
+        )?;
+        expect("fullscreen", got, (1280, 800), Some(2))?;
+
+        let got = win.request_state(&conn, wm_base, req::UNSET_FULLSCREEN, &[], None)?;
+        expect("restored-from-fullscreen", got, (WIDTH, HEIGHT), None)?;
+
+        conn.request(
+            win.toplevel,
+            req::SET_MAX_SIZE,
+            None,
+            &[Req::Int(900), Req::Int(700)],
+        )?;
+        let got = win.request_state(&conn, wm_base, req::SET_MAXIMIZED, &[], None)?;
+        expect("maximized-constrained", got, (900, 700), Some(1))?;
+        let got = win.request_state(&conn, wm_base, req::UNSET_MAXIMIZED, &[], None)?;
+        expect("restored-after-constraint", got, (WIDTH, HEIGHT), None)?;
+
+        conn.request(win.toplevel, req::SET_MINIMIZED, None, &[])?;
+        conn.roundtrip()?;
+        info!(LOG, "client: window-management minimized request accepted");
+
+        windows.push(win);
+    } else {
+        windows.push(win);
+    }
 
     if let Some(dev) = devices.as_mut() {
         let (first_focus, goal) = match mode {
