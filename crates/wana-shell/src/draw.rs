@@ -166,6 +166,33 @@ pub fn launcher(fonts: &FontSet, names: &[&str], selected: usize) -> Result<Canv
     Ok(c)
 }
 
+/// Returns the real toplevel index under a Dock-local x coordinate.
+/// The overflow +N cell is intentionally not actionable.
+pub fn dock_index_at(x: f64, width: u32, count: usize) -> Option<usize> {
+    if count == 0 || !x.is_finite() {
+        return None;
+    }
+    let rendered = count.min(DOCK_MAX);
+    let actionable = if count > DOCK_MAX {
+        DOCK_MAX - 1
+    } else {
+        rendered
+    };
+    let inner = width.max(160).saturating_sub(DOCK_PAD * 2);
+    if rendered == 0 || inner == 0 {
+        return None;
+    }
+    let cell = inner / rendered as u32;
+    for i in 0..actionable {
+        let left = DOCK_PAD + inner - cell * (i as u32 + 1);
+        let right = left + cell;
+        if x >= f64::from(left) && x < f64::from(right) {
+            return Some(i);
+        }
+    }
+    None
+}
+
 /// Draws the bottom Dock. The first four mapped toplevels are shown from
 /// right to left. If more are open, the last slot becomes a compact +N count.
 pub fn dock(width: u32, fonts: &FontSet, names: &[String]) -> Result<Canvas, String> {
@@ -263,6 +290,19 @@ mod tests {
         // Deterministic: the same inputs give the same pixels.
         assert_eq!(c, bar(1280, &fonts(), "16:20").unwrap());
         assert_ne!(c, bar(1280, &fonts(), "16:21").unwrap());
+    }
+
+    #[test]
+    fn dock_hit_test_follows_rtl_slots_and_ignores_overflow() {
+        assert_eq!(dock_index_at(800.0, DOCK_WIDTH, 2), Some(0));
+        assert_eq!(dock_index_at(500.0, DOCK_WIDTH, 2), Some(1));
+        assert_eq!(dock_index_at(100.0, DOCK_WIDTH, 2), None);
+
+        // Five windows render as three actionable windows plus +2.
+        assert_eq!(dock_index_at(850.0, DOCK_WIDTH, 5), Some(0));
+        assert_eq!(dock_index_at(700.0, DOCK_WIDTH, 5), Some(1));
+        assert_eq!(dock_index_at(550.0, DOCK_WIDTH, 5), Some(2));
+        assert_eq!(dock_index_at(420.0, DOCK_WIDTH, 5), None);
     }
 
     #[test]
