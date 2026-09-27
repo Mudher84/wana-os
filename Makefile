@@ -577,6 +577,32 @@ dock-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Phase 13: a minimized public window remains in the Dock. Clicking its
+# RTL Dock cell sends a private activate_toplevel request; the compositor
+# restores, raises and focuses it.
+DOCK_ACTIVATION_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,220,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--autostart,--shell-arg,/usr/bin/wana-wl-test,--shell-arg,--autostart-arg,--shell-arg,--hold,--shell-arg,--autostart-arg,--shell-arg,12,--shell-arg,--exit-with-autostart wana.test=poweroff wana.shell=0
+dock-activation-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock-activation.img "$(DOCK_ACTIVATION_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-dock-activation.img --gpu virtio --input virtio --timeout 320 --memory 1024 \
+		--log out/logs/dock-activation-boot.log \
+		--send-on '\[SHELL\] info: dock updated: 1 window\(s\)' \
+		--send 'sendkey meta_l-m' \
+		--send 'wait:window minimized:' \
+		--send 'mouse_move 0 350' --send 'mouse_button 1' --send 'mouse_button 0' \
+		--send 'wait:dock activate: index 1 identifier wana-' \
+		--send 'wait:shell activated toplevel wana-' \
+		--screendump-on 'shell activated toplevel' --screendump out/test/dock-activation.ppm \
+		--pixel 0.5,0.5=4f8cff --pixel 0.5,0.025=0b0f1a \
+		--expect '\[COMPOSITOR\] info: window minimized: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[SHELL\] info: dock activate: index 1 identifier wana-[0-9a-f]+' \
+		--expect '\[COMPOSITOR\] info: window restored: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: shell activated toplevel wana-[0-9a-f]+: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: keyboard focus: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[SHELL\] info: autostart exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
 WAYLAND_HOST_RUN = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 --run target/release/wana-wl-test
