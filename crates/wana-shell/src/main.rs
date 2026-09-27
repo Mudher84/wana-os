@@ -52,7 +52,8 @@ use wana_text::layout::FontSet;
 use wana_text::raster::Canvas;
 use wana_text::{fonts, sha256};
 use wana_wayland::protocols::{
-    ext_foreign_toplevel_list_v1 as foreign, wayland, wlr_layer_shell_unstable_v1 as proto,
+    ext_foreign_toplevel_list_v1 as foreign, wana_shell_control_v1 as shell_control, wayland,
+    wlr_layer_shell_unstable_v1 as proto,
 };
 
 const SHELL: Subsystem = Subsystem::Shell;
@@ -369,6 +370,12 @@ fn run(args: &Args) -> Result<(), String> {
         1,
     )
     .map_err(|e| format!("{e}: foreign toplevel list is restricted to wana-shell"))?;
+    let control = bind(
+        "wana_shell_control_v1",
+        &shell_control::WANA_SHELL_CONTROL_V1_INTERFACE,
+        1,
+    )
+    .map_err(|e| format!("{e}: shell control is restricted to wana-shell"))?;
     let mut toplevels = Toplevels::new(foreign_list);
 
     fonts::verify_dir(&args.fonts)?;
@@ -548,6 +555,28 @@ fn run(args: &Args) -> Result<(), String> {
             {
                 return Err("the compositor closed a shell surface".into());
             }
+            if ev.target == control
+                && ev.opcode == shell_control::wana_shell_control_v1::event::TOGGLE_LAUNCHER
+            {
+                if launcher.is_some() {
+                    close_launcher(&conn, &mut launcher);
+                    info!(SHELL, "launcher toggled closed by compositor shortcut");
+                } else if apps.is_empty() {
+                    warn!(SHELL, "launcher: no apps ({})", args.apps.display());
+                } else {
+                    launcher = Some(open_launcher(
+                        &conn,
+                        compositor,
+                        layer_shell,
+                        shm,
+                        &set,
+                        &apps,
+                        &mut events,
+                    )?);
+                    info!(SHELL, "launcher toggled open by compositor shortcut");
+                }
+                continue;
+            }
             if toplevels.event(&conn, &ev)? {
                 let labels = toplevels.labels();
                 let (hash, _) = show(
@@ -594,6 +623,24 @@ fn run(args: &Args) -> Result<(), String> {
                 }
             }
             match devices.event(&conn, seat, &ev)? {
+                Some(Input::Click(s, x, _)) if s == dock.surface => {
+                    if let Some(index) = draw::dock_item_at(dock_width, toplevels.len(), x) {
+                        if let Some(identifier) = toplevels.identifier_at(index) {
+                            conn.request(
+                                control,
+                                shell_control::wana_shell_control_v1::request::ACTIVATE_TOPLEVEL,
+                                None,
+                                &[Req::Str(identifier)],
+                            )?;
+                            info!(
+                                SHELL,
+                                "dock activate: item {} identifier {}",
+                                index + 1,
+                                identifier
+                            );
+                        }
+                    }
+                }
                 Some(Input::Click(s, x, _)) if s == bar.surface => {
                     // The bar's start is its right end (RTL).
                     if x >= f64::from(bar_width.saturating_sub(draw::BRAND_HIT)) {
