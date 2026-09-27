@@ -8,6 +8,7 @@
 //! | `wl_seat` | 7 | `seat0`: pointer (enter/leave/motion/button/axis/frame, set_cursor) and keyboard (xkb keymap, enter/leave/key/modifiers, repeat info), capabilities from the devices present (`input.rs`) | touch |
 //! | `xdg_wm_base` | 1 | xdg_surface + xdg_toplevel with the configure handshake | popups, interactive move/resize |
 //! | `zwlr_layer_shell_v1` | 4 | privileged: only the shell sees it (decision 0003); layer surfaces with anchors, margins, exclusive zones, keyboard interactivity, stacking (`shell_surfaces.rs`, `layer.rs`) | popups |
+//! | `ext_foreign_toplevel_list_v1` | 1 | privileged: mapped toplevel list for the shell dock; title, app-id, stable per-map identifier, close events | activation/actions later |
 //!
 //! A version is advertised only when every request of that version is
 //! handled or answered with a clear protocol error; it is never above the
@@ -30,7 +31,10 @@ use std::rc::Rc;
 use wana_input::keyboard::Keyboard;
 use wana_log::{debug, info, warn, Subsystem};
 use wana_render::compose::Texture;
-use wana_wayland::protocols::{wayland, wlr_layer_shell_unstable_v1 as layer_shell, xdg_shell};
+use wana_wayland::protocols::{
+    ext_foreign_toplevel_list_v1 as foreign, wayland,
+    wlr_layer_shell_unstable_v1 as layer_shell, xdg_shell,
+};
 use wana_wayland::server::{interface_name, request_name, Arg, Ctx, Handler, ReqArg, Resource};
 use wana_wayland::sys::wl_interface;
 
@@ -98,6 +102,10 @@ pub fn globals() -> Vec<Global> {
             privileged: true,
             ..cap(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE, 4)
         },
+        Global {
+            privileged: true,
+            ..cap(&foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE, 1)
+        },
     ]
 }
 
@@ -134,6 +142,16 @@ struct Toplevel {
     app_id: String,
 }
 
+#[derive(Debug, Default)]
+struct ForeignList {
+    stopped: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ForeignHandle {
+    surface: Option<Resource>,
+}
+
 type SharedPool = Rc<RefCell<Pool>>;
 
 /// The compositor's protocol state.
@@ -156,6 +174,10 @@ pub struct Compositor {
     buffers: HashMap<Resource, (SharedPool, BufferLayout)>,
     xdg: HashMap<Resource, XdgSurface>,
     toplevels: HashMap<Resource, Toplevel>,
+    foreign_lists: HashMap<Resource, ForeignList>,
+    foreign_handles: HashMap<Resource, ForeignHandle>,
+    foreign_identifiers: HashMap<Resource, String>,
+    next_foreign_identifier: u64,
     regions: HashMap<Resource, ()>,
     positioners: HashMap<Resource, ()>,
     pub windows: Vec<Window>,
@@ -207,6 +229,10 @@ impl Compositor {
             buffers: HashMap::new(),
             xdg: HashMap::new(),
             toplevels: HashMap::new(),
+            foreign_lists: HashMap::new(),
+            foreign_handles: HashMap::new(),
+            foreign_identifiers: HashMap::new(),
+            next_foreign_identifier: 1,
             regions: HashMap::new(),
             positioners: HashMap::new(),
             windows: Vec::new(),
@@ -642,6 +668,7 @@ impl Compositor {
                 let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
                 self.windows.push(Window { surface, x, y });
+                self.foreign_mapped(ctx, surface);
                 let title = self.title_of(surface);
                 info!(
                     COMPOSITOR,
@@ -654,10 +681,179 @@ impl Compositor {
             }
             (false, Some(i)) => {
                 self.windows.remove(i);
+                self.foreign_closed(ctx, surface);
                 info!(COMPOSITOR, "window unmapped (surface {})", ctx.id(surface));
                 self.needs_redraw = true;
             }
             _ => {}
+        }
+    }
+
+    // --- ext_foreign_toplevel_list_v1 ----------------------------------------
+    fn foreign_meta(&self, surface: Resource) -> Option<(&str, &str)> {
+        let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
+            return None;
+        };
+        let t = self.xdg.get(&xs)?.toplevel?;
+        let top = self.toplevels.get(&t)?;
+        Some((&top.title, &top.app_id))
+    }
+
+    fn foreign_identifier(&mut self, surface: Resource) -> String {
+        if let Some(id) = self.foreign_identifiers.get(&surface) {
+            return id.clone();
+        }
+        let id = format!("wana-{:016x}", self.next_foreign_identifier);
+        self.next_foreign_identifier = self.next_foreign_identifier.saturating_add(1);
+        self.foreign_identifiers.insert(surface, id.clone());
+        id
+    }
+
+    fn foreign_send_initial(
+        &mut self,
+        ctx: &Ctx,
+        list: Resource,
+        surface: Resource,
+    ) -> Result<(), String> {
+        let (title, app_id) = self
+            .foreign_meta(surface)
+            .map(|(t, a)| (t.to_string(), a.to_string()))
+            .ok_or("foreign toplevel has no xdg metadata")?;
+        let identifier = self.foreign_identifier(surface);
+        let handle = ctx.create_resource(
+            list,
+            &foreign::EXT_FOREIGN_TOPLEVEL_HANDLE_V1_INTERFACE,
+            0,
+        )?;
+        ctx.post(
+            list,
+            foreign::ext_foreign_toplevel_list_v1::event::TOPLEVEL,
+            &[Arg::NewId(handle)],
+        )?;
+        ctx.post(
+            handle,
+            foreign::ext_foreign_toplevel_handle_v1::event::IDENTIFIER,
+            &[Arg::Str(Some(&identifier))],
+        )?;
+        ctx.post(
+            handle,
+            foreign::ext_foreign_toplevel_handle_v1::event::TITLE,
+            &[Arg::Str(Some(&title))],
+        )?;
+        ctx.post(
+            handle,
+            foreign::ext_foreign_toplevel_handle_v1::event::APP_ID,
+            &[Arg::Str(Some(&app_id))],
+        )?;
+        ctx.post(
+            handle,
+            foreign::ext_foreign_toplevel_handle_v1::event::DONE,
+            &[],
+        )?;
+        self.foreign_handles.insert(
+            handle,
+            ForeignHandle {
+                surface: Some(surface),
+            },
+        );
+        Ok(())
+    }
+
+    fn foreign_list_bound(&mut self, ctx: &Ctx, list: Resource) {
+        self.foreign_lists.insert(list, ForeignList::default());
+        let mapped: Vec<Resource> = self.windows.iter().map(|w| w.surface).collect();
+        for surface in mapped {
+            if let Err(e) = self.foreign_send_initial(ctx, list, surface) {
+                warn!(COMPOSITOR, "foreign toplevel initial event: {e}");
+                ctx.implementation_error(list, &e);
+                return;
+            }
+        }
+    }
+
+    fn foreign_mapped(&mut self, ctx: &Ctx, surface: Resource) {
+        let _ = self.foreign_identifier(surface);
+        let lists: Vec<Resource> = self
+            .foreign_lists
+            .iter()
+            .filter_map(|(r, l)| (!l.stopped).then_some(*r))
+            .collect();
+        for list in lists {
+            if let Err(e) = self.foreign_send_initial(ctx, list, surface) {
+                warn!(COMPOSITOR, "foreign toplevel map event: {e}");
+                ctx.implementation_error(list, &e);
+                return;
+            }
+        }
+    }
+
+    fn foreign_changed(&mut self, ctx: &Ctx, surface: Resource) {
+        if !self.windows.iter().any(|w| w.surface == surface) {
+            return;
+        }
+        let Some((title, app_id)) = self
+            .foreign_meta(surface)
+            .map(|(t, a)| (t.to_string(), a.to_string()))
+        else {
+            return;
+        };
+        let handles: Vec<Resource> = self
+            .foreign_handles
+            .iter()
+            .filter_map(|(h, state)| (state.surface == Some(surface)).then_some(*h))
+            .collect();
+        for handle in handles {
+            let _ = ctx.post(
+                handle,
+                foreign::ext_foreign_toplevel_handle_v1::event::TITLE,
+                &[Arg::Str(Some(&title))],
+            );
+            let _ = ctx.post(
+                handle,
+                foreign::ext_foreign_toplevel_handle_v1::event::APP_ID,
+                &[Arg::Str(Some(&app_id))],
+            );
+            let _ = ctx.post(
+                handle,
+                foreign::ext_foreign_toplevel_handle_v1::event::DONE,
+                &[],
+            );
+        }
+    }
+
+    fn foreign_closed(&mut self, ctx: &Ctx, surface: Resource) {
+        self.foreign_identifiers.remove(&surface);
+        let handles: Vec<Resource> = self
+            .foreign_handles
+            .iter()
+            .filter_map(|(h, state)| (state.surface == Some(surface)).then_some(*h))
+            .collect();
+        for handle in handles {
+            let _ = ctx.post(
+                handle,
+                foreign::ext_foreign_toplevel_handle_v1::event::CLOSED,
+                &[],
+            );
+            if let Some(state) = self.foreign_handles.get_mut(&handle) {
+                state.surface = None;
+            }
+        }
+    }
+
+    fn foreign_list_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32) {
+        use foreign::ext_foreign_toplevel_list_v1::request::*;
+        if opcode == STOP {
+            let Some(list) = self.foreign_lists.get_mut(&res) else {
+                return;
+            };
+            if !list.stopped {
+                list.stopped = true;
+                let _ = ctx.post(
+                    res,
+                    foreign::ext_foreign_toplevel_list_v1::event::FINISHED,
+                    &[],
+                );
+            }
         }
     }
 
@@ -756,18 +952,35 @@ impl Compositor {
         }
     }
 
-    fn toplevel_request(&mut self, res: Resource, opcode: u32, args: &[ReqArg]) {
+    fn toplevel_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
         use xdg_shell::xdg_toplevel::request::*;
+        let surface = self
+            .toplevels
+            .get(&res)
+            .and_then(|t| t.xdg)
+            .and_then(|xs| self.xdg.get(&xs))
+            .and_then(|x| x.surface);
         let Some(t) = self.toplevels.get_mut(&res) else {
             return;
         };
-        match (opcode, args.first()) {
-            (SET_TITLE, Some(ReqArg::Str(Some(s)))) => t.title = s.clone(),
-            (SET_APP_ID, Some(ReqArg::Str(Some(s)))) => t.app_id = s.clone(),
+        let changed = match (opcode, args.first()) {
+            (SET_TITLE, Some(ReqArg::Str(Some(s)))) => {
+                t.title = s.clone();
+                true
+            }
+            (SET_APP_ID, Some(ReqArg::Str(Some(s)))) => {
+                t.app_id = s.clone();
+                true
+            }
             // Parent, menus, interactive move/resize, size limits,
             // maximize/fullscreen/minimize: the compositor may ignore them;
             // window management arrives in Phase 12.
-            _ => {}
+            _ => false,
+        };
+        if changed {
+            if let Some(surface) = surface {
+                self.foreign_changed(ctx, surface);
+            }
         }
     }
 }
@@ -813,6 +1026,9 @@ impl Handler for Compositor {
         if std::ptr::eq(g.interface, &wayland::WL_SEAT_INTERFACE) {
             self.seat.seats.push(res);
         }
+        if std::ptr::eq(g.interface, &foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE) {
+            self.foreign_list_bound(ctx, res);
+        }
         if let Err(e) = self.send_initial(ctx, g.interface, res) {
             warn!(COMPOSITOR, "{}: {e}", interface_name(g.interface));
         }
@@ -842,7 +1058,9 @@ impl Handler for Compositor {
         } else if is(&xdg_shell::XDG_SURFACE_INTERFACE) {
             self.xdg_surface_request(ctx, res, opcode, &args);
         } else if is(&xdg_shell::XDG_TOPLEVEL_INTERFACE) {
-            self.toplevel_request(res, opcode, &args);
+            self.toplevel_request(ctx, res, opcode, &args);
+        } else if is(&foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE) {
+            self.foreign_list_request(ctx, res, opcode);
         } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE) {
             self.layer_shell_request(ctx, res, opcode, &args);
         } else if is(&layer_shell::ZWLR_LAYER_SURFACE_V1_INTERFACE) {
@@ -868,6 +1086,7 @@ impl Handler for Compositor {
             self.content.remove(&res);
             if let Some(i) = self.windows.iter().position(|w| w.surface == res) {
                 self.windows.remove(i);
+                self.foreign_closed(ctx, res);
                 info!(COMPOSITOR, "window destroyed (surface {res:?})");
                 self.needs_redraw = true;
             }
@@ -892,6 +1111,7 @@ impl Handler for Compositor {
                 }
                 if let Some(i) = self.windows.iter().position(|w| w.surface == surface) {
                     self.windows.remove(i);
+                    self.foreign_closed(ctx, surface);
                     self.needs_redraw = true;
                 }
             }
@@ -902,12 +1122,18 @@ impl Handler for Compositor {
                     if let Some(surface) = x.surface {
                         if let Some(i) = self.windows.iter().position(|w| w.surface == surface) {
                             self.windows.remove(i);
+                            self.foreign_closed(ctx, surface);
                             info!(COMPOSITOR, "window closed by client: {:?}", t.title);
                             self.needs_redraw = true;
                         }
                     }
                 }
             }
+        } else if self.foreign_lists.remove(&res).is_some() {
+            // Existing foreign handles are independent child resources and
+            // remain valid until the client destroys them.
+        } else if self.foreign_handles.remove(&res).is_some() {
+            // Handle lifetime is controlled by the shell client.
         } else {
             self.regions.remove(&res);
             self.positioners.remove(&res);
@@ -926,14 +1152,14 @@ mod tests {
     #[test]
     fn versions_are_capped_by_the_protocol_xml() {
         let g = globals();
-        assert_eq!(g.len(), 6);
+        assert_eq!(g.len(), 7);
         assert_eq!(
             g.iter()
                 .filter(|x| x.privileged)
                 .map(|x| interface_name(x.interface))
                 .collect::<Vec<_>>(),
-            ["zwlr_layer_shell_v1"],
-            "only layer-shell is privileged"
+            ["zwlr_layer_shell_v1", "ext_foreign_toplevel_list_v1"],
+            "shell protocols are privileged"
         );
         for x in &g {
             assert!(x.version >= 1 && x.version <= x.interface.version as u32);
