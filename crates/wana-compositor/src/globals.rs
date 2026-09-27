@@ -182,6 +182,7 @@ pub struct Compositor {
     regions: HashMap<Resource, ()>,
     positioners: HashMap<Resource, ()>,
     pub windows: Vec<Window>,
+    pub(crate) window_grab: Option<crate::window::Grab>,
     /// Something visible changed, or clients wait for a frame.
     pub needs_redraw: bool,
     /// Windows mapped so far (for placement and the log).
@@ -237,6 +238,7 @@ impl Compositor {
             regions: HashMap::new(),
             positioners: HashMap::new(),
             windows: Vec::new(),
+            window_grab: None,
             needs_redraw: true,
             mapped_total: 0,
             seat,
@@ -965,7 +967,7 @@ impl Compositor {
         })
     }
 
-    fn configure_toplevel(
+    pub(crate) fn configure_toplevel(
         &mut self,
         ctx: &Ctx,
         toplevel: Resource,
@@ -1009,6 +1011,115 @@ impl Compositor {
         }
     }
 
+    fn begin_window_grab(
+        &mut self,
+        ctx: &Ctx,
+        toplevel: Resource,
+        surface: Resource,
+        serial: u32,
+        kind: crate::window::GrabKind,
+    ) {
+        let Some((grab_serial, grab_surface)) = self.seat.grab_serial else {
+            return;
+        };
+        if grab_serial != serial || grab_surface != surface || self.seat.buttons.is_empty() {
+            debug!(
+                COMPOSITOR,
+                "window grab rejected: stale serial {serial} for {}",
+                self.title_of(surface)
+            );
+            return;
+        }
+        if ctx.client(toplevel) != ctx.client(surface) {
+            return;
+        }
+        let Some(initial) = self.window_rect(surface) else {
+            return;
+        };
+        let mode = self
+            .toplevels
+            .get(&toplevel)
+            .map(|t| t.wm.mode)
+            .unwrap_or_default();
+        if mode != crate::window::Mode::Normal {
+            debug!(
+                COMPOSITOR,
+                "window grab ignored while mode={mode:?}: {}",
+                self.title_of(surface)
+            );
+            return;
+        }
+        self.window_grab = Some(crate::window::Grab {
+            surface,
+            toplevel,
+            kind,
+            start: self.seat.pos,
+            initial,
+        });
+        info!(
+            COMPOSITOR,
+            "window grab started: {:?} {}",
+            kind,
+            self.title_of(surface)
+        );
+    }
+
+    pub(crate) fn update_window_grab(&mut self, ctx: &Ctx) {
+        let Some(grab) = self.window_grab else { return };
+        let dx = self.seat.pos.0 - grab.start.0;
+        let dy = self.seat.pos.1 - grab.start.1;
+        let rect = match grab.kind {
+            crate::window::GrabKind::Move => crate::window::moved(grab.initial, dx, dy),
+            crate::window::GrabKind::Resize(edge) => {
+                let Some(state) = self.toplevels.get(&grab.toplevel).map(|t| t.wm) else {
+                    self.window_grab = None;
+                    return;
+                };
+                crate::window::resized(&state, grab.initial, edge, dx, dy)
+            }
+        };
+        if let Some(w) = self.windows.iter_mut().find(|w| w.surface == grab.surface) {
+            w.x = rect.x;
+            w.y = rect.y;
+        } else {
+            self.window_grab = None;
+            return;
+        }
+        if matches!(grab.kind, crate::window::GrabKind::Resize(_)) {
+            self.configure_toplevel(
+                ctx,
+                grab.toplevel,
+                grab.surface,
+                rect,
+                crate::window::Mode::Normal,
+                true,
+            );
+        }
+        self.needs_redraw = true;
+    }
+
+    pub(crate) fn finish_window_grab(&mut self, ctx: &Ctx) {
+        let Some(grab) = self.window_grab.take() else { return };
+        if matches!(grab.kind, crate::window::GrabKind::Resize(_)) {
+            if let Some(rect) = self.window_rect(grab.surface) {
+                self.configure_toplevel(
+                    ctx,
+                    grab.toplevel,
+                    grab.surface,
+                    rect,
+                    crate::window::Mode::Normal,
+                    false,
+                );
+            }
+        }
+        info!(
+            COMPOSITOR,
+            "window grab finished: {:?} {}",
+            grab.kind,
+            self.title_of(grab.surface)
+        );
+    }
+
     fn toplevel_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
         use xdg_shell::xdg_toplevel::request::*;
         let surface = self
@@ -1047,6 +1158,48 @@ impl Compositor {
         }
 
         let Some(surface) = surface else { return };
+
+        if opcode == MOVE {
+            let (Some(ReqArg::Object(Some(seat))), Some(ReqArg::Uint(serial))) =
+                (args.first(), args.get(1))
+            else {
+                return;
+            };
+            if self.seat.seats.contains(seat) {
+                self.begin_window_grab(
+                    ctx,
+                    res,
+                    surface,
+                    *serial,
+                    crate::window::GrabKind::Move,
+                );
+            }
+            return;
+        }
+        if opcode == RESIZE {
+            let (
+                Some(ReqArg::Object(Some(seat))),
+                Some(ReqArg::Uint(serial)),
+                Some(ReqArg::Uint(edges)),
+            ) = (args.first(), args.get(1), args.get(2))
+            else {
+                return;
+            };
+            let Some(edge) = crate::window::ResizeEdge::from_xdg(*edges) else {
+                return;
+            };
+            if self.seat.seats.contains(seat) {
+                self.begin_window_grab(
+                    ctx,
+                    res,
+                    surface,
+                    *serial,
+                    crate::window::GrabKind::Resize(edge),
+                );
+            }
+            return;
+        }
+
         let Some(current) = self.window_rect(surface) else { return };
         let fallback = current;
 
