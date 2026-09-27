@@ -5,6 +5,7 @@
 //! into these transitions and sends the resulting configure events.
 
 use crate::layer::Rect;
+use wana_wayland::server::Resource;
 
 pub const STATE_MAXIMIZED: u32 = 1;
 pub const STATE_FULLSCREEN: u32 = 2;
@@ -20,6 +21,34 @@ pub const EDGE_BOTTOM_LEFT: u32 = 6;
 pub const EDGE_RIGHT: u32 = 8;
 pub const EDGE_TOP_RIGHT: u32 = 9;
 pub const EDGE_BOTTOM_RIGHT: u32 = 10;
+
+pub fn valid_resize_edge(edge: u32) -> bool {
+    matches!(
+        edge,
+        EDGE_TOP
+            | EDGE_BOTTOM
+            | EDGE_LEFT
+            | EDGE_TOP_LEFT
+            | EDGE_BOTTOM_LEFT
+            | EDGE_RIGHT
+            | EDGE_TOP_RIGHT
+            | EDGE_BOTTOM_RIGHT
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GrabKind {
+    Move,
+    Resize(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grab {
+    pub surface: Resource,
+    pub pointer: (f64, f64),
+    pub rect: Rect,
+    pub kind: GrabKind,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -313,6 +342,25 @@ mod tests {
         w.resize_from(NORMAL, EDGE_TOP_LEFT, 400, 300, USABLE);
         assert_eq!((w.rect.w, w.rect.h), (300, 200));
         assert_eq!((w.rect.x, w.rect.y), (580, 380));
+    }
+
+    #[test]
+    fn resize_edges_accept_only_protocol_edges() {
+        for edge in [
+            EDGE_TOP,
+            EDGE_BOTTOM,
+            EDGE_LEFT,
+            EDGE_TOP_LEFT,
+            EDGE_BOTTOM_LEFT,
+            EDGE_RIGHT,
+            EDGE_TOP_RIGHT,
+            EDGE_BOTTOM_RIGHT,
+        ] {
+            assert!(valid_resize_edge(edge));
+        }
+        assert!(!valid_resize_edge(EDGE_NONE));
+        assert!(!valid_resize_edge(3));
+        assert!(!valid_resize_edge(11));
     }
 
     #[test]
