@@ -967,6 +967,40 @@ impl Compositor {
         })
     }
 
+    pub(crate) fn refresh_window_state(&mut self, ctx: &Ctx, surface: Resource) {
+        let Some(rect) = self.window_rect(surface) else { return };
+        let Some(toplevel) = self
+            .surfaces
+            .get(&surface)
+            .and_then(|s| match s.role {
+                Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
+                _ => None,
+            })
+        else {
+            return;
+        };
+        let mode = self
+            .toplevels
+            .get(&toplevel)
+            .map(|t| t.wm.mode)
+            .unwrap_or_default();
+        self.configure_toplevel(ctx, toplevel, surface, rect, mode, false);
+    }
+
+    pub(crate) fn request_window_close(&self, ctx: &Ctx, surface: Resource) {
+        let Some(toplevel) = self
+            .surfaces
+            .get(&surface)
+            .and_then(|s| match s.role {
+                Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
+                _ => None,
+            })
+        else {
+            return;
+        };
+        let _ = ctx.post(toplevel, xdg_shell::xdg_toplevel::event::CLOSE, &[]);
+    }
+
     pub(crate) fn configure_toplevel(
         &mut self,
         ctx: &Ctx,
@@ -1196,6 +1230,19 @@ impl Compositor {
                     *serial,
                     crate::window::GrabKind::Resize(edge),
                 );
+            }
+            return;
+        }
+
+        if opcode == SET_MINIMIZED {
+            if let Some(t) = self.toplevels.get_mut(&res) {
+                t.wm.minimize();
+            }
+            if let Some(index) = self.windows.iter().position(|w| w.surface == surface) {
+                self.windows.remove(index);
+                self.seat.focus_request = None;
+                self.needs_redraw = true;
+                info!(COMPOSITOR, "window minimized: {}", self.title_of(surface));
             }
             return;
         }
