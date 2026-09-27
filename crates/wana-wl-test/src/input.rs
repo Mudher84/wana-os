@@ -119,6 +119,10 @@ impl Devices {
         self.seat
     }
 
+    pub fn pointer(&self) -> Proxy {
+        self.pointer
+    }
+
     pub fn take_left_press_serial(&mut self) -> Option<u32> {
         self.last_left_press_serial.take()
     }
