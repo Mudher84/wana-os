@@ -63,12 +63,6 @@ impl State {
         self.mode = Mode::Minimized;
     }
 
-    pub fn unminimize(&mut self) {
-        if self.mode == Mode::Minimized {
-            self.mode = Mode::Normal;
-        }
-    }
-
     pub fn constrain(&self, mut w: i32, mut h: i32) -> (i32, i32) {
         w = w.max(self.min.0.max(1));
         h = h.max(self.min.1.max(1));
@@ -240,9 +234,11 @@ mod tests {
 
     #[test]
     fn constraints_follow_xdg_zero_means_unbounded_rule() {
-        let mut s = State::default();
-        s.min = (320, 200);
-        s.max = (900, 700);
+        let mut s = State {
+            min: (320, 200),
+            max: (900, 700),
+            ..Default::default()
+        };
         assert_eq!(s.constrain(100, 100), (320, 200));
         assert_eq!(s.constrain(1200, 900), (900, 700));
         s.max = (0, 0);
@@ -263,8 +259,10 @@ mod tests {
 
     #[test]
     fn resizing_respects_edges_and_constraints() {
-        let mut s = State::default();
-        s.min = (320, 200);
+        let s = State {
+            min: (320, 200),
+            ..Default::default()
+        };
         let r = resized(&s, NORMAL, ResizeEdge::TopLeft, 500.0, 500.0);
         assert_eq!(r.w, 320);
         assert_eq!(r.h, 200);
