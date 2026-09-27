@@ -144,6 +144,9 @@ jobs:
       - name: Launcher (disk boot, a click on the bar opens it with the keyboard held, Down + Enter start an app through the public socket, launcher by hash, screenshot pixel check)
         run: make launcher-boot-test
 
+      - name: Launcher shortcut (Super+Space through private Wana shell-control protocol)
+        run: make launcher-shortcut-boot-test
+
       - name: Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)
         run: make dock-boot-test
 
