@@ -34,6 +34,7 @@ pub struct Goal {
 /// The seat's pointer and keyboard, and what arrived through them.
 #[derive(Debug)]
 pub struct Devices {
+    seat: Proxy,
     pointer: Proxy,
     keyboard: Proxy,
     xkb: Option<Keyboard>,
@@ -53,6 +54,9 @@ pub struct Devices {
     cursor: Option<Proxy>,
     /// Serial of a pointer enter that still needs its set_cursor.
     cursor_due: Option<u32>,
+    /// Serial of the last pointer button event, used by xdg interactive
+    /// move/resize tests.
+    last_button_serial: Option<u32>,
 }
 
 impl Devices {
@@ -95,6 +99,7 @@ impl Devices {
             )?
             .expect("keyboard");
         Ok(Devices {
+            seat,
             pointer,
             keyboard,
             xkb: None,
@@ -108,6 +113,7 @@ impl Devices {
             typed: String::new(),
             cursor: None,
             cursor_due: None,
+            last_button_serial: None,
         })
     }
 
@@ -115,6 +121,14 @@ impl Devices {
     /// every pointer enter.
     pub fn use_cursor(&mut self, surface: Proxy) {
         self.cursor = Some(surface);
+    }
+
+    pub fn seat(&self) -> Proxy {
+        self.seat
+    }
+
+    pub fn last_button_serial(&self) -> Option<u32> {
+        self.last_button_serial
     }
 
     /// Answers a pending pointer enter with set_cursor.
@@ -292,7 +306,8 @@ impl Devices {
                     self.motions += 1;
                     self.at = (fixed(x), fixed(y));
                 }
-                (pev::BUTTON, [_, _, Val::Uint(button), Val::Uint(state)]) => {
+                (pev::BUTTON, [Val::Uint(serial), _, Val::Uint(button), Val::Uint(state)]) => {
+                    self.last_button_serial = Some(*serial);
                     let Some(on) = self.pointer_focus else {
                         return Err(format!("button {button} without pointer focus"));
                     };
