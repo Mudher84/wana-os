@@ -6,6 +6,7 @@
 //!   time at the end (left) in Arabic-Indic digits.
 //! - Launcher: a panel with a header and one row per app, the selected row
 //!   in the accent color.
+//! - Dock: a bottom shell surface listing mapped application toplevels.
 
 use wana_text::bidi::Base;
 use wana_text::layout::{layout, Align, FontSet, Style};
@@ -35,6 +36,14 @@ const LAUNCHER_TEXT: f32 = 20.0;
 const LAUNCHER_PADDING: f32 = 24.0;
 /// The launcher's title.
 pub const APPS_TITLE: &str = "التطبيقات";
+
+pub const DOCK_WIDTH: u32 = 560;
+pub const DOCK_HEIGHT: u32 = 64;
+pub const DOCK_BG: u32 = 0x121827;
+pub const DOCK_BORDER: u32 = 0x3A4560;
+const DOCK_PAD: u32 = 8;
+const DOCK_TEXT: f32 = 16.0;
+const DOCK_MAX: usize = 4;
 
 /// `a` to `b` at `i` of `n` (channels interpolated with rounding).
 pub fn mix(a: u32, b: u32, i: u32, n: u32) -> u32 {
@@ -157,6 +166,48 @@ pub fn launcher(fonts: &FontSet, names: &[&str], selected: usize) -> Result<Canv
     Ok(c)
 }
 
+/// Draws the bottom Dock. The first four mapped toplevels are shown from
+/// right to left. If more are open, the last slot becomes a compact +N count.
+pub fn dock(width: u32, fonts: &FontSet, names: &[String]) -> Result<Canvas, String> {
+    let width = width.max(160);
+    let mut c = Canvas::new(width, DOCK_HEIGHT, DOCK_BORDER);
+    fill(&mut c, 1, 1, width - 2, DOCK_HEIGHT - 2, DOCK_BG);
+    if names.is_empty() {
+        return Ok(c);
+    }
+
+    let mut labels: Vec<String> = names.iter().take(DOCK_MAX).cloned().collect();
+    if names.len() > DOCK_MAX {
+        labels.truncate(DOCK_MAX - 1);
+        labels.push(format!("+{}", names.len() - (DOCK_MAX - 1)));
+    }
+
+    let inner = width.saturating_sub(DOCK_PAD * 2);
+    let cell = inner / labels.len() as u32;
+    for (i, label) in labels.iter().enumerate() {
+        let x = DOCK_PAD + inner - cell * (i as u32 + 1);
+        fill(
+            &mut c,
+            x + 2,
+            6,
+            cell.saturating_sub(4),
+            DOCK_HEIGHT - 12,
+            LAUNCHER_BG,
+        );
+        let style = Style {
+            size: DOCK_TEXT,
+            base: Base::Rtl,
+            align: Align::Start,
+            width: Some(cell.saturating_sub(16) as f32),
+            language: "ar".into(),
+        };
+        let l = layout(label, fonts, &style)?;
+        let y = (DOCK_HEIGHT as f32 - l.height) / 2.0;
+        draw(&mut c, &l, fonts, DOCK_TEXT, (x + 8) as f32, y, BAR_TEXT);
+    }
+    Ok(c)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +263,16 @@ mod tests {
         // Deterministic: the same inputs give the same pixels.
         assert_eq!(c, bar(1280, &fonts(), "16:20").unwrap());
         assert_ne!(c, bar(1280, &fonts(), "16:21").unwrap());
+    }
+
+    #[test]
+    fn dock_lists_windows_from_the_right_and_is_deterministic() {
+        let names = vec!["المتصفح".to_string(), "Terminal".to_string()];
+        let c = dock(DOCK_WIDTH, &fonts(), &names).unwrap();
+        assert_eq!((c.width, c.height), (DOCK_WIDTH, DOCK_HEIGHT));
+        assert_eq!(c.pixels[0] & 0xFF_FFFF, DOCK_BORDER);
+        assert_eq!(c, dock(DOCK_WIDTH, &fonts(), &names).unwrap());
+        assert_ne!(c, dock(DOCK_WIDTH, &fonts(), &["ملفات".to_string()]).unwrap());
     }
 
     #[test]
