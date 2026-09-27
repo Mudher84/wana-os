@@ -78,6 +78,9 @@ pub struct Seat {
     /// Buttons held (evdev codes).
     pub buttons: Vec<u32>,
     pub pointer_focus: Option<Focus>,
+    /// Latest press serial and the surface that received it. xdg_toplevel
+    /// move/resize requests must present this exact serial.
+    pub grab_serial: Option<(u32, Resource)>,
     pub keyboard_focus: Option<Resource>,
     /// A window that should get keyboard focus (just mapped).
     pub focus_request: Option<Resource>,
@@ -99,6 +102,7 @@ impl Seat {
             active: false,
             buttons: Vec::new(),
             pointer_focus: None,
+            grab_serial: None,
             keyboard_focus: None,
             focus_request: None,
             keys: Vec::new(),
