@@ -278,6 +278,69 @@ impl Window {
         Ok(())
     }
 
+    /// Waits for a later xdg_toplevel.configure + xdg_surface.configure,
+    /// acknowledges the surface serial, and returns the requested size and
+    /// state array (native-endian u32 values).
+    pub fn wait_reconfigure(
+        &self,
+        conn: &Connection,
+        wm_base: Proxy,
+    ) -> Result<(i32, i32, Vec<u32>), String> {
+        let toplevel = self.toplevel;
+        let (width, height, states) = crate::wait_for(conn, wm_base, None, |ev| {
+            if ev.target != toplevel || ev.opcode != xdg_shell::xdg_toplevel::event::CONFIGURE {
+                return None;
+            }
+            let [Val::Int(w), Val::Int(h), Val::Array(bytes)] = &ev.args[..] else {
+                return None;
+            };
+            let states = bytes
+                .chunks_exact(4)
+                .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+                .collect();
+            Some((*w, *h, states))
+        })?;
+        let xdg = self.xdg;
+        let serial = crate::wait_for(conn, wm_base, None, |ev| {
+            (ev.target == xdg && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE)
+                .then(|| match ev.args.first() {
+                    Some(Val::Uint(s)) => Some(*s),
+                    _ => None,
+                })
+                .flatten()
+        })?;
+        conn.request(
+            xdg,
+            xdg_shell::xdg_surface::request::ACK_CONFIGURE,
+            None,
+            &[Req::Uint(serial)],
+        )?;
+        Ok((width, height, states))
+    }
+
+    /// Replaces the window buffer with a deterministic test pattern at a new
+    /// size. The previous buffer has already been released by present().
+    pub fn resize_pattern(
+        &mut self,
+        conn: &Connection,
+        shell: &Shell,
+        width: i32,
+        height: i32,
+        fill: u32,
+        border: u32,
+    ) -> Result<(), String> {
+        if width <= 0 || height <= 0 {
+            return Err(format!("invalid configure size {width}x{height}"));
+        }
+        let bytes = pattern(width, height, fill, border);
+        let (buffer, file) = Window::buffer(conn, shell, width, height, &bytes)?;
+        conn.destroy(self.buffer, wayland::wl_buffer::request::DESTROY);
+        self.buffer = buffer;
+        self.file = file;
+        self.width = width;
+        self.height = height;
+        Ok(())
+    }
     pub fn destroy(&self, conn: &Connection) {
         conn.destroy(self.toplevel, xdg_shell::xdg_toplevel::request::DESTROY);
         conn.destroy(self.xdg, xdg_shell::xdg_surface::request::DESTROY);
