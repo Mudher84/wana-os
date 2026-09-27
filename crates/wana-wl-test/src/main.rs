@@ -56,7 +56,7 @@ mod layers;
 mod text;
 mod window;
 
-use input::{Devices, Goal};
+use input::{Devices, Goal, BTN_LEFT};
 use std::process::ExitCode;
 use std::time::Duration;
 use wana_client::client::{self, Connection, Proxy, Req, Val};
@@ -92,6 +92,8 @@ enum Mode {
     LayerInvalidSize,
     /// Phase 12: xdg_toplevel maximize/fullscreen/minimize state machine.
     WmState,
+    /// Phase 12: real pointer-serial move + resize gestures.
+    WmDrag,
 }
 
 fn main() -> ExitCode {
@@ -110,6 +112,7 @@ fn main() -> ExitCode {
             "--layers" => mode = Mode::Layers,
             "--layer-invalid-size" => mode = Mode::LayerInvalidSize,
             "--wm-state" => mode = Mode::WmState,
+            "--wm-drag" => mode = Mode::WmDrag,
             "--try-bind-hidden" => match it.next() {
                 Some(iface) => mode = Mode::TryBindHidden(iface),
                 None => {
@@ -308,12 +311,17 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
 
     // Input objects exist before any window maps, so no focus event is lost.
     let mut devices = match mode {
-        Mode::Input(_) | Mode::ZOrder(_) => {
+        Mode::Input(_) | Mode::ZOrder(_) | Mode::WmDrag => {
             let seat = bind(g.seat, &wayland::WL_SEAT_INTERFACE, 7, "wl_seat")?;
             Some(Devices::new(&conn, seat)?)
         }
         _ => None,
     };
+
+    if *mode == Mode::WmDrag {
+        let d = devices.as_mut().expect("wm drag has seat devices");
+        return wm_drag_test(&conn, &shell, d);
+    }
 
     let mut windows = Vec::new();
     if let Mode::ZOrder(_) = mode {
@@ -428,6 +436,109 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
 }
 
 /// Fails if any descriptor other than 0, 1 and 2 was inherited.
+fn wait_left_button(
+    conn: &Connection,
+    wm_base: Proxy,
+    devices: &mut Devices,
+    pressed: bool,
+) -> Result<u32, String> {
+    let pointer = devices.pointer();
+    wait_for(conn, wm_base, Some(devices), |ev| {
+        if ev.target != pointer || ev.opcode != wayland::wl_pointer::event::BUTTON {
+            return None;
+        }
+        match &ev.args[..] {
+            [
+                Val::Uint(serial),
+                _,
+                Val::Uint(button),
+                Val::Uint(state),
+            ] if *button == BTN_LEFT && (*state == 1) == pressed => Some(*serial),
+            _ => None,
+        }
+    })
+}
+
+fn wm_drag_test(conn: &Connection, shell: &Shell, devices: &mut Devices) -> Result<(), String> {
+    const RESIZING: u32 = 3;
+    const EDGE_BOTTOM_RIGHT: u32 = 10;
+
+    let win = Window::new(
+        conn,
+        shell,
+        "wm",
+        "Wana movable window",
+        WIDTH,
+        HEIGHT,
+        ACCENT,
+        BORDER,
+    )?;
+    devices.add_window(win.surface, win.name);
+    win.configure(conn, shell.wm_base, Some(devices))?;
+    win.present(conn, shell.wm_base, Some(devices))?;
+
+    let serial = wait_left_button(conn, shell.wm_base, devices, true)?;
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::MOVE,
+        None,
+        &[Req::Object(Some(devices.seat())), Req::Uint(serial)],
+    )?;
+    info!(LOG, "client: wm move requested serial {serial}");
+    let _ = wait_left_button(conn, shell.wm_base, devices, false)?;
+    info!(LOG, "client: wm move gesture complete");
+
+    let serial = wait_left_button(conn, shell.wm_base, devices, true)?;
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::RESIZE,
+        None,
+        &[
+            Req::Object(Some(devices.seat())),
+            Req::Uint(serial),
+            Req::Uint(EDGE_BOTTOM_RIGHT),
+        ],
+    )?;
+    info!(LOG, "client: wm resize requested serial {serial}");
+
+    let started = win.wait_toplevel_configure(conn, shell.wm_base, Some(devices))?;
+    if !started.states.contains(&RESIZING) {
+        return Err(format!("resize did not enter resizing state: {started:?}"));
+    }
+    info!(
+        LOG,
+        "client: wm resize state active {}x{}",
+        started.width,
+        started.height
+    );
+
+    let changed = loop {
+        let cfg = win.wait_toplevel_configure(conn, shell.wm_base, Some(devices))?;
+        if cfg.states.contains(&RESIZING)
+            && cfg.width > 0
+            && cfg.height > 0
+            && (cfg.width != started.width || cfg.height != started.height)
+        {
+            break cfg;
+        }
+    };
+    info!(
+        LOG,
+        "client: wm resize changed to {}x{}",
+        changed.width,
+        changed.height
+    );
+
+    let _ = wait_left_button(conn, shell.wm_base, devices, false)?;
+    let ended = win.wait_toplevel_configure(conn, shell.wm_base, Some(devices))?;
+    if ended.states.contains(&RESIZING) {
+        return Err(format!("resize state remained active after release: {ended:?}"));
+    }
+    info!(LOG, "client: wm resize state ended");
+    info!(LOG, "client: window-management drag test PASS");
+    Ok(())
+}
+
 fn wm_state_test(conn: &Connection, shell: &Shell) -> Result<(), String> {
     const MAXIMIZED: u32 = 1;
     const FULLSCREEN: u32 = 2;
