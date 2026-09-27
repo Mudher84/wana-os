@@ -758,9 +758,42 @@ fn close_launcher(conn: &Connection, launcher: &mut Option<Launcher>) {
     }
 }
 
+/// Marks every non-stdio descriptor currently owned by the shell
+/// close-on-exec. This includes descriptors inherited from the compositor or
+/// CI/service manager as well as libwayland internals. Applications must start
+/// with only 0, 1 and 2 inherited; they open their public Wayland connection
+/// themselves after exec.
+fn seal_child_fds() -> Result<(), String> {
+    let entries = std::fs::read_dir("/proc/self/fd")
+        .map_err(|e| format!("cannot enumerate shell descriptors: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("cannot enumerate shell descriptor: {e}"))?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(fd) = name.parse::<i32>() else {
+            continue;
+        };
+        if fd <= 2 {
+            continue;
+        }
+        // The /proc iterator itself may close a descriptor between listing
+        // and this call; EBADF is harmless. Any other fcntl failure means we
+        // cannot guarantee descriptor isolation for the child.
+        if unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) } < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.raw_os_error() != Some(9) {
+                return Err(format!("cannot mark fd {fd} close-on-exec: {e}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Starts a program as an ordinary client: public socket, clean
-/// environment, no privileged descriptor (it is close-on-exec).
+/// environment, with every shell-owned descriptor close-on-exec.
 fn spawn(argv: &[String], what: &str) -> Result<Child, String> {
+    seal_child_fds()?;
     let prog = argv.first().ok_or(format!("{what}: empty command"))?;
     let display = std::env::var("WAYLAND_DISPLAY")
         .map_err(|_| "WAYLAND_DISPLAY not set: cannot start programs".to_string())?;
