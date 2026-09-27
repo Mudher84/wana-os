@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -53,6 +53,7 @@ help:
 	@echo "    make shell-boot-test     boot disk.img, wana-shell: desktop + Arabic top bar, autostarted app below it"
 	@echo "    make launcher-boot-test  boot disk.img, Super opens the launcher, Down + Enter start an app"
 	@echo "    make settings-boot-test  boot native Settings app, verify Arabic UI + state rendering"
+	@echo "    make network-boot-test   boot with virtio-net; Wana must discover the live interface"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -564,6 +565,21 @@ settings-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 15: a real virtio-net PCI function is presented to the guest.
+# The kernel driver, udev coldplug and wana-network must agree on the interface.
+NETWORK_ARGS := wana.run=/usr/bin/wana-network,status,--expect,eth0 wana.test=poweroff wana.shell=0
+network-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-network.img "$(NETWORK_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-network.img --gpu std --network virtio --timeout 180 --memory 768 \
+		--log out/logs/network-boot.log \
+		--expect '\[INIT\] info: udev: coldplug done in [0-9]+ ms: [0-9]+ devices initialized' \
+		--expect '\[INIT\] info: network interface eth0: state=(up|down|unknown), carrier=(up|down|unknown), wireless=false, mac=[0-9a-f:]{17}' \
+		--expect '\[INIT\] info: network expected interface eth0: PASS' \
+		--expect '\[INIT\] info: /usr/bin/wana-network exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT)\] error'
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
