@@ -90,6 +90,8 @@ enum Mode {
     /// As the shell: background + top bar layer surfaces, then a window.
     Layers,
     LayerInvalidSize,
+    /// Phase 12: xdg_toplevel maximize/fullscreen/minimize state machine.
+    WmState,
 }
 
 fn main() -> ExitCode {
@@ -107,6 +109,7 @@ fn main() -> ExitCode {
             "--no-inherited-fds" => check_fds = true,
             "--layers" => mode = Mode::Layers,
             "--layer-invalid-size" => mode = Mode::LayerInvalidSize,
+            "--wm-state" => mode = Mode::WmState,
             "--try-bind-hidden" => match it.next() {
                 Some(iface) => mode = Mode::TryBindHidden(iface),
                 None => {
@@ -241,6 +244,10 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
     };
     let wm_base = shell.wm_base;
     info!(LOG, "client: bound wl_compositor, wl_shm, xdg_wm_base");
+
+    if *mode == Mode::WmState {
+        return wm_state_test(&conn, &shell);
+    }
 
     if matches!(mode, Mode::Layers | Mode::LayerInvalidSize) {
         let name = seen
@@ -421,6 +428,131 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
 }
 
 /// Fails if any descriptor other than 0, 1 and 2 was inherited.
+fn wm_state_test(conn: &Connection, shell: &Shell) -> Result<(), String> {
+    const MAXIMIZED: u32 = 1;
+    const FULLSCREEN: u32 = 2;
+
+    let win = Window::new(
+        conn,
+        shell,
+        "wm",
+        "Wana window management",
+        WIDTH,
+        HEIGHT,
+        ACCENT,
+        BORDER,
+    )?;
+
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::SET_MAXIMIZED,
+        None,
+        &[],
+    )?;
+    conn.request(
+        win.surface,
+        wayland::wl_surface::request::COMMIT,
+        None,
+        &[],
+    )?;
+    let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
+    if (cfg.width, cfg.height) != (1280, 800) || !cfg.states.contains(&MAXIMIZED) {
+        return Err(format!("maximize configure mismatch: {cfg:?}"));
+    }
+    info!(
+        LOG,
+        "client: wm maximize configure {}x{} states {:?}",
+        cfg.width,
+        cfg.height,
+        cfg.states
+    );
+    win.present(conn, shell.wm_base, None)?;
+
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::UNSET_MAXIMIZED,
+        None,
+        &[],
+    )?;
+    let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
+    if cfg.width != 0 || cfg.height != 0 || cfg.states.contains(&MAXIMIZED) {
+        return Err(format!("restore configure mismatch: {cfg:?}"));
+    }
+    info!(LOG, "client: wm restored from maximize");
+
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::SET_FULLSCREEN,
+        None,
+        &[Req::Object(None)],
+    )?;
+    let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
+    if (cfg.width, cfg.height) != (1280, 800) || !cfg.states.contains(&FULLSCREEN) {
+        return Err(format!("fullscreen configure mismatch: {cfg:?}"));
+    }
+    info!(
+        LOG,
+        "client: wm fullscreen configure {}x{} states {:?}",
+        cfg.width,
+        cfg.height,
+        cfg.states
+    );
+
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::UNSET_FULLSCREEN,
+        None,
+        &[],
+    )?;
+    let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
+    if cfg.width != 0 || cfg.height != 0 || cfg.states.contains(&FULLSCREEN) {
+        return Err(format!("fullscreen restore configure mismatch: {cfg:?}"));
+    }
+    info!(LOG, "client: wm restored from fullscreen");
+
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::SET_MINIMIZED,
+        None,
+        &[],
+    )?;
+    let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
+    if cfg.width != 0 || cfg.height != 0 || cfg.states.contains(&MAXIMIZED) || cfg.states.contains(&FULLSCREEN) {
+        return Err(format!("minimize configure mismatch: {cfg:?}"));
+    }
+    info!(LOG, "client: wm minimized");
+
+    // Minimize is not a terminal state: another state request restores the
+    // mapped toplevel without destroying/recreating its Wayland objects.
+    conn.request(
+        win.toplevel,
+        xdg_shell::xdg_toplevel::request::SET_MAXIMIZED,
+        None,
+        &[],
+    )?;
+    let cfg = win.wait_toplevel_configure(conn, shell.wm_base, None)?;
+    if !cfg.states.contains(&MAXIMIZED) {
+        return Err(format!("restore from minimize mismatch: {cfg:?}"));
+    }
+    info!(LOG, "client: wm restored from minimize through maximize");
+
+    conn.request(
+        win.surface,
+        wayland::wl_surface::request::ATTACH,
+        None,
+        &[Req::Object(None), Req::Int(0), Req::Int(0)],
+    )?;
+    conn.request(
+        win.surface,
+        wayland::wl_surface::request::COMMIT,
+        None,
+        &[],
+    )?;
+    conn.roundtrip()?;
+    info!(LOG, "client: window-management state test PASS");
+    Ok(())
+}
+
 fn inherited_fds() -> Result<(), String> {
     let mut fds: Vec<i32> = std::fs::read_dir("/proc/self/fd")
         .map_err(|e| format!("/proc/self/fd: {e}"))?
