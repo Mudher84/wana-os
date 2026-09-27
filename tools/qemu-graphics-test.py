@@ -114,6 +114,7 @@ def main():
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--kernel")
     src.add_argument("--disk")
+    src.add_argument("--iso")
     ap.add_argument("--initrd")
     ap.add_argument("--append", default="")
     ap.add_argument("--gpu", choices=["virtio", "std"], default="virtio")
@@ -161,6 +162,8 @@ def main():
         ]
     if args.disk:
         cmd += ["-drive", f"file={args.disk},if=virtio,format=raw,snapshot=on"]
+    elif args.iso:
+        cmd += ["-drive", f"file={args.iso},media=cdrom,readonly=on"]
     else:
         cmd += ["-kernel", args.kernel, "-append", f"console=ttyS0 panic=-1 {args.append}"]
         if args.initrd:
