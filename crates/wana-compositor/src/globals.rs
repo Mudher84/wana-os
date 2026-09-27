@@ -137,6 +137,16 @@ pub struct Window {
     pub surface: Resource,
     pub x: i32,
     pub y: i32,
+    pub restore: Option<(i32, i32)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum WindowMode {
+    #[default]
+    Normal,
+    Maximized,
+    Fullscreen,
+    Minimized,
 }
 
 #[derive(Debug, Default)]
@@ -144,6 +154,7 @@ struct Toplevel {
     xdg: Option<Resource>,
     title: String,
     app_id: String,
+    mode: WindowMode,
 }
 
 #[derive(Debug, Default)]
@@ -675,7 +686,12 @@ impl Compositor {
                 let u = self.usable;
                 let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
-                self.windows.push(Window { surface, x, y });
+                self.windows.push(Window {
+                    surface,
+                    x,
+                    y,
+                    restore: None,
+                });
                 self.foreign_mapped(ctx, surface);
                 let title = self.title_of(surface);
                 info!(
@@ -695,6 +711,133 @@ impl Compositor {
             }
             _ => {}
         }
+    }
+
+    fn toplevel_of_surface(&self, surface: Resource) -> Option<Resource> {
+        let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
+            return None;
+        };
+        self.xdg.get(&xs)?.toplevel
+    }
+
+    fn xdg_of_toplevel(&self, toplevel: Resource) -> Option<Resource> {
+        self.toplevels.get(&toplevel)?.xdg
+    }
+
+    fn configure_toplevel(
+        &mut self,
+        ctx: &Ctx,
+        toplevel: Resource,
+        width: i32,
+        height: i32,
+        states: &[u32],
+    ) {
+        let Some(xs) = self.xdg_of_toplevel(toplevel) else {
+            return;
+        };
+        let mut bytes = Vec::with_capacity(states.len() * 4);
+        for state in states {
+            bytes.extend_from_slice(&state.to_ne_bytes());
+        }
+        let serial = ctx.next_serial();
+        let ok = ctx
+            .post(
+                toplevel,
+                xdg_shell::xdg_toplevel::event::CONFIGURE,
+                &[Arg::Int(width), Arg::Int(height), Arg::Array(&bytes)],
+            )
+            .and_then(|_| {
+                ctx.post(
+                    xs,
+                    xdg_shell::xdg_surface::event::CONFIGURE,
+                    &[Arg::Uint(serial)],
+                )
+            });
+        match ok {
+            Ok(()) => {
+                if let Some(x) = self.xdg.get_mut(&xs) {
+                    x.sent(serial);
+                }
+                debug!(
+                    COMPOSITOR,
+                    "xdg_toplevel@{} configure {}x{} states={states:?} serial={serial}",
+                    ctx.id(toplevel),
+                    width,
+                    height
+                );
+            }
+            Err(e) => warn!(COMPOSITOR, "toplevel configure: {e}"),
+        }
+    }
+
+    fn set_toplevel_mode(&mut self, ctx: &Ctx, toplevel: Resource, mode: WindowMode) {
+        let Some(surface) = self
+            .xdg_of_toplevel(toplevel)
+            .and_then(|xs| self.xdg.get(&xs))
+            .and_then(|x| x.surface)
+        else {
+            return;
+        };
+        let usable = self.usable;
+        let Some(i) = self.windows.iter().position(|w| w.surface == surface) else {
+            if let Some(t) = self.toplevels.get_mut(&toplevel) {
+                t.mode = mode;
+            }
+            return;
+        };
+
+        const MAXIMIZED: u32 = 1;
+        const FULLSCREEN: u32 = 2;
+        let (width, height, states) = match mode {
+            WindowMode::Normal => {
+                let win = &mut self.windows[i];
+                if let Some((x, y)) = win.restore.take() {
+                    win.x = x;
+                    win.y = y;
+                }
+                (0, 0, Vec::new())
+            }
+            WindowMode::Maximized => {
+                let win = &mut self.windows[i];
+                win.restore.get_or_insert((win.x, win.y));
+                win.x = usable.x;
+                win.y = usable.y;
+                (usable.w, usable.h, vec![MAXIMIZED])
+            }
+            WindowMode::Fullscreen => {
+                let win = &mut self.windows[i];
+                win.restore.get_or_insert((win.x, win.y));
+                win.x = 0;
+                win.y = 0;
+                (
+                    self.output.width,
+                    self.output.height,
+                    vec![FULLSCREEN],
+                )
+            }
+            WindowMode::Minimized => {
+                self.windows.remove(i);
+                self.seat.forget(surface);
+                if let Some(t) = self.toplevels.get_mut(&toplevel) {
+                    t.mode = mode;
+                }
+                self.needs_redraw = true;
+                info!(COMPOSITOR, "window minimized: {}", self.title_of(surface));
+                return;
+            }
+        };
+
+        if let Some(t) = self.toplevels.get_mut(&toplevel) {
+            t.mode = mode;
+        }
+        self.configure_toplevel(ctx, toplevel, width, height, &states);
+        self.needs_redraw = true;
+        info!(
+            COMPOSITOR,
+            "window mode {:?}: {}",
+            mode,
+            self.title_of(surface)
+        );
     }
 
     pub(crate) fn shell_toggle_launcher(&self, ctx: &Ctx) {
@@ -987,15 +1130,24 @@ impl Compositor {
                 t.app_id = s.clone();
                 true
             }
-            // Parent, menus, interactive move/resize, size limits,
-            // maximize/fullscreen/minimize: the compositor may ignore them;
-            // window management arrives in Phase 12.
             _ => false,
         };
         if changed {
             if let Some(surface) = surface {
                 self.foreign_changed(ctx, surface);
             }
+            return;
+        }
+
+        match opcode {
+            SET_MAXIMIZED => self.set_toplevel_mode(ctx, res, WindowMode::Maximized),
+            UNSET_MAXIMIZED => self.set_toplevel_mode(ctx, res, WindowMode::Normal),
+            SET_FULLSCREEN => self.set_toplevel_mode(ctx, res, WindowMode::Fullscreen),
+            UNSET_FULLSCREEN => self.set_toplevel_mode(ctx, res, WindowMode::Normal),
+            SET_MINIMIZED => self.set_toplevel_mode(ctx, res, WindowMode::Minimized),
+            // Parent, menus, interactive move/resize and size limits arrive
+            // in the next Window Management step.
+            _ => {}
         }
     }
 }
