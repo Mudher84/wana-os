@@ -540,7 +540,7 @@ impl Compositor {
                 return;
             }
         } else if let Role::Xdg(xs) = s.role {
-            let Some(xdg) = self.xdg.get_mut(&xs) else {
+            let Some(xdg) = self.xdg.get(&xs) else {
                 return;
             };
             match xdg_commit(xdg, attach) {
@@ -570,11 +570,7 @@ impl Compositor {
                             .post(
                                 tl,
                                 xdg_shell::xdg_toplevel::event::CONFIGURE,
-                                &[
-                                    Arg::Int(width),
-                                    Arg::Int(height),
-                                    Arg::Array(&state_bytes),
-                                ],
+                                &[Arg::Int(width), Arg::Int(height), Arg::Array(&state_bytes)],
                             )
                             .and_then(|_| {
                                 ctx.post(
@@ -585,7 +581,9 @@ impl Compositor {
                             });
                         match ok {
                             Ok(()) => {
-                                xdg.sent(serial);
+                                if let Some(xdg) = self.xdg.get_mut(&xs) {
+                                    xdg.sent(serial);
+                                }
                                 debug!(
                                     COMPOSITOR,
                                     "xdg_surface@{}: configure serial {serial}",
@@ -908,7 +906,11 @@ impl Compositor {
             if self.xdg_configured_for_surface(surface) {
                 self.send_window_configure(ctx, surface, 0, 0, &[]);
             }
-            info!(COMPOSITOR, "window left fullscreen: {}", self.title_of(surface));
+            info!(
+                COMPOSITOR,
+                "window left fullscreen: {}",
+                self.title_of(surface)
+            );
         }
         self.needs_redraw = true;
     }
@@ -971,13 +973,7 @@ impl Compositor {
         true
     }
 
-    fn shell_control_request(
-        &mut self,
-        ctx: &Ctx,
-        res: Resource,
-        opcode: u32,
-        args: &[ReqArg],
-    ) {
+    fn shell_control_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32, args: &[ReqArg]) {
         use shell_control::wana_shell_control_v1::request::*;
         if opcode != ACTIVATE_TOPLEVEL {
             return;
@@ -990,7 +986,10 @@ impl Compositor {
             .iter()
             .find_map(|(surface, id)| (id == identifier).then_some(*surface));
         let Some(surface) = surface else {
-            warn!(COMPOSITOR, "shell requested unknown toplevel identifier {identifier:?}");
+            warn!(
+                COMPOSITOR,
+                "shell requested unknown toplevel identifier {identifier:?}"
+            );
             return;
         };
         if self.window_minimized(surface) {
