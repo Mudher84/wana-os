@@ -350,6 +350,9 @@ impl Compositor {
             }
         }
         let (serial, time) = (ctx.next_serial(), now_ms());
+        if first && pressed {
+            self.seat.grab_serial = Some((serial, focus.surface));
+        }
         for p in self.pointers_of(ctx, focus.client) {
             let _ = ctx.post(
                 p,
@@ -370,6 +373,8 @@ impl Compositor {
             self.title_of(focus.surface)
         );
         if !pressed && self.seat.buttons.is_empty() {
+            self.finish_window_grab(ctx);
+            self.seat.grab_serial = None;
             // Grab over: the surface under the cursor may differ now.
             self.update_pointer_focus(ctx);
         }
