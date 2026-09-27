@@ -860,14 +860,92 @@ impl Compositor {
         }
     }
 
+    pub(crate) fn shell_toggle_launcher(&self, ctx: &Ctx) {
+        for control in &self.shell_controls {
+            let _ = ctx.post(
+                *control,
+                shell_control::wana_shell_control_v1::event::TOGGLE_LAUNCHER,
+                &[],
+            );
+        }
+    }
+
     fn shell_control_request(
         &mut self,
-        _ctx: &Ctx,
+        ctx: &Ctx,
         _res: Resource,
-        _opcode: u32,
-        _args: &[ReqArg],
+        opcode: u32,
+        args: &[ReqArg],
     ) {
-        // activate_toplevel is wired in the next Phase 13 step.
+        use shell_control::wana_shell_control_v1::request::*;
+        if opcode != ACTIVATE_TOPLEVEL {
+            return;
+        }
+        let Some(ReqArg::Str(Some(identifier))) = args.first() else {
+            return;
+        };
+        let Some(surface) = self
+            .foreign_identifiers
+            .iter()
+            .find_map(|(surface, id)| (id == identifier).then_some(*surface))
+        else {
+            warn!(COMPOSITOR, "shell activate: unknown toplevel identifier {identifier:?}");
+            return;
+        };
+
+        let Some(toplevel) = self
+            .surfaces
+            .get(&surface)
+            .and_then(|s| match s.role {
+                Role::Xdg(xs) => self.xdg.get(&xs).and_then(|x| x.toplevel),
+                _ => None,
+            })
+        else {
+            return;
+        };
+
+        if !self.windows.iter().any(|w| w.surface == surface) {
+            let Some((content_w, content_h)) = self.content.get(&surface).map(Content::size) else {
+                return;
+            };
+            let fallback = crate::layer::Rect {
+                x: self.usable.x + (self.usable.w - content_w) / 2,
+                y: self.usable.y + (self.usable.h - content_h) / 2,
+                w: content_w,
+                h: content_h,
+            };
+            let rect = {
+                let Some(t) = self.toplevels.get_mut(&toplevel) else {
+                    return;
+                };
+                if t.wm.mode != crate::window::Mode::Minimized {
+                    return;
+                }
+                t.wm.unminimize(fallback)
+            };
+            self.windows.push(Window {
+                surface,
+                x: rect.x,
+                y: rect.y,
+            });
+            self.configure_toplevel(
+                ctx,
+                toplevel,
+                surface,
+                rect,
+                crate::window::Mode::Normal,
+                false,
+            );
+            info!(COMPOSITOR, "window restored from Dock: {}", self.title_of(surface));
+        }
+
+        if let Some(i) = self.windows.iter().position(|w| w.surface == surface) {
+            let window = self.windows.remove(i);
+            self.windows.push(window);
+        }
+        self.seat.focus_request = Some(surface);
+        self.needs_redraw = true;
+        info!(COMPOSITOR, "Dock activate -> {}", self.title_of(surface));
     }
 
     fn foreign_list_request(&mut self, ctx: &Ctx, res: Resource, opcode: u32) {
@@ -1253,8 +1331,9 @@ impl Compositor {
         }
 
         if opcode == SET_MINIMIZED {
-            if let Some(t) = self.toplevels.get_mut(&res) {
-                t.wm.minimize();
+            let current = self.window_rect(surface);
+            if let (Some(t), Some(current)) = (self.toplevels.get_mut(&res), current) {
+                t.wm.minimize(current);
             }
             if let Some(index) = self.windows.iter().position(|w| w.surface == surface) {
                 self.windows.remove(index);
