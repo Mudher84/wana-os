@@ -13,6 +13,9 @@
 //! - `--truncate-pool`: shrinks the pool's file to 0 after creating the
 //!   buffer; expects wl_buffer error 2 (wl_shm invalid_fd) and a compositor
 //!   that keeps running.
+//! - `--window-management`: maps a normal window, waits for a later
+//!   maximized configure, applies the compositor-requested size and presents
+//!   a new buffer. Used with injected Super shortcuts in QEMU.
 //!
 //! Input (Phase 10 step 4; both bind wl_seat, wait for a pointer and a
 //! keyboard, compile the keymap the compositor sends, and report
@@ -81,6 +84,7 @@ enum Mode {
     Window,
     AttachBeforeConfigure,
     TruncatePool,
+    WindowManagement,
     Input(String),
     ZOrder(String),
     Text,
@@ -103,6 +107,7 @@ fn main() -> ExitCode {
         match a.as_str() {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
+            "--window-management" => mode = Mode::WindowManagement,
             "--text" => mode = Mode::Text,
             "--no-inherited-fds" => check_fds = true,
             "--layers" => mode = Mode::Layers,
@@ -335,7 +340,7 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         Mode::ZOrder(_) => "front",
         _ => "main",
     };
-    let win = if *mode == Mode::Text {
+    let mut win = if *mode == Mode::Text {
         let (canvas, (sx, sy)) = text::render(fonts_dir)?;
         info!(
             LOG,
@@ -382,6 +387,34 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         return expect_error(&conn, "wl_buffer", 2);
     }
     win.present(&conn, wm_base, devices.as_mut())?;
+
+    if *mode == Mode::WindowManagement {
+        info!(LOG, "client: ready for window management");
+        let (width, height, states) = win.wait_reconfigure(&conn, wm_base)?;
+        if width <= 0 || height <= 0 {
+            return Err(format!(
+                "window management: compositor sent invalid maximize size {width}x{height}"
+            ));
+        }
+        if !states.contains(&1) {
+            return Err(format!(
+                "window management: maximize configure missing state 1: {states:?}"
+            ));
+        }
+        info!(
+            LOG,
+            "client: maximize configure {width}x{height}, states {states:?}"
+        );
+        win.resize_pattern(&conn, &shell, width, height, ACCENT, BORDER)?;
+        win.present(&conn, wm_base, None)?;
+        info!(
+            LOG,
+            "client: maximized buffer applied: {}x{}",
+            win.width,
+            win.height
+        );
+    }
+
     windows.push(win);
 
     if let Some(dev) = devices.as_mut() {
