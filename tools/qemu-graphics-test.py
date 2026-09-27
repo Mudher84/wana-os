@@ -129,6 +129,8 @@ def main():
     ap.add_argument("--tolerance", type=int, default=8)
     ap.add_argument("--input", choices=["virtio", "ps2"], default="ps2",
                     help="input devices: q35 built-in PS/2 only, or also virtio keyboard + tablet")
+    ap.add_argument("--network", choices=["none", "virtio"], default="none",
+                    help="network device: none, or virtio-net on QEMU user networking")
     ap.add_argument("--send-on", help="regex; send the --send monitor commands when a log line matches")
     ap.add_argument("--send", action="append", default=[],
                     help="QEMU monitor command, or wait:REGEX to pause until a log line matches (repeatable)")
@@ -152,6 +154,11 @@ def main():
     cmd += ["-vga", "none", "-device", "virtio-gpu-pci"] if args.gpu == "virtio" else ["-vga", "std"]
     if args.input == "virtio":
         cmd += ["-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"]
+    if args.network == "virtio":
+        cmd += [
+            "-netdev", "user,id=wana-net0",
+            "-device", "virtio-net-pci,netdev=wana-net0",
+        ]
     if args.disk:
         cmd += ["-drive", f"file={args.disk},if=virtio,format=raw,snapshot=on"]
     else:
@@ -159,7 +166,7 @@ def main():
         if args.initrd:
             cmd += ["-initrd", args.initrd]
 
-    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} firmware={ovmf} timeout={args.timeout}s")
+    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} network={args.network} firmware={ovmf} timeout={args.timeout}s")
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
     os.set_blocking(proc.stdout.fileno(), False)
