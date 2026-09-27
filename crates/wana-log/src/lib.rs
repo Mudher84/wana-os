@@ -28,6 +28,7 @@ pub enum Subsystem {
     Input,
     Compositor,
     Shell,
+    App,
     Network,
     Installer,
     Security,
@@ -35,7 +36,7 @@ pub enum Subsystem {
 
 impl Subsystem {
     /// All subsystems, in boot-stack order.
-    pub const ALL: [Subsystem; 13] = [
+    pub const ALL: [Subsystem; 14] = [
         Subsystem::Boot,
         Subsystem::Kernel,
         Subsystem::Init,
@@ -46,6 +47,7 @@ impl Subsystem {
         Subsystem::Input,
         Subsystem::Compositor,
         Subsystem::Shell,
+        Subsystem::App,
         Subsystem::Network,
         Subsystem::Installer,
         Subsystem::Security,
@@ -64,6 +66,7 @@ impl Subsystem {
             Subsystem::Input => "INPUT",
             Subsystem::Compositor => "COMPOSITOR",
             Subsystem::Shell => "SHELL",
+            Subsystem::App => "APP",
             Subsystem::Network => "NETWORK",
             Subsystem::Installer => "INSTALLER",
             Subsystem::Security => "SECURITY",
@@ -252,6 +255,7 @@ mod tests {
                 "INPUT",
                 "COMPOSITOR",
                 "SHELL",
+                "APP",
                 "NETWORK",
                 "INSTALLER",
                 "SECURITY"
