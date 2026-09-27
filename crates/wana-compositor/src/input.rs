@@ -492,7 +492,8 @@ impl Compositor {
                     if visible.is_empty() {
                         false
                     } else {
-                        let next = match focused.and_then(|s| visible.iter().position(|v| *v == s)) {
+                        let next = match focused.and_then(|s| visible.iter().position(|v| *v == s))
+                        {
                             Some(pos) => visible[(pos + 1) % visible.len()],
                             None => visible[0],
                         };
