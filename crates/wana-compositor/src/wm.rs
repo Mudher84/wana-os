@@ -50,18 +50,13 @@ pub struct Grab {
     pub kind: GrabKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Mode {
+    #[default]
     Normal,
     Maximized,
     Fullscreen,
     Minimized,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
