@@ -929,13 +929,7 @@ impl Compositor {
         self.set_fullscreen(ctx, surface, !on);
     }
 
-    pub(crate) fn resize_window(
-        &mut self,
-        ctx: &Ctx,
-        surface: Resource,
-        dw: i32,
-        dh: i32,
-    ) -> bool {
+    pub(crate) fn resize_window(&mut self, ctx: &Ctx, surface: Resource, dw: i32, dh: i32) -> bool {
         let manageable = self
             .toplevel_for_surface(surface)
             .and_then(|t| self.toplevels.get(&t))
