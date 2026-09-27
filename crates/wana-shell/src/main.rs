@@ -579,7 +579,11 @@ fn run(args: &Args) -> Result<(), String> {
                     info!(SHELL, "launcher toggle shortcut: close");
                     action = Action::Close;
                 } else if apps.is_empty() {
-                    warn!(SHELL, "launcher shortcut: no apps ({})", args.apps.display());
+                    warn!(
+                        SHELL,
+                        "launcher shortcut: no apps ({})",
+                        args.apps.display()
+                    );
                 } else {
                     info!(SHELL, "launcher opened from Super+Space");
                     launcher = Some(open_launcher(
