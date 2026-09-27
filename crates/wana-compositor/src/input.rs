@@ -16,7 +16,7 @@ use std::io::{self, Write};
 use std::os::unix::io::{AsFd, FromRawFd, OwnedFd};
 use wana_input::keyboard::Keyboard;
 use wana_input::libinput::{Capability, Event, EventKind};
-use wana_log::{debug, info, Subsystem};
+use wana_log::{debug, info, warn, Subsystem};
 use wana_wayland::protocols::wayland::{wl_keyboard, wl_pointer, wl_seat};
 use wana_wayland::server::{fixed_from_f64, Arg, ClientId, Ctx, ReqArg, Resource};
 
@@ -438,7 +438,10 @@ impl Compositor {
             if self.shell_toggle_launcher(ctx) {
                 info!(COMPOSITOR, "shortcut Super -> shell launcher");
             } else {
-                warn!(COMPOSITOR, "shortcut Super ignored: no shell control client");
+                warn!(
+                    COMPOSITOR,
+                    "shortcut Super ignored: no shell control client"
+                );
             }
             return;
         }
