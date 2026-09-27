@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="wana_shell_control_v1">
+  <copyright>
+    Copyright 2026 Wana OS contributors.
+    SPDX-License-Identifier: MIT
+  </copyright>
+
+  <interface name="wana_shell_control_v1" version="1">
+    <description summary="private compositor-to-shell control channel">
+      This interface is advertised only to the compositor-launched privileged
+      Wana shell connection. Ordinary clients must never see or bind it.
+
+      Version 1 carries compositor-owned global shell actions. The compositor
+      decides which physical input gesture triggers an action; the shell only
+      receives the semantic request and owns the corresponding UI.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy this shell control object"/>
+    </request>
+
+    <event name="toggle_launcher">
+      <description summary="toggle the application launcher">
+        Emitted when the compositor recognizes Wana's launcher shortcut.
+        The shell opens the launcher when closed and closes it when open.
+      </description>
+    </event>
+  </interface>
+</protocol>
