@@ -680,7 +680,18 @@ impl Compositor {
             (true, None) => {
                 let (w, h) = s.content.unwrap_or((0, 0));
                 let u = self.usable;
-                let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
+                let state = self
+                    .toplevel_for_surface(surface)
+                    .and_then(|t| self.toplevels.get(&t))
+                    .map(|t| (t.maximized, t.fullscreen))
+                    .unwrap_or((false, false));
+                let (x, y) = if state.1 {
+                    (0, 0)
+                } else if state.0 {
+                    (u.x, u.y)
+                } else {
+                    place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h)
+                };
                 self.mapped_total += 1;
                 self.windows.push(Window {
                     surface,
@@ -906,14 +917,10 @@ impl Compositor {
         };
         w.x = (w.x + dx).clamp(u.x, u.x + (u.w - cw).max(0));
         w.y = (w.y + dy).clamp(u.y, u.y + (u.h - ch).max(0));
+        let (x, y) = (w.x, w.y);
         self.needs_redraw = true;
-        info!(
-            COMPOSITOR,
-            "window moved: {} to {},{}",
-            self.title_of(surface),
-            w.x,
-            w.y
-        );
+        let title = self.title_of(surface);
+        info!(COMPOSITOR, "window moved: {title} to {x},{y}");
         true
     }
 
@@ -1216,6 +1223,19 @@ impl Compositor {
             if let Some(surface) = surface {
                 self.foreign_changed(ctx, surface);
             }
+        }
+        let Some(surface) = surface else {
+            return;
+        };
+        match opcode {
+            SET_MAXIMIZED => self.set_maximized(ctx, surface, true),
+            UNSET_MAXIMIZED => self.set_maximized(ctx, surface, false),
+            SET_FULLSCREEN => self.set_fullscreen(ctx, surface, true),
+            UNSET_FULLSCREEN => self.set_fullscreen(ctx, surface, false),
+            SET_MINIMIZED => self.set_minimized(surface, true),
+            // Interactive move/resize need a validated pointer-button serial;
+            // compositor-owned Super+Arrow move is implemented in this phase.
+            _ => {}
         }
     }
 }
