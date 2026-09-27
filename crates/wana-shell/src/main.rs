@@ -312,8 +312,7 @@ fn run(args: &Args) -> Result<(), String> {
     let conn = Connection::connect()?;
     if let Some(fd) = private_fd {
         // SAFETY: fcntl on a descriptor we own; no memory involved.
-        // SAFETY: fd came from /proc/self/fd for this process. F_SETFD
-        // does not dereference memory and FD_CLOEXEC is a valid descriptor flag.
+        // SAFETY: fd is from /proc/self/fd; F_SETFD does not dereference memory.
         if unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) } < 0 {
             return Err(format!(
                 "private connection fd {fd}: {}",
