@@ -763,6 +763,12 @@ impl Compositor {
             .is_some_and(|t| t.fullscreen)
     }
 
+    pub(crate) fn window_maximized(&self, surface: Resource) -> bool {
+        self.toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| t.maximized)
+    }
+
     fn toplevel_for_surface(&self, surface: Resource) -> Option<Resource> {
         let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
             return None;
