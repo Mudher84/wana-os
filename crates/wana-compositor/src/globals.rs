@@ -141,6 +141,9 @@ pub struct Window {
     pub restore: Option<(i32, i32)>,
 }
 
+const XDG_TOPLEVEL_STATE_MAXIMIZED: u32 = 1;
+const XDG_TOPLEVEL_STATE_FULLSCREEN: u32 = 2;
+
 #[derive(Debug, Default)]
 struct Toplevel {
     xdg: Option<Resource>,
@@ -560,11 +563,18 @@ impl Compositor {
                 XdgCommit::SendInitialConfigure => {
                     if let Some(tl) = xdg.toplevel {
                         let serial = ctx.next_serial();
+                        let (width, height, states) = self.window_configure_spec(res);
+                        let state_bytes: Vec<u8> =
+                            states.iter().flat_map(|s| s.to_ne_bytes()).collect();
                         let ok = ctx
                             .post(
                                 tl,
                                 xdg_shell::xdg_toplevel::event::CONFIGURE,
-                                &[Arg::Int(0), Arg::Int(0), Arg::Array(&[])],
+                                &[
+                                    Arg::Int(width),
+                                    Arg::Int(height),
+                                    Arg::Array(&state_bytes),
+                                ],
                             )
                             .and_then(|_| {
                                 ctx.post(
@@ -733,6 +743,37 @@ impl Compositor {
         self.xdg.get(&xs)?.toplevel
     }
 
+    fn window_configure_spec(&self, surface: Resource) -> (i32, i32, Vec<u32>) {
+        let Some(toplevel) = self.toplevel_for_surface(surface) else {
+            return (0, 0, Vec::new());
+        };
+        let Some(t) = self.toplevels.get(&toplevel) else {
+            return (0, 0, Vec::new());
+        };
+        if t.fullscreen {
+            (
+                self.output.width,
+                self.output.height,
+                vec![XDG_TOPLEVEL_STATE_FULLSCREEN],
+            )
+        } else if t.maximized {
+            (
+                self.usable.w,
+                self.usable.h,
+                vec![XDG_TOPLEVEL_STATE_MAXIMIZED],
+            )
+        } else {
+            (0, 0, Vec::new())
+        }
+    }
+
+    fn xdg_configured_for_surface(&self, surface: Resource) -> bool {
+        let Some(Role::Xdg(xs)) = self.surfaces.get(&surface).map(|s| s.role) else {
+            return false;
+        };
+        self.xdg.get(&xs).is_some_and(|x| x.configured)
+    }
+
     fn send_window_configure(
         &mut self,
         ctx: &Ctx,
@@ -773,7 +814,6 @@ impl Compositor {
     }
 
     pub(crate) fn set_maximized(&mut self, ctx: &Ctx, surface: Resource, on: bool) {
-        const STATE_MAXIMIZED: u32 = 1;
         let Some(toplevel) = self.toplevel_for_surface(surface) else {
             return;
         };
@@ -793,13 +833,15 @@ impl Compositor {
                 w.x = self.usable.x;
                 w.y = self.usable.y;
             }
-            self.send_window_configure(
-                ctx,
-                surface,
-                self.usable.w,
-                self.usable.h,
-                &[STATE_MAXIMIZED],
-            );
+            if self.xdg_configured_for_surface(surface) {
+                self.send_window_configure(
+                    ctx,
+                    surface,
+                    self.usable.w,
+                    self.usable.h,
+                    &[XDG_TOPLEVEL_STATE_MAXIMIZED],
+                );
+            }
             info!(COMPOSITOR, "window maximized: {}", self.title_of(surface));
         } else {
             t.maximized = false;
@@ -809,7 +851,9 @@ impl Compositor {
                     w.y = y;
                 }
             }
-            self.send_window_configure(ctx, surface, 0, 0, &[]);
+            if self.xdg_configured_for_surface(surface) {
+                self.send_window_configure(ctx, surface, 0, 0, &[]);
+            }
             info!(COMPOSITOR, "window unmaximized: {}", self.title_of(surface));
         }
         self.needs_redraw = true;
@@ -824,7 +868,6 @@ impl Compositor {
     }
 
     pub(crate) fn set_fullscreen(&mut self, ctx: &Ctx, surface: Resource, on: bool) {
-        const STATE_FULLSCREEN: u32 = 2;
         let Some(toplevel) = self.toplevel_for_surface(surface) else {
             return;
         };
@@ -844,13 +887,15 @@ impl Compositor {
                 w.x = 0;
                 w.y = 0;
             }
-            self.send_window_configure(
-                ctx,
-                surface,
-                self.output.width,
-                self.output.height,
-                &[STATE_FULLSCREEN],
-            );
+            if self.xdg_configured_for_surface(surface) {
+                self.send_window_configure(
+                    ctx,
+                    surface,
+                    self.output.width,
+                    self.output.height,
+                    &[XDG_TOPLEVEL_STATE_FULLSCREEN],
+                );
+            }
             info!(COMPOSITOR, "window fullscreen: {}", self.title_of(surface));
         } else {
             t.fullscreen = false;
@@ -860,7 +905,9 @@ impl Compositor {
                     w.y = y;
                 }
             }
-            self.send_window_configure(ctx, surface, 0, 0, &[]);
+            if self.xdg_configured_for_surface(surface) {
+                self.send_window_configure(ctx, surface, 0, 0, &[]);
+            }
             info!(COMPOSITOR, "window left fullscreen: {}", self.title_of(surface));
         }
         self.needs_redraw = true;
