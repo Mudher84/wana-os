@@ -272,7 +272,10 @@ mod tests {
         assert_eq!((c.width, c.height), (DOCK_WIDTH, DOCK_HEIGHT));
         assert_eq!(c.pixels[0] & 0xFF_FFFF, DOCK_BORDER);
         assert_eq!(c, dock(DOCK_WIDTH, &fonts(), &names).unwrap());
-        assert_ne!(c, dock(DOCK_WIDTH, &fonts(), &["ملفات".to_string()]).unwrap());
+        assert_ne!(
+            c,
+            dock(DOCK_WIDTH, &fonts(), &["ملفات".to_string()]).unwrap()
+        );
     }
 
     #[test]
