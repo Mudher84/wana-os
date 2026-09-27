@@ -156,6 +156,9 @@ jobs:
       - name: Networking (virtio-net discovery through kernel + udev + wana-network)
         run: make network-boot-test
 
+      - name: Files (native Arabic file manager reads /etc and renders it)
+        run: make files-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
