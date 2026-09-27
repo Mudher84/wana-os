@@ -85,6 +85,7 @@ enum Mode {
     AttachBeforeConfigure,
     TruncatePool,
     WindowManagement,
+    InteractiveManagement,
     Input(String),
     ZOrder(String),
     Text,
@@ -108,6 +109,7 @@ fn main() -> ExitCode {
             "--attach-before-configure" => mode = Mode::AttachBeforeConfigure,
             "--truncate-pool" => mode = Mode::TruncatePool,
             "--window-management" => mode = Mode::WindowManagement,
+            "--interactive-management" => mode = Mode::InteractiveManagement,
             "--text" => mode = Mode::Text,
             "--no-inherited-fds" => check_fds = true,
             "--layers" => mode = Mode::Layers,
@@ -306,7 +308,7 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
 
     // Input objects exist before any window maps, so no focus event is lost.
     let mut devices = match mode {
-        Mode::Input(_) | Mode::ZOrder(_) => {
+        Mode::Input(_) | Mode::ZOrder(_) | Mode::InteractiveManagement => {
             let seat = bind(g.seat, &wayland::WL_SEAT_INTERFACE, 7, "wl_seat")?;
             Some(Devices::new(&conn, seat)?)
         }
@@ -387,6 +389,62 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
         return expect_error(&conn, "wl_buffer", 2);
     }
     win.present(&conn, wm_base, devices.as_mut())?;
+
+    if *mode == Mode::InteractiveManagement {
+        let d = devices.as_mut().expect("interactive management needs seat");
+        info!(LOG, "client: ready for interactive move");
+        let serial = d.wait_left_press(&conn, wm_base)?;
+        conn.request(
+            win.toplevel,
+            xdg_shell::xdg_toplevel::request::MOVE,
+            None,
+            &[Req::Object(Some(d.seat())), Req::Uint(serial)],
+        )?;
+        info!(LOG, "client: xdg move requested with serial {serial}");
+
+        // The compositor moves the window while the button remains held.
+        // The QEMU driver releases it, then presses again for resize.
+        loop {
+            conn.dispatch()?;
+            while let Some(ev) = conn.next_event() {
+                d.event(&ev)?;
+                if d.last_button_serial().is_some_and(|s| s != serial) {
+                    break;
+                }
+            }
+            if d.last_button_serial().is_some_and(|s| s != serial) {
+                break;
+            }
+        }
+
+        info!(LOG, "client: ready for interactive resize");
+        let serial = d.wait_left_press(&conn, wm_base)?;
+        conn.request(
+            win.toplevel,
+            xdg_shell::xdg_toplevel::request::RESIZE,
+            None,
+            &[
+                Req::Object(Some(d.seat())),
+                Req::Uint(serial),
+                Req::Uint(10),
+            ],
+        )?;
+        info!(LOG, "client: xdg resize requested with serial {serial}, edges 10");
+        let (width, height, states) = win.wait_reconfigure(&conn, wm_base)?;
+        if !states.is_empty() || width <= WIDTH || height <= HEIGHT {
+            return Err(format!(
+                "interactive resize expected a larger normal configure, got {width}x{height} {states:?}"
+            ));
+        }
+        win.resize_pattern(&conn, &shell, width, height, ACCENT, BORDER)?;
+        win.present(&conn, wm_base, None)?;
+        info!(
+            LOG,
+            "client: interactive resized buffer applied: {}x{}",
+            win.width,
+            win.height
+        );
+    }
 
     if *mode == Mode::WindowManagement {
         info!(LOG, "client: ready for window management");
