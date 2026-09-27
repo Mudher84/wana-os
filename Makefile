@@ -587,16 +587,20 @@ wayland-host-test: fonts
 		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
 	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-no-global wana_shell_control_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
 		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $dir/priv.log && \
-		grep -q 'client: global wana_shell_control_v1 v1 visible, as expected' $dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 v1 visible, as expected' $$dir/priv.log && \
 		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $dir/priv.log && \
-		grep -q 'client: global wana_shell_control_v1 not visible, as expected' $dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 not visible, as expected' $$dir/priv.log && \
 		echo "[COMPOSITOR] check: shell globals visible only to the private shell connection: PASS" && \
 	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
 		grep -q 'binds: .*zwlr_layer_shell_v1 0' $$dir/bind.log && \
-		echo "[COMPOSITOR] check: binding the hidden global by guessing its name -> invalid_object: PASS" && \
+		echo "[COMPOSITOR] check: binding hidden layer-shell by guessed name -> invalid_object: PASS" && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden wana_shell_control_v1 > $$dir/control-bind.log 2>&1 && \
+		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/control-bind.log && \
+		grep -q 'binds: .*wana_shell_control_v1 0' $$dir/control-bind.log && \
+		echo "[COMPOSITOR] check: binding hidden shell-control by guessed name -> invalid_object: PASS" && \
 	$(WAYLAND_HOST_LAYERS) --layers > $$dir/layers.log 2>&1 && \
 		grep -q 'usable area for windows: 0,40 1280x760' $$dir/layers.log && \
 		grep -q 'window mapped: "wana-wl-test" (org.wana.test) 480x320 at 400,260' $$dir/layers.log && \
