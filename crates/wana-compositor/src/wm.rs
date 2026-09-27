@@ -204,14 +204,7 @@ impl WindowState {
         self.restore = self.rect;
     }
 
-    pub fn resize_from(
-        &mut self,
-        start: Rect,
-        edge: u32,
-        dx: i32,
-        dy: i32,
-        bounds: Rect,
-    ) {
+    pub fn resize_from(&mut self, start: Rect, edge: u32, dx: i32, dy: i32, bounds: Rect) {
         if self.mode != Mode::Normal {
             return;
         }
