@@ -825,12 +825,30 @@ impl Compositor {
                 self.send_toplevel_configure(ctx, tl);
             }
         }
-        info!(
-            COMPOSITOR,
-            "interactive {:?} ended: {}",
-            grab.kind,
-            self.title_of(grab.surface)
-        );
+        let rect = self
+            .toplevel_of_surface(grab.surface)
+            .and_then(|tl| self.toplevels.get(&tl))
+            .and_then(|t| t.wm)
+            .map(|s| s.rect);
+        if let Some(r) = rect {
+            info!(
+                COMPOSITOR,
+                "interactive {:?} ended: {} at {},{} {}x{}",
+                grab.kind,
+                self.title_of(grab.surface),
+                r.x,
+                r.y,
+                r.w,
+                r.h
+            );
+        } else {
+            info!(
+                COMPOSITOR,
+                "interactive {:?} ended: {}",
+                grab.kind,
+                self.title_of(grab.surface)
+            );
+        }
     }
 
     fn start_toplevel_grab(
