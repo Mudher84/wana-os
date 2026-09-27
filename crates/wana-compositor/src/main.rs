@@ -406,7 +406,10 @@ fn run(args: &Args) -> Result<(), String> {
         }
 
         if args.wait_for_shell && child_completed && shell_completed {
-            info!(COMPOSITOR, "test client and shell both completed successfully");
+            info!(
+                COMPOSITOR,
+                "test client and shell both completed successfully"
+            );
             break Ok(());
         }
         if deadline.is_some_and(|d| Instant::now() >= d) {
