@@ -15,6 +15,7 @@ pub struct App {
     pub compositor: Proxy,
     pub shm: Proxy,
     pub wm_base: Proxy,
+    pub seat: Option<Proxy>,
 }
 
 impl App {
@@ -63,12 +64,47 @@ impl App {
             .ok_or_else(|| format!("bind {name} returned no object"))
         };
 
+        let compositor = bind("wl_compositor", &wayland::WL_COMPOSITOR_INTERFACE, 4)?;
+        let shm = bind("wl_shm", &wayland::WL_SHM_INTERFACE, 1)?;
+        let wm_base = bind("xdg_wm_base", &xdg_shell::XDG_WM_BASE_INTERFACE, 1)?;
+        let seat = if globals.iter().any(|g| g.1 == "wl_seat") {
+            Some(bind("wl_seat", &wayland::WL_SEAT_INTERFACE, 7)?)
+        } else {
+            None
+        };
+
         Ok(Self {
-            compositor: bind("wl_compositor", &wayland::WL_COMPOSITOR_INTERFACE, 4)?,
-            shm: bind("wl_shm", &wayland::WL_SHM_INTERFACE, 1)?,
-            wm_base: bind("xdg_wm_base", &xdg_shell::XDG_WM_BASE_INTERFACE, 1)?,
             conn,
+            compositor,
+            shm,
+            wm_base,
+            seat,
         })
+    }
+
+    pub fn keyboard(&self) -> Result<Option<Proxy>, String> {
+        let Some(seat) = self.seat else {
+            return Ok(None);
+        };
+        self.conn.request(
+            seat,
+            wayland::wl_seat::request::GET_KEYBOARD,
+            Some((&wayland::WL_KEYBOARD_INTERFACE, 7)),
+            &[Req::NewId],
+        )
+    }
+
+    /// Returns (evdev_code, pressed) for wl_keyboard key events.
+    pub fn key_event(&self, keyboard: Proxy, ev: &Event) -> Option<(u32, bool)> {
+        if ev.target != keyboard || ev.opcode != wayland::wl_keyboard::event::KEY {
+            return None;
+        }
+        match &ev.args[..] {
+            [Val::Uint(_serial), Val::Uint(_time), Val::Uint(key), Val::Uint(state)] => {
+                Some((*key, *state == 1))
+            }
+            _ => None,
+        }
     }
 
     /// Handles xdg_wm_base ping and returns true if the event was consumed.
