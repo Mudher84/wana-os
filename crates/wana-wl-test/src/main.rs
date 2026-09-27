@@ -404,14 +404,14 @@ fn run(mode: &Mode, hold: u64, fonts_dir: &std::path::Path) -> Result<(), String
                     return Err(format!("{label}: state {s} missing from {:?}", got.2));
                 }
             } else if got.2.contains(&1) || got.2.contains(&2) {
-                return Err(format!("{label}: maximize/fullscreen state remained: {:?}", got.2));
+                return Err(format!(
+                    "{label}: maximize/fullscreen state remained: {:?}",
+                    got.2
+                ));
             }
             info!(
                 LOG,
-                "client: window-management {label}: {}x{} states {:?}",
-                got.0,
-                got.1,
-                got.2
+                "client: window-management {label}: {}x{} states {:?}", got.0, got.1, got.2
             );
             Ok(())
         };
