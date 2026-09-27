@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -56,6 +56,7 @@ help:
 	@echo "    make network-boot-test   boot with virtio-net; Wana must discover the live interface"
 	@echo "    make files-boot-test     boot native Files app and render a real directory listing"
 	@echo "    make services-boot-test  boot PID1 service supervisor and validate service graph"
+	@echo "    make live-iso-boot-test  boot Wana-OS-Live.iso through OVMF + GRUB + initramfs"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -614,6 +615,23 @@ services-boot-test:
 		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+# Phase 18: boot the generated UEFI Live ISO. Live mode runs entirely
+# from the initramfs, with no installed root partition. The QEMU monitor exits
+# after PID1 reaches ready so the production Live image stays interactive.
+live-iso-boot-test:
+	mkdir -p out/logs
+	test -s $(BR_OUT)/images/Wana-OS-Live.iso
+	tools/qemu-graphics-test.py --iso $(BR_OUT)/images/Wana-OS-Live.iso --gpu std --timeout 240 --memory 1024 \
+		--log out/logs/live-iso-boot.log \
+		--send-on '\[INIT\] info: ready' --send 'quit' \
+		--expect '\[BOOT\] info: loading Wana OS Live kernel' \
+		--expect 'wana.live=1' \
+		--expect 'Run /sbin/init as init process|Run /init as init process' \
+		--expect '\[INIT\] info: boot mode: Live ISO' \
+		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: ready' \
 		--reject '\[INIT\] error'
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
