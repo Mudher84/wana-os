@@ -238,6 +238,47 @@ impl Window {
         Ok(())
     }
 
+    /// Sends one xdg_toplevel state request and waits for the matching
+    /// toplevel.configure + xdg_surface.configure pair, then acknowledges it.
+    pub fn request_state(
+        &self,
+        conn: &Connection,
+        wm_base: Proxy,
+        opcode: u32,
+        args: &[Req<'_>],
+        devices: Option<&mut Devices>,
+    ) -> Result<(i32, i32, Vec<u32>), String> {
+        conn.request(self.toplevel, opcode, None, args)?;
+        let mut top: Option<(i32, i32, Vec<u32>)> = None;
+        let (serial, cfg) = wait_for(conn, wm_base, devices, |ev| {
+            if ev.target == self.toplevel
+                && ev.opcode == xdg_shell::xdg_toplevel::event::CONFIGURE
+            {
+                if let [Val::Int(w), Val::Int(h), Val::Array(bytes)] = &ev.args[..] {
+                    let states = bytes
+                        .chunks_exact(4)
+                        .map(|b| u32::from_ne_bytes(b.try_into().expect("state word")))
+                        .collect();
+                    top = Some((*w, *h, states));
+                }
+                return None;
+            }
+            if ev.target == self.xdg && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE {
+                if let (Some(Val::Uint(serial)), Some(cfg)) = (ev.args.first(), top.take()) {
+                    return Some((*serial, cfg));
+                }
+            }
+            None
+        })?;
+        conn.request(
+            self.xdg,
+            xdg_shell::xdg_surface::request::ACK_CONFIGURE,
+            None,
+            &[Req::Uint(serial)],
+        )?;
+        Ok(cfg)
+    }
+
     /// Commits the buffer with a frame callback and waits until the
     /// compositor reports the frame presented.
     pub fn present(
