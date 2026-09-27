@@ -65,6 +65,7 @@ struct Args {
     shell: Option<Vec<String>>,
     /// Stop when the shell exits, with its result (boot tests).
     exit_with_shell: bool,
+    wait_for_shell: bool,
 }
 
 /// `1280x800@60` -> (1280, 800, 60000 mHz).
@@ -86,6 +87,7 @@ fn parse_args() -> Result<Args, String> {
         run: None,
         shell: None,
         exit_with_shell: false,
+        wait_for_shell: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -96,6 +98,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--client-debug" => a.client_debug = true,
             "--exit-with-shell" => a.exit_with_shell = true,
+            "--wait-for-shell" => a.wait_for_shell = true,
             "--shell" => a.shell = Some(vec![it.next().ok_or("--shell needs a program")?]),
             "--shell-arg" => {
                 let v = it.next().ok_or("--shell-arg needs a value")?;
@@ -246,6 +249,8 @@ fn run(args: &Args) -> Result<(), String> {
         None => None,
     };
     let mut shell_restarts = 0u32;
+    let mut shell_completed = args.shell.is_none();
+    let mut child_completed = args.run.is_none();
     let mut child = match &args.run {
         Some(argv) => Some(spawn_client(argv, &name, &dir, args.client_debug)?),
         None => None,
@@ -322,8 +327,10 @@ fn run(args: &Args) -> Result<(), String> {
             if let Ok(Some(status)) = s.try_wait() {
                 if status.success() {
                     info!(COMPOSITOR, "shell exited successfully");
+                    shell_completed = true;
                 } else {
                     warn!(COMPOSITOR, "shell exited: {status}");
+                    shell_completed = false;
                 }
                 shell = None;
 
@@ -382,16 +389,25 @@ fn run(args: &Args) -> Result<(), String> {
                         .map_err(|e| format!("event loop: {e}"))?;
                     log_events(&mut display, &mut clients);
                     let prog = &args.run.as_ref().expect("child implies --run")[0];
-                    break if status.success() {
+                    if status.success() {
                         info!(COMPOSITOR, "test client {prog} exited successfully");
-                        Ok(())
+                        child_completed = true;
+                        child = None;
+                        if !args.wait_for_shell {
+                            break Ok(());
+                        }
                     } else {
-                        Err(format!("test client {prog} failed: {status}"))
-                    };
+                        break Err(format!("test client {prog} failed: {status}"));
+                    }
                 }
                 Ok(None) => {}
                 Err(e) => break Err(format!("waitpid: {e}")),
             }
+        }
+
+        if args.wait_for_shell && child_completed && shell_completed {
+            info!(COMPOSITOR, "test client and shell both completed successfully");
+            break Ok(());
         }
         if deadline.is_some_and(|d| Instant::now() >= d) {
             if let Some(c) = child.as_mut() {
@@ -399,6 +415,12 @@ fn run(args: &Args) -> Result<(), String> {
                 let _ = c.wait();
                 break Err(format!(
                     "timeout after {}s; test client killed",
+                    args.timeout.unwrap_or(0)
+                ));
+            }
+            if args.wait_for_shell && !shell_completed {
+                break Err(format!(
+                    "timeout after {}s waiting for shell completion",
                     args.timeout.unwrap_or(0)
                 ));
             }
