@@ -162,6 +162,9 @@ jobs:
       - name: System services (PID1 supervisor + dependency graph validation)
         run: make services-boot-test
 
+      - name: Live ISO (OVMF -> GRUB -> kernel + initramfs, explicit Live mode)
+        run: make live-iso-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
@@ -176,6 +179,7 @@ jobs:
             out/build/wana_x86_64/images/bzImage
             out/build/wana_x86_64/images/rootfs.cpio.zst
             out/build/wana_x86_64/images/disk.img
+            out/build/wana_x86_64/images/Wana-OS-Live.iso
             out/build/wana_x86_64/images/build-manifest.json
             out/build/wana_x86_64/images/SHA256SUMS
             out/test/*.png
