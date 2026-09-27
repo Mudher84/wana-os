@@ -10,3 +10,20 @@ generates their tables like the others.
 
 The file is unchanged from the source. Its license (HPND-style, permissive)
 is in its `<copyright>` block.
+
+
+## Wana shell-control
+
+`wana-shell-control-v1.xml` is a Wana-owned private protocol introduced by
+[decision 0004](../../../docs/decisions/0004-shell-control.md).
+
+It is intentionally not an upstream Wayland protocol:
+
+- it is advertised only to the compositor-launched private `wana-shell` client;
+- public applications must never see or bind it;
+- v1 carries semantic shell actions, not raw input;
+- changes require a decision update, protocol tests and a version bump when
+  compatibility would otherwise be broken.
+
+The compositor remains the authority for global shortcuts. The shell remains
+the authority for shell UI.
