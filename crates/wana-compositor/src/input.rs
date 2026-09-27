@@ -473,6 +473,12 @@ impl Compositor {
     /// enter (+ modifiers) to the new one's.
     fn set_keyboard_focus(&mut self, ctx: &Ctx, surface: Option<Resource>) {
         let old = std::mem::replace(&mut self.seat.keyboard_focus, surface);
+        if let Some(old) = old {
+            self.set_window_activated(ctx, old, false);
+        }
+        if let Some(new) = surface {
+            self.set_window_activated(ctx, new, true);
+        }
         if old == surface {
             return;
         }
