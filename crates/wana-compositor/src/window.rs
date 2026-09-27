@@ -4,6 +4,7 @@
 //! unit-tested independently from the protocol plumbing.
 
 use crate::layer::Rect;
+use wana_wayland::server::Resource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -82,6 +83,21 @@ impl State {
 }
 
 /// xdg_toplevel.configure states encoded as a Wayland uint array.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrabKind {
+    Move,
+    Resize(ResizeEdge),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grab {
+    pub surface: Resource,
+    pub toplevel: Resource,
+    pub kind: GrabKind,
+    pub start: (f64, f64),
+    pub initial: Rect,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResizeEdge {
     Top,
