@@ -99,6 +99,15 @@ impl Toplevels {
     pub fn len(&self) -> usize {
         self.entries.iter().filter(|e| e.ready).count()
     }
+
+    pub fn identifier(&self, visible_index: usize) -> Option<&str> {
+        self.entries
+            .iter()
+            .filter(|e| e.ready)
+            .nth(visible_index)
+            .map(|e| e.identifier.as_str())
+            .filter(|id| !id.is_empty())
+    }
 }
 
 fn shorten(s: &str, max: usize) -> String {
