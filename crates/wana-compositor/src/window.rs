@@ -82,6 +82,100 @@ impl State {
 }
 
 /// xdg_toplevel.configure states encoded as a Wayland uint array.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResizeEdge {
+    Top,
+    Bottom,
+    Left,
+    TopLeft,
+    BottomLeft,
+    Right,
+    TopRight,
+    BottomRight,
+}
+
+impl ResizeEdge {
+    pub fn from_xdg(v: u32) -> Option<Self> {
+        match v {
+            1 => Some(Self::Top),
+            2 => Some(Self::Bottom),
+            4 => Some(Self::Left),
+            5 => Some(Self::TopLeft),
+            6 => Some(Self::BottomLeft),
+            8 => Some(Self::Right),
+            9 => Some(Self::TopRight),
+            10 => Some(Self::BottomRight),
+            _ => None,
+        }
+    }
+
+    fn left(self) -> bool {
+        matches!(self, Self::Left | Self::TopLeft | Self::BottomLeft)
+    }
+
+    fn right(self) -> bool {
+        matches!(self, Self::Right | Self::TopRight | Self::BottomRight)
+    }
+
+    fn top(self) -> bool {
+        matches!(self, Self::Top | Self::TopLeft | Self::TopRight)
+    }
+
+    fn bottom(self) -> bool {
+        matches!(self, Self::Bottom | Self::BottomLeft | Self::BottomRight)
+    }
+}
+
+pub fn moved(initial: Rect, dx: f64, dy: f64) -> Rect {
+    Rect {
+        x: initial.x.saturating_add(dx.round() as i32),
+        y: initial.y.saturating_add(dy.round() as i32),
+        ..initial
+    }
+}
+
+pub fn resized(
+    state: &State,
+    initial: Rect,
+    edge: ResizeEdge,
+    dx: f64,
+    dy: f64,
+) -> Rect {
+    let dx = dx.round() as i32;
+    let dy = dy.round() as i32;
+    let mut x = initial.x;
+    let mut y = initial.y;
+    let mut w = initial.w;
+    let mut h = initial.h;
+
+    if edge.left() {
+        x = x.saturating_add(dx);
+        w = w.saturating_sub(dx);
+    }
+    if edge.right() {
+        w = w.saturating_add(dx);
+    }
+    if edge.top() {
+        y = y.saturating_add(dy);
+        h = h.saturating_sub(dy);
+    }
+    if edge.bottom() {
+        h = h.saturating_add(dy);
+    }
+
+    let old_right = initial.x.saturating_add(initial.w);
+    let old_bottom = initial.y.saturating_add(initial.h);
+    let (cw, ch) = state.constrain(w, h);
+    if edge.left() {
+        x = old_right.saturating_sub(cw);
+    }
+    if edge.top() {
+        y = old_bottom.saturating_sub(ch);
+    }
+    Rect { x, y, w: cw, h: ch }
+}
+
+/// xdg_toplevel.configure states encoded as a Wayland uint array.
 pub fn xdg_states(mode: Mode, activated: bool, resizing: bool) -> Vec<u8> {
     let mut states = Vec::new();
     if mode == Mode::Maximized {
@@ -128,6 +222,27 @@ mod tests {
         assert_eq!(s.constrain(1200, 900), (900, 700));
         s.max = (0, 0);
         assert_eq!(s.constrain(1200, 900), (1200, 900));
+    }
+
+    #[test]
+    fn moving_keeps_size_and_changes_origin() {
+        assert_eq!(
+            moved(NORMAL, 20.4, -10.6),
+            Rect { x: 120, y: 69, ..NORMAL }
+        );
+    }
+
+    #[test]
+    fn resizing_respects_edges_and_constraints() {
+        let mut s = State::default();
+        s.min = (320, 200);
+        let r = resized(&s, NORMAL, ResizeEdge::TopLeft, 500.0, 500.0);
+        assert_eq!(r.w, 320);
+        assert_eq!(r.h, 200);
+        assert_eq!(r.x + r.w, NORMAL.x + NORMAL.w);
+        assert_eq!(r.y + r.h, NORMAL.y + NORMAL.h);
+        assert_eq!(ResizeEdge::from_xdg(10), Some(ResizeEdge::BottomRight));
+        assert_eq!(ResizeEdge::from_xdg(3), None);
     }
 
     #[test]
