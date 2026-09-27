@@ -646,6 +646,24 @@ fn run(args: &Args) -> Result<(), String> {
                         }
                     }
                 }
+                Some(Input::Click(s, x, _)) if s == dock.surface => {
+                    if let Some(index) = draw::dock_index_at(x, dock_width, toplevels.len()) {
+                        if let Some(identifier) = toplevels.identifier(index) {
+                            conn.request(
+                                shell_control,
+                                control_proto::wana_shell_control_v1::request::ACTIVATE_TOPLEVEL,
+                                None,
+                                &[Req::Str(identifier)],
+                            )?;
+                            info!(
+                                SHELL,
+                                "dock activate: index {} identifier {}",
+                                index + 1,
+                                identifier
+                            );
+                        }
+                    }
+                }
                 Some(Input::Click(s, _, y))
                     if launcher.as_ref().is_some_and(|l| l.ls.surface == s) =>
                 {
