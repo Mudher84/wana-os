@@ -213,6 +213,8 @@ pub struct Compositor {
     /// Key presses consumed by compositor-owned Super shortcuts; their
     /// releases are consumed too so clients never see orphan key-up events.
     pub(crate) consumed_shortcut_keys: Vec<u32>,
+    pub(crate) last_pointer_press: Option<(Resource, u32)>,
+    pub(crate) interactive_grab: Option<InteractiveGrab>,
     regions: HashMap<Resource, ()>,
     positioners: HashMap<Resource, ()>,
     pub windows: Vec<Window>,
@@ -270,6 +272,8 @@ impl Compositor {
             next_foreign_identifier: 1,
             shell_controls: Vec::new(),
             consumed_shortcut_keys: Vec::new(),
+            last_pointer_press: None,
+            interactive_grab: None,
             regions: HashMap::new(),
             positioners: HashMap::new(),
             windows: Vec::new(),
@@ -1056,10 +1060,10 @@ impl Compositor {
         else {
             return;
         };
-        let same_client = ctx.client(toplevel).is_some()
-            && ctx.client(toplevel) == ctx.client(seat);
-        let valid_press = self.last_pointer_press == Some((surface, serial))
-            && !self.seat.buttons.is_empty();
+        let same_client =
+            ctx.client(toplevel).is_some() && ctx.client(toplevel) == ctx.client(seat);
+        let valid_press =
+            self.last_pointer_press == Some((surface, serial)) && !self.seat.buttons.is_empty();
         let normal = self
             .toplevels
             .get(&toplevel)
