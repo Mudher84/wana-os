@@ -753,6 +753,62 @@ impl Compositor {
         }
     }
 
+    pub(crate) fn update_window_grab(&mut self, ctx: &Ctx) {
+        let Some(grab) = self.wm_grab else {
+            return;
+        };
+        let Some(tl) = self.toplevel_of_surface(grab.surface) else {
+            self.wm_grab = None;
+            return;
+        };
+        let dx = (self.seat.pos.0 - grab.pointer.0).round() as i32;
+        let dy = (self.seat.pos.1 - grab.pointer.1).round() as i32;
+        let usable = self.usable;
+        let changed = {
+            let Some(state) = self.toplevels.get_mut(&tl).and_then(|t| t.wm.as_mut()) else {
+                self.wm_grab = None;
+                return;
+            };
+            let before = state.rect;
+            match grab.kind {
+                crate::wm::GrabKind::Move => {
+                    state.move_to(grab.rect.x + dx, grab.rect.y + dy, usable);
+                }
+                crate::wm::GrabKind::Resize(edge) => {
+                    state.resize_from(grab.rect, edge, dx, dy, usable);
+                }
+            }
+            state.rect != before
+        };
+        if changed {
+            self.sync_window_position_from_wm(grab.surface);
+            if matches!(grab.kind, crate::wm::GrabKind::Resize(_)) {
+                self.send_toplevel_configure(ctx, tl);
+            }
+            self.needs_redraw = true;
+        }
+    }
+
+    pub(crate) fn finish_window_grab(&mut self, ctx: &Ctx) {
+        let Some(grab) = self.wm_grab.take() else {
+            return;
+        };
+        if let Some(tl) = self.toplevel_of_surface(grab.surface) {
+            if matches!(grab.kind, crate::wm::GrabKind::Resize(_)) {
+                if let Some(state) = self.toplevels.get_mut(&tl).and_then(|t| t.wm.as_mut()) {
+                    state.end_resize();
+                }
+                self.send_toplevel_configure(ctx, tl);
+            }
+        }
+        info!(
+            COMPOSITOR,
+            "interactive {:?} ended: {}",
+            grab.kind,
+            self.title_of(grab.surface)
+        );
+    }
+
     fn start_toplevel_grab(
         &mut self,
         ctx: &Ctx,
