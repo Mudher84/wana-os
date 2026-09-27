@@ -22,7 +22,7 @@
 //! is sent right away, so client memory is never read after the commit and
 //! a client can reuse its buffer immediately.
 
-use crate::input::Keymap;
+use crate::input::{Keymap, ShellShortcut};
 use crate::seat::{Seat, ARROW_SIZE};
 use crate::shm::{BufferLayout, Pool, ShmError};
 use crate::surface::{place, xdg_commit, Ack, Attach, Role, Surface, XdgCommit, XdgSurface};
@@ -195,6 +195,7 @@ pub struct Compositor {
     /// The compositor's keyboard state (xkb), if a keymap was compiled.
     pub(crate) xkb: Option<Keyboard>,
     pub(crate) keymap: Option<Keymap>,
+    pub(crate) shell_shortcut: ShellShortcut,
     /// The default cursor (with a GPU).
     pub(crate) arrow: Option<Texture>,
 }
@@ -248,6 +249,7 @@ impl Compositor {
             seat,
             xkb: None,
             keymap: None,
+            shell_shortcut: ShellShortcut::default(),
             arrow,
         }
     }
