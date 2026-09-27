@@ -553,11 +553,11 @@ wayland-host-test: fonts
 	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
 		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
 		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
-	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-global xdg_wm_base > $dir/priv.log 2>&1 && \
-		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $dir/priv.log && \
-		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $dir/priv.log && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
+		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $$dir/priv.log && \
 		echo "[COMPOSITOR] check: shell globals visible only to the private shell connection: PASS" && \
 	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
