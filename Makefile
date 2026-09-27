@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test wm-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -52,6 +52,7 @@ help:
 	@echo "    make layer-boot-test     boot disk.img, the shell maps a background and a top bar; a window goes below the bar"
 	@echo "    make shell-boot-test     boot disk.img, wana-shell: desktop + Arabic top bar, autostarted app below it"
 	@echo "    make launcher-boot-test  boot disk.img, a click on the bar opens the launcher, Down + Enter start an app"
+	@echo "    make wm-boot-test        boot disk.img, real pointer serial drives xdg_toplevel move + resize"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -499,6 +500,43 @@ launcher-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 12: a real pointer-button serial authenticates xdg_toplevel.move
+# and resize. QEMU holds the button while moving the pointer; the client
+# verifies the resizing configure state and the compositor logs final geometry.
+WM_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,180,--run,/usr/bin/wana-wl-test,--wm-drag wana.test=poweroff wana.shell=0
+wm-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-wm.img "$(WM_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-wm.img --gpu virtio --input virtio --timeout 300 --memory 1024 \
+		--log out/logs/wm-boot.log \
+		--send 'mouse_move 1 1' \
+		--send 'wait:client: pointer entered window "wm"' \
+		--send 'mouse_button 1' \
+		--send 'wait:client: wm move requested serial' \
+		--send 'mouse_move 120 80' \
+		--send 'mouse_button 0' \
+		--send 'wait:client: wm move gesture complete' \
+		--send 'mouse_button 1' \
+		--send 'wait:client: wm resize requested serial' \
+		--send 'wait:client: wm resize state active' \
+		--send 'mouse_move 100 80' \
+		--send 'wait:client: wm resize changed to' \
+		--send 'mouse_button 0' \
+		--expect '\[COMPOSITOR\] info: client: wm move requested serial [0-9]+' \
+		--expect '\[COMPOSITOR\] info: interactive Move started: "Wana movable window" \(org.wana.test\) serial=[0-9]+' \
+		--expect '\[COMPOSITOR\] info: interactive Move ended: "Wana movable window" \(org.wana.test\) at [0-9]+,[0-9]+ 480x320' \
+		--expect '\[COMPOSITOR\] info: client: wm resize requested serial [0-9]+' \
+		--expect '\[COMPOSITOR\] info: interactive Resize\(10\) started: "Wana movable window" \(org.wana.test\) serial=[0-9]+' \
+		--expect '\[COMPOSITOR\] info: client: wm resize state active [0-9]+x[0-9]+' \
+		--expect '\[COMPOSITOR\] info: client: wm resize changed to [0-9]+x[0-9]+' \
+		--expect '\[COMPOSITOR\] info: interactive Resize\(10\) ended: "Wana movable window" \(org.wana.test\) at [0-9]+,[0-9]+ [0-9]+x[0-9]+' \
+		--expect '\[COMPOSITOR\] info: client: wm resize state ended' \
+		--expect '\[COMPOSITOR\] info: client: window-management drag test PASS' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
 
 # Shell step 3c: the Dock is a bottom layer surface fed by the private
 # ext-foreign-toplevel-list-v1. An ordinary app maps on the public socket;
