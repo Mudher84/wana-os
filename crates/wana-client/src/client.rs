@@ -78,6 +78,8 @@ pub enum Val {
     Array(Vec<u8>),
     /// An object argument (NULL or an object this client knows).
     Object(Option<Proxy>),
+    /// A server-created object carried by an event `new_id` argument.
+    NewId(Proxy),
     Other,
 }
 
@@ -125,6 +127,16 @@ unsafe extern "C" fn dispatcher(
                 's' if a.s.is_null() => Val::Other,
                 's' => Val::Str(CStr::from_ptr(a.s).to_string_lossy().into_owned()),
                 'o' => Val::Object(NonNull::new(a.o.cast()).map(Proxy)),
+                'n' => {
+                    let p = NonNull::new(a.o.cast()).expect("server new_id event returned NULL");
+                    wl_proxy_add_dispatcher(
+                        p.as_ptr(),
+                        dispatcher,
+                        implementation,
+                        ptr::null_mut(),
+                    );
+                    Val::NewId(Proxy(p))
+                }
                 'a' if a.a.is_null() => Val::Array(Vec::new()),
                 'a' => Val::Array(
                     std::slice::from_raw_parts((*a.a).data as *const u8, (*a.a).size).to_vec(),

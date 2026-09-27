@@ -19,7 +19,10 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 /// Extension protocols, relative to the wayland-protocols directory.
-const EXTENSIONS: &[&str] = &["stable/xdg-shell/xdg-shell.xml"];
+const EXTENSIONS: &[&str] = &[
+    "stable/xdg-shell/xdg-shell.xml",
+    "staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml",
+];
 /// Protocols kept in this crate, relative to its `protocols/` directory.
 const PINNED: &[&str] = &["wlr-layer-shell-unstable-v1.xml"];
 
