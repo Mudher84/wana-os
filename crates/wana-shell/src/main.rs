@@ -8,6 +8,8 @@
 //!   zone), RTL, with "وانا" at the start and the time at the end
 //!   (Arabic-Indic digits, UTC until time zones are configurable), redrawn
 //!   every minute;
+//! - the Dock: a bottom layer surface fed by ext-foreign-toplevel-list-v1,
+//!   showing the currently mapped application windows;
 //! - the launcher: a click on the bar's start ("وانا") opens an overlay
 //!   panel listing the apps of a pinned file (`apps.rs`). It holds the
 //!   keyboard exclusively while open: Up/Down/Home/End select, Enter (or a
@@ -31,9 +33,11 @@
 mod apps;
 mod draw;
 mod launcher;
+mod toplevels;
 
 use apps::App;
 use launcher::{Action, Menu};
+use toplevels::Toplevels;
 use std::fs::File;
 use std::os::unix::io::FromRawFd;
 use std::path::PathBuf;
@@ -47,7 +51,10 @@ use wana_text::font::Font;
 use wana_text::layout::FontSet;
 use wana_text::raster::Canvas;
 use wana_text::{fonts, sha256};
-use wana_wayland::protocols::{wayland, wlr_layer_shell_unstable_v1 as proto};
+use wana_wayland::protocols::{
+    ext_foreign_toplevel_list_v1 as foreign, wayland,
+    wlr_layer_shell_unstable_v1 as proto,
+};
 
 const SHELL: Subsystem = Subsystem::Shell;
 const F_SETFD: i32 = 2;
@@ -356,6 +363,13 @@ fn run(args: &Args) -> Result<(), String> {
     )
     .map_err(|e| format!("{e}: not started as the shell by wana-compositor?"))?;
     let seat = bind("wl_seat", &wayland::WL_SEAT_INTERFACE, 7)?;
+    let foreign_list = bind(
+        "ext_foreign_toplevel_list_v1",
+        &foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE,
+        1,
+    )
+    .map_err(|e| format!("{e}: foreign toplevel list is restricted to wana-shell"))?;
+    let mut toplevels = Toplevels::new(foreign_list);
 
     fonts::verify_dir(&args.fonts)?;
     let set = FontSet {
@@ -432,6 +446,38 @@ fn run(args: &Args) -> Result<(), String> {
         bar.height,
         draw::arabic_digits(&shown_time)
     );
+
+    let dock = LayerSurface::new(
+        &conn,
+        compositor,
+        layer_shell,
+        Spec {
+            namespace: "wana-dock",
+            layer: layer::TOP,
+            anchor: layer::ANCHOR_BOTTOM,
+            width: draw::DOCK_WIDTH,
+            height: draw::DOCK_HEIGHT,
+            zone: 0,
+            keyboard: layer::KEYBOARD_NONE,
+        },
+        &mut events,
+    )?;
+    let mut dock_width = dock.width;
+    let (dock_hash, _) = show(
+        &conn,
+        shm,
+        dock.surface,
+        &draw::dock(dock_width, &set, &toplevels.labels())?,
+        false,
+    )?;
+    info!(
+        SHELL,
+        "dock mapped: {}x{}, windows {}, sha256 {dock_hash}",
+        dock.width,
+        dock.height,
+        toplevels.len()
+    );
+
     conn.roundtrip()?;
     info!(SHELL, "ready");
 
@@ -484,8 +530,39 @@ fn run(args: &Args) -> Result<(), String> {
                 )?;
                 continue;
             }
-            if layer::closed(&ev, desk.layer_surface) || layer::closed(&ev, bar.layer_surface) {
+            if let Some((serial, w, _)) = layer::configure_of(&ev, dock.layer_surface) {
+                layer::ack(&conn, dock.layer_surface, serial)?;
+                dock_width = w;
+                show(
+                    &conn,
+                    shm,
+                    dock.surface,
+                    &draw::dock(dock_width, &set, &toplevels.labels())?,
+                    false,
+                )?;
+                continue;
+            }
+            if layer::closed(&ev, desk.layer_surface)
+                || layer::closed(&ev, bar.layer_surface)
+                || layer::closed(&ev, dock.layer_surface)
+            {
                 return Err("the compositor closed a shell surface".into());
+            }
+            if toplevels.event(&conn, &ev)? {
+                let labels = toplevels.labels();
+                let (hash, _) = show(
+                    &conn,
+                    shm,
+                    dock.surface,
+                    &draw::dock(dock_width, &set, &labels)?,
+                    false,
+                )?;
+                info!(
+                    SHELL,
+                    "dock updated: {} window(s), sha256 {hash}",
+                    toplevels.len()
+                );
+                continue;
             }
             let mut action = Action::None;
             if let Some(l) = launcher.as_mut() {
