@@ -237,7 +237,7 @@ input-boot-test:
 # describes the virtio-gpu display found through wana-drm as wl_output, and
 # serves one real client, wayland-info, which must list every global with
 # its contents (shm formats, output mode, seat name).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--wait-for-shell,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
@@ -266,6 +266,7 @@ compositor-boot-test:
 		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
 		--expect '\[COMPOSITOR\] info: client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' \
 		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[COMPOSITOR\] info: test client and shell both completed successfully' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
