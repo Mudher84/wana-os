@@ -440,8 +440,7 @@ impl Compositor {
         if self.window_minimized(surface) || self.window_fullscreen(surface) {
             return None;
         }
-        let toplevel = self.toplevel_for_surface(surface)?;
-        if self.toplevels.get(&toplevel).is_some_and(|t| t.maximized) {
+        if self.window_maximized(surface) {
             return None;
         }
         let w = self.windows.iter().find(|w| w.surface == surface)?;
