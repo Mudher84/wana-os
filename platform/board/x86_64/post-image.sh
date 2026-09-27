@@ -36,3 +36,7 @@ ${GENIMAGE:-$HOST_DIR/bin/genimage} \
     --inputpath "$out" --outputpath "$out" \
     --config "$out/genimage.cfg"
 echo "[BOOT] info: disk image $out/disk.img (root PARTUUID $WANA_ROOT_PARTUUID)"
+
+BOARD_DIR="$board" BINARIES_DIR="$out" HOST_DIR="$HOST_DIR" \
+    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-}" \
+    "$board/../../../tools/build-live-iso.sh"
