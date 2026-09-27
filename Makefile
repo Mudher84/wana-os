@@ -237,13 +237,13 @@ input-boot-test:
 # describes the virtio-gpu display found through wana-drm as wl_output, and
 # serves one real client, wayland-info, which must list every global with
 # its contents (shm formats, output mode, seat name).
-COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
+COMPOSITOR_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,60,--shell,/usr/bin/wana-wl-test,--shell-arg,--expect-global,--shell-arg,zwlr_layer_shell_v1,--shell-arg,--expect-global,--shell-arg,ext_foreign_toplevel_list_v1,--run,/usr/bin/wayland-info wana.test=poweroff wana.shell=0
 compositor-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-compositor.img "$(COMPOSITOR_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-compositor.img --gpu virtio --timeout 180 \
 		--log out/logs/compositor-boot.log \
-		--expect '\[COMPOSITOR\] info: protocol tables: [0-9]+ core \+ 5 xdg-shell interfaces' \
+		--expect '\[COMPOSITOR\] info: protocol tables: [0-9]+ core \+ 5 xdg-shell \+ 2 layer-shell \+ 2 foreign-toplevel interfaces \(generated from XML\)' \
 		--expect '\[COMPOSITOR\] info: globals: wl_compositor v4, wl_shm v1, wl_output v4, wl_seat v7, xdg_wm_base v1' \
 		--expect '\[COMPOSITOR\] info: wl_output Virtual-1: [0-9]+x[0-9]+@[0-9.]+ Hz' \
 		--expect '\[COMPOSITOR\] info: listening on /run/user/0/wayland-0 ' \
@@ -259,16 +259,18 @@ compositor-boot-test:
 		--expect 'name: seat0' \
 		--expect "interface: 'xdg_wm_base', +version: +1," \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wayland-info exited successfully' \
-		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0' \
-		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4' \
+		--expect '\[COMPOSITOR\] info: binds: wl_compositor 0, wl_shm 1, wl_output 1, wl_seat 1, xdg_wm_base 0, zwlr_layer_shell_v1 0, ext_foreign_toplevel_list_v1 0' \
+		--expect '\[COMPOSITOR\] info: privileged globals \(shell only\): zwlr_layer_shell_v1 v4, ext_foreign_toplevel_list_v1 v1' \
 		--expect '\[COMPOSITOR\] info: shell: started /usr/bin/wana-wl-test .* on a private connection' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
 		--expect '\[COMPOSITOR\] info: client: global zwlr_layer_shell_v1 v4 visible, as expected' \
+		--expect '\[COMPOSITOR\] info: client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' \
 		--expect '\[COMPOSITOR\] info: shell exited successfully' \
 		--expect '\[COMPOSITOR\] info: shut down; socket removed' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject "interface: 'zwlr_layer_shell_v1'" \
+		--reject "interface: 'ext_foreign_toplevel_list_v1'" \
 		--reject '\[(INIT|COMPOSITOR|DRM)\] (warn|error)'
 
 # Phase 10 step 3: a client window on screen. wana-compositor draws with
