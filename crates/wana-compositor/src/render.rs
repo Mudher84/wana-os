@@ -92,14 +92,35 @@ impl Screen {
     pub fn draw(
         &mut self,
         background: u32,
-        windows: &[(&Texture, i32, i32)],
+        surfaces: &[(&Texture, i32, i32)],
+        decoration: Option<(i32, i32, i32, i32)>,
+        cursor: Option<(&Texture, i32, i32)>,
     ) -> Result<bool, String> {
         if self.pending.is_some() {
             return Err("draw while a page flip is pending".into());
         }
         self.composer.begin(background);
-        for (tex, x, y) in windows {
+        for (tex, x, y) in surfaces {
             self.composer.draw(tex, *x, *y)?;
+        }
+        if let Some((x, y, width, height)) = decoration {
+            const TITLE_H: i32 = 24;
+            const BORDER: i32 = 2;
+            const TITLE_RGB: u32 = 0x263044;
+            const ACCENT_RGB: u32 = 0x4F8CFF;
+            self.composer
+                .draw_solid(x - BORDER, y - TITLE_H - BORDER, width + BORDER * 2, TITLE_H, TITLE_RGB)?;
+            self.composer
+                .draw_solid(x - BORDER, y - TITLE_H - BORDER, width + BORDER * 2, BORDER, ACCENT_RGB)?;
+            self.composer
+                .draw_solid(x - BORDER, y - BORDER, BORDER, height + BORDER * 2, ACCENT_RGB)?;
+            self.composer
+                .draw_solid(x + width, y - BORDER, BORDER, height + BORDER * 2, ACCENT_RGB)?;
+            self.composer
+                .draw_solid(x - BORDER, y + height, width + BORDER * 2, BORDER, ACCENT_RGB)?;
+        }
+        if let Some((tex, x, y)) = cursor {
+            self.composer.draw(tex, x, y)?;
         }
         self.egl.swap()?;
         let bo = self.gsurf.lock_front()?;
