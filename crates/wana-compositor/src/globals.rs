@@ -753,6 +753,30 @@ impl Compositor {
         }
     }
 
+    pub(crate) fn set_window_activated(
+        &mut self,
+        ctx: &Ctx,
+        surface: Resource,
+        activated: bool,
+    ) {
+        let Some(tl) = self.toplevel_of_surface(surface) else {
+            return;
+        };
+        let changed = if let Some(state) = self.toplevels.get_mut(&tl).and_then(|t| t.wm.as_mut()) {
+            if state.activated == activated {
+                false
+            } else {
+                state.activated = activated;
+                true
+            }
+        } else {
+            false
+        };
+        if changed {
+            self.send_toplevel_configure(ctx, tl);
+        }
+    }
+
     pub(crate) fn update_window_grab(&mut self, ctx: &Ctx) {
         let Some(grab) = self.wm_grab else {
             return;
