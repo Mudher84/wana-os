@@ -1366,7 +1366,15 @@ impl Compositor {
         }
         if state_changed {
             self.apply_pending_mode(res);
-            self.send_toplevel_configure(ctx, res);
+            let already_configured = self
+                .toplevels
+                .get(&res)
+                .and_then(|t| t.xdg)
+                .and_then(|xs| self.xdg.get(&xs))
+                .is_some_and(|xdg| xdg.configured);
+            if already_configured {
+                self.send_toplevel_configure(ctx, res);
+            }
             self.needs_redraw = true;
         }
         if let (Some(surface), Some(kind)) = (surface, grab_kind) {
