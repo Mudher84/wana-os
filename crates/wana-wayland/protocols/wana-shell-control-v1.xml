@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="wana_shell_control_v1">
+  <copyright>
+    Copyright 2026 Wana OS contributors.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+  </copyright>
+
+  <interface name="wana_shell_control_v1" version="1">
+    <description summary="private desktop-shell control channel">
+      This global is advertised only to the compositor-spawned Wana shell.
+      It carries compositor-owned shortcuts to the shell and shell-owned
+      window activation requests back to the compositor.
+    </description>
+
+    <request name="activate_toplevel">
+      <description summary="activate one known toplevel">
+        Raise, unminimize if necessary, and give keyboard focus to the
+        toplevel whose ext-foreign-toplevel-list identifier matches.
+      </description>
+      <arg name="identifier" type="string"/>
+    </request>
+
+    <request name="destroy" type="destructor"/>
+
+    <event name="toggle_launcher">
+      <description summary="toggle the application launcher">
+        Emitted for the compositor launcher shortcut.
+      </description>
+    </event>
+  </interface>
+</protocol>
