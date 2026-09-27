@@ -50,6 +50,8 @@ use wana_wayland::server::{interface_name, ClientEvent, Display};
 
 const COMPOSITOR: Subsystem = Subsystem::Compositor;
 const TICK: Duration = Duration::from_millis(100);
+const SHELL_RESTART_LIMIT: u32 = 3;
+const SHELL_RESTART_DELAY: Duration = Duration::from_secs(1);
 /// Headless stand-in for the refresh period (frame callbacks without a screen).
 const HEADLESS_FRAME: Duration = Duration::from_millis(16);
 
@@ -243,6 +245,7 @@ fn run(args: &Args) -> Result<(), String> {
         Some(argv) => Some(shell::start(&mut display, argv, &dir, &name)?),
         None => None,
     };
+    let mut shell_restarts = 0u32;
     let mut child = match &args.run {
         Some(argv) => Some(spawn_client(argv, &name, &dir, args.client_debug)?),
         None => None,
@@ -317,24 +320,56 @@ fn run(args: &Args) -> Result<(), String> {
 
         if let Some(s) = shell.as_mut() {
             if let Ok(Some(status)) = s.try_wait() {
-                // Restarting the shell comes with the shell itself (step 3).
                 if status.success() {
                     info!(COMPOSITOR, "shell exited successfully");
                 } else {
                     warn!(COMPOSITOR, "shell exited: {status}");
                 }
                 shell = None;
+
+                // Always process the disconnect before deciding what to do
+                // next. This destroys the old shell's privileged globals and
+                // layer surfaces, but leaves ordinary application windows up.
+                display
+                    .dispatch(TICK)
+                    .map_err(|e| format!("event loop: {e}"))?;
+                log_events(&mut display, &mut clients);
+
                 if args.exit_with_shell {
-                    // Let its disconnect be processed and logged.
-                    display
-                        .dispatch(TICK)
-                        .map_err(|e| format!("event loop: {e}"))?;
-                    log_events(&mut display, &mut clients);
                     break if status.success() {
                         Ok(())
                     } else {
                         Err(format!("shell failed: {status}"))
                     };
+                }
+
+                // A normal shell exit is treated as intentional. A crash or
+                // signal is restarted a bounded number of times so a broken
+                // shell cannot spin forever and consume the machine.
+                if !status.success() {
+                    if let Some(argv) = &args.shell {
+                        if shell_restarts < SHELL_RESTART_LIMIT {
+                            shell_restarts += 1;
+                            warn!(
+                                COMPOSITOR,
+                                "shell restart {}/{} after {} ms",
+                                shell_restarts,
+                                SHELL_RESTART_LIMIT,
+                                SHELL_RESTART_DELAY.as_millis()
+                            );
+                            std::thread::sleep(SHELL_RESTART_DELAY);
+                            shell = Some(shell::start(&mut display, argv, &dir, &name)?);
+                            info!(
+                                COMPOSITOR,
+                                "shell restarted successfully attempt={shell_restarts}"
+                            );
+                        } else {
+                            warn!(
+                                COMPOSITOR,
+                                "shell restart limit reached ({SHELL_RESTART_LIMIT}); applications remain running"
+                            );
+                        }
+                    }
                 }
             }
         }
