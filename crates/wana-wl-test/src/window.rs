@@ -251,8 +251,7 @@ impl Window {
         conn.request(self.toplevel, opcode, None, args)?;
         let mut top: Option<(i32, i32, Vec<u32>)> = None;
         let (serial, cfg) = wait_for(conn, wm_base, devices, |ev| {
-            if ev.target == self.toplevel
-                && ev.opcode == xdg_shell::xdg_toplevel::event::CONFIGURE
+            if ev.target == self.toplevel && ev.opcode == xdg_shell::xdg_toplevel::event::CONFIGURE
             {
                 if let [Val::Int(w), Val::Int(h), Val::Array(bytes)] = &ev.args[..] {
                     let states = bytes
