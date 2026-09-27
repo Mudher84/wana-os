@@ -734,6 +734,12 @@ impl Compositor {
             .is_some_and(|t| t.minimized)
     }
 
+    pub(crate) fn window_fullscreen(&self, surface: Resource) -> bool {
+        self.toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| t.fullscreen)
+    }
+
     fn toplevel_for_surface(&self, surface: Resource) -> Option<Resource> {
         let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
             return None;
@@ -913,6 +919,53 @@ impl Compositor {
             );
         }
         self.needs_redraw = true;
+    }
+
+    pub(crate) fn toggle_fullscreen(&mut self, ctx: &Ctx, surface: Resource) {
+        let on = self
+            .toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| t.fullscreen);
+        self.set_fullscreen(ctx, surface, !on);
+    }
+
+    pub(crate) fn resize_window(
+        &mut self,
+        ctx: &Ctx,
+        surface: Resource,
+        dw: i32,
+        dh: i32,
+    ) -> bool {
+        let manageable = self
+            .toplevel_for_surface(surface)
+            .and_then(|t| self.toplevels.get(&t))
+            .is_some_and(|t| !t.minimized && !t.maximized && !t.fullscreen);
+        if !manageable {
+            return false;
+        }
+        let Some((cw, ch)) = self.surfaces.get(&surface).and_then(|s| s.content) else {
+            return false;
+        };
+        let min_w = 240;
+        let min_h = 160;
+        let max_w = self.usable.w.max(min_w);
+        let max_h = self.usable.h.max(min_h);
+        let nw = (cw + dw).clamp(min_w, max_w);
+        let nh = (ch + dh).clamp(min_h, max_h);
+        if (nw, nh) == (cw, ch) {
+            return false;
+        }
+        self.send_window_configure(ctx, surface, nw, nh, &[]);
+        info!(
+            COMPOSITOR,
+            "window resize requested: {} {}x{} -> {}x{}",
+            self.title_of(surface),
+            cw,
+            ch,
+            nw,
+            nh
+        );
+        true
     }
 
     pub(crate) fn set_minimized(&mut self, surface: Resource, on: bool) {
