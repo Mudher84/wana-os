@@ -498,6 +498,37 @@ launcher-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Shell step 3c: Super+Space is compositor policy. The application owns
+# keyboard focus when the shortcut is injected; the Space press/release is
+# consumed and the private shell-control event opens the launcher. A second
+# shortcut closes it while the application stays alive.
+SHORTCUT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,180,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--apps,--shell-arg,/usr/share/wana-shell/apps.test,--shell-arg,--autostart,--shell-arg,/usr/bin/wana-wl-test,--shell-arg,--autostart-arg,--shell-arg,--hold,--shell-arg,--autostart-arg,--shell-arg,6,--shell-arg,--exit-with-autostart wana.test=poweroff wana.shell=0
+launcher-shortcut-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-launcher-shortcut.img "$(SHORTCUT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-launcher-shortcut.img --gpu virtio --input virtio --timeout 260 --memory 1024 \
+		--log out/logs/launcher-shortcut-boot.log \
+		--send-on 'keyboard focus: "wana-wl-test"' \
+		--send 'sendkey meta_l-spc' \
+		--send 'wait:launcher shown' \
+		--send 'sendkey meta_l-spc' \
+		--screendump-on 'launcher shown' --screendump out/test/launcher-shortcut.ppm \
+		--pixel 0.5,0.025=0b0f1a --pixel 0.328125,0.525=4f8cff --pixel 0.5,0.92=3a4560 \
+		--expect '\[COMPOSITOR\] info: keyboard focus: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: shortcut Super\+Space: toggle launcher' \
+		--expect '\[SHELL\] info: launcher opened from Super\+Space' \
+		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 \(exclusive zone 0\)' \
+		--expect '\[COMPOSITOR\] info: keyboard focus: layer "wana-launcher"' \
+		--expect '\[SHELL\] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' \
+		--expect '\[SHELL\] info: launcher toggle shortcut: close' \
+		--expect '\[SHELL\] info: launcher closed' \
+		--expect '\[COMPOSITOR\] info: layer surface destroyed: "wana-launcher"' \
+		--expect '\[SHELL\] info: autostart exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
 # Shell step 3c: the Dock is a bottom layer surface fed by the private
 # ext-foreign-toplevel-list-v1. An ordinary app maps on the public socket;
 # the shell receives its toplevel metadata and redraws the Dock while the
@@ -530,7 +561,8 @@ WAYLAND_HOST_LAYERS = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/releas
 # The same compositor with a shell on the private connection (decision 0003).
 WAYLAND_HOST_SHELL = env -u WAYLAND_DISPLAY XDG_RUNTIME_DIR=$$dir target/release/wana-compositor --timeout 30 --headless 1280x800@60 \
 	--shell target/release/wana-wl-test --shell-arg --expect-global --shell-arg zwlr_layer_shell_v1 \
-	--shell-arg --expect-global --shell-arg ext_foreign_toplevel_list_v1
+	--shell-arg --expect-global --shell-arg ext_foreign_toplevel_list_v1 \
+	--shell-arg --expect-global --shell-arg wana_shell_control_v1
 wayland-host-test: fonts
 	$(CARGO) build --release --locked -p wana-compositor -p wana-wl-test -p wana-shell
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && \
@@ -553,11 +585,13 @@ wayland-host-test: fonts
 	$(WAYLAND_HOST_RUN) --text --fonts $(CURDIR)/out/fonts > $$dir/text.log 2>&1 && \
 		grep -q 'client: text rendered: 2 lines, 600x209, 8395 ink pixels, sha256 $(TEXT_SHA256)' $$dir/text.log && \
 		echo "[COMPOSITOR] check: Arabic text window, rendering sha256 as in the image: PASS" && \
-	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-global xdg_wm_base > $$dir/priv.log 2>&1 && \
+	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --expect-no-global zwlr_layer_shell_v1 --expect-no-global ext_foreign_toplevel_list_v1 --expect-no-global wana_shell_control_v1 --expect-global xdg_wm_base > $dir/priv.log 2>&1 && \
 		grep -q 'client: global zwlr_layer_shell_v1 v4 visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $$dir/priv.log && \
-		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $$dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 v1 visible, as expected' $dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 v1 visible, as expected' $dir/priv.log && \
+		grep -q 'client: global zwlr_layer_shell_v1 not visible, as expected' $dir/priv.log && \
+		grep -q 'client: global ext_foreign_toplevel_list_v1 not visible, as expected' $dir/priv.log && \
+		grep -q 'client: global wana_shell_control_v1 not visible, as expected' $dir/priv.log && \
 		echo "[COMPOSITOR] check: shell globals visible only to the private shell connection: PASS" && \
 	$(WAYLAND_HOST_SHELL) --run target/release/wana-wl-test --try-bind-hidden zwlr_layer_shell_v1 > $$dir/bind.log 2>&1 && \
 		grep -q 'client: got the expected protocol error: wl_registry@[0-9]* code 0' $$dir/bind.log && \
