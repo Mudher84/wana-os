@@ -296,6 +296,10 @@ impl Compositor {
         if self.seat.cursor != Cursor::Hidden {
             self.needs_redraw = true;
         }
+        if self.wm_grab.is_some() {
+            self.update_window_grab(ctx);
+            return;
+        }
         if self.update_pointer_focus(ctx) {
             return; // enter carries the position
         }
@@ -350,6 +354,9 @@ impl Compositor {
             }
         }
         let (serial, time) = (ctx.next_serial(), now_ms());
+        if pressed && first {
+            self.seat.last_button_serial = Some((focus.surface, serial));
+        }
         for p in self.pointers_of(ctx, focus.client) {
             let _ = ctx.post(
                 p,
@@ -370,7 +377,10 @@ impl Compositor {
             self.title_of(focus.surface)
         );
         if !pressed && self.seat.buttons.is_empty() {
-            // Grab over: the surface under the cursor may differ now.
+            // Both the implicit Wayland pointer grab and any compositor-owned
+            // xdg_toplevel move/resize end with the last button release.
+            self.finish_window_grab(ctx);
+            self.seat.last_button_serial = None;
             self.update_pointer_focus(ctx);
         }
     }
