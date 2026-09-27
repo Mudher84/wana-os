@@ -542,6 +542,42 @@ window-management-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Phase 12 protocol path: a normal client uses the serial from a real
+# wl_pointer.button press for xdg_toplevel.move, then repeats with
+# xdg_toplevel.resize(bottom_right). The compositor validates client, seat,
+# surface and serial before beginning each grab.
+INTERACTIVE_MANAGEMENT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,180,--run,/usr/bin/wana-wl-test,--interactive-management,--hold,2 wana.test=poweroff wana.shell=0
+interactive-management-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-interactive-management.img "$(INTERACTIVE_MANAGEMENT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-interactive-management.img --gpu virtio --input virtio --timeout 300 --memory 1024 \
+		--log out/logs/interactive-management-boot.log \
+		--send-on '\[COMPOSITOR\] info: client: ready for interactive move' \
+		--send 'mouse_button 1' \
+		--send 'wait:client: xdg move requested with serial' \
+		--send 'mouse_move 100 60' \
+		--send 'mouse_button 0' \
+		--send 'wait:interactive Move finished:' \
+		--send 'wait:client: ready for interactive resize' \
+		--send 'mouse_button 1' \
+		--send 'wait:client: xdg resize requested with serial' \
+		--send 'mouse_move 100 80' \
+		--send 'wait:client: interactive resized buffer applied:' \
+		--send 'mouse_button 0' \
+		--send 'wait:interactive Resize\(10\) finished:' \
+		--screendump-on 'client: interactive resized buffer applied:' --screendump out/test/interactive-management.ppm \
+		--pixel 0.5,0.5=4f8cff \
+		--expect '\[COMPOSITOR\] info: client: xdg move requested with serial [0-9]+' \
+		--expect '\[COMPOSITOR\] info: interactive Move started: "wana-wl-test" \(org.wana.test\) serial=[0-9]+' \
+		--expect '\[COMPOSITOR\] info: interactive Move finished: "wana-wl-test" \(org.wana.test\) position=Some\(\([0-9]+, [0-9]+\)\) size=Some\(\(480, 320\)\)' \
+		--expect '\[COMPOSITOR\] info: client: xdg resize requested with serial [0-9]+, edges 10' \
+		--expect '\[COMPOSITOR\] info: interactive Resize\(10\) started: "wana-wl-test" \(org.wana.test\) serial=[0-9]+' \
+		--expect '\[COMPOSITOR\] info: client: interactive resized buffer applied: [5-9][0-9][0-9]x[3-9][0-9][0-9]' \
+		--expect '\[COMPOSITOR\] info: interactive Resize\(10\) finished:' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER)\] (warn|error)'
+
 # Shell step 3d: Super+Space is a compositor-owned global shortcut.
 # The compositor consumes the chord and sends a private shell-control event;
 # wana-shell opens the launcher without requiring pointer focus or a click.
