@@ -638,15 +638,6 @@ impl Compositor {
         true
     }
 
-    fn output_rect(&self) -> crate::layer::Rect {
-        crate::layer::Rect {
-            x: 0,
-            y: 0,
-            w: self.output.width,
-            h: self.output.height,
-        }
-    }
-
     fn toplevel_of_surface(&self, surface: Resource) -> Option<Resource> {
         let Role::Xdg(xs) = self.surfaces.get(&surface)?.role else {
             return None;
@@ -698,19 +689,11 @@ impl Compositor {
         match t.pending_mode {
             crate::wm::Mode::Maximized => {
                 let r = self.usable;
-                (
-                    r.w,
-                    r.h,
-                    crate::wm::STATE_MAXIMIZED.to_ne_bytes().to_vec(),
-                )
+                (r.w, r.h, crate::wm::STATE_MAXIMIZED.to_ne_bytes().to_vec())
             }
             crate::wm::Mode::Fullscreen => {
                 let r = self.output_rect();
-                (
-                    r.w,
-                    r.h,
-                    crate::wm::STATE_FULLSCREEN.to_ne_bytes().to_vec(),
-                )
+                (r.w, r.h, crate::wm::STATE_FULLSCREEN.to_ne_bytes().to_vec())
             }
             crate::wm::Mode::Normal | crate::wm::Mode::Minimized => (0, 0, Vec::new()),
         }
@@ -743,7 +726,11 @@ impl Compositor {
                     if self.seat.keyboard_focus == Some(surface) {
                         self.seat.keyboard_focus = None;
                     }
-                    if self.seat.pointer_focus.is_some_and(|p| p.surface == surface) {
+                    if self
+                        .seat
+                        .pointer_focus
+                        .is_some_and(|p| p.surface == surface)
+                    {
                         self.seat.pointer_focus = None;
                     }
                 } else {
@@ -753,12 +740,7 @@ impl Compositor {
         }
     }
 
-    pub(crate) fn set_window_activated(
-        &mut self,
-        ctx: &Ctx,
-        surface: Resource,
-        activated: bool,
-    ) {
+    pub(crate) fn set_window_activated(&mut self, ctx: &Ctx, surface: Resource, activated: bool) {
         let Some(tl) = self.toplevel_of_surface(surface) else {
             return;
         };
@@ -969,12 +951,7 @@ impl Compositor {
                 let (x, y) = place(self.mapped_total, (u.x, u.y, u.w, u.h), w, h);
                 self.mapped_total += 1;
 
-                let mut state = crate::wm::WindowState::new(crate::layer::Rect {
-                    x,
-                    y,
-                    w,
-                    h,
-                });
+                let mut state = crate::wm::WindowState::new(crate::layer::Rect { x, y, w, h });
                 if let Some(tl) = xdg.toplevel {
                     if let Some(t) = self.toplevels.get(&tl) {
                         state.limits = t.limits;
