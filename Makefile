@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -51,7 +51,8 @@ help:
 	@echo "    make text-window-boot-test  boot disk.img, Arabic text drawn by wana-text in a window (hash + screenshot)"
 	@echo "    make layer-boot-test     boot disk.img, the shell maps a background and a top bar; a window goes below the bar"
 	@echo "    make shell-boot-test     boot disk.img, wana-shell: desktop + Arabic top bar, autostarted app below it"
-	@echo "    make launcher-boot-test  boot disk.img, a click on the bar opens the launcher, Down + Enter start an app"
+	@echo "    make launcher-boot-test  boot disk.img, Super opens the launcher, Down + Enter start an app"
+	@echo "    make settings-boot-test  boot native Settings app, verify Arabic UI + state rendering"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -542,6 +543,24 @@ dock-boot-test:
 		--expect '\[SHELL\] info: dock updated: 1 window\(s\), sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: client: holding window for 3s' \
 		--expect '\[SHELL\] info: autostart exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 14: native Settings app. Defaults are loaded from its strict
+# persisted state engine, then the Arabic UI is rendered as an ordinary
+# xdg_toplevel using the shared wana-client app helper.
+SETTINGS_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,120,--run,/usr/bin/wana-settings,--hold,3 wana.test=poweroff wana.shell=0
+settings-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-settings.img "$(SETTINGS_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-settings.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/settings-boot.log \
+		--screendump-on 'settings mapped' --screendump out/test/settings.ppm \
+		--pixel 0.234375,0.225=111827 --pixel 0.25,0.4=1e293b \
+		--expect '\[COMPOSITOR\] info: window mapped: "الإعدادات — وانا" \(org.wana.Settings\) 720x480 at 280,160' \
+		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, sha256 [0-9a-f]{64}' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-settings exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
