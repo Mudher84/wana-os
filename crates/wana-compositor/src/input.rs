@@ -423,26 +423,92 @@ impl Compositor {
         let info = kb.key(code, pressed);
         let mods = kb.modifiers();
 
-        // Wana's global launcher shortcut (decision 0004). evdev:
-        // Space=57, LeftMeta=125, RightMeta=126. The Space press/release is
-        // consumed so the focused application never sees half of the chord.
+        // Compositor-owned Super shortcuts. A consumed press records its
+        // key code so the matching release is consumed as well.
+        const KEY_TAB: u32 = 15;
+        const KEY_M: u32 = 50;
         const KEY_SPACE: u32 = 57;
+        const KEY_UP: u32 = 103;
+        const KEY_LEFT: u32 = 105;
+        const KEY_RIGHT: u32 = 106;
+        const KEY_DOWN: u32 = 108;
         const KEY_LEFTMETA: u32 = 125;
         const KEY_RIGHTMETA: u32 = 126;
-        let meta_down =
-            self.seat.keys.contains(&KEY_LEFTMETA) || self.seat.keys.contains(&KEY_RIGHTMETA);
-        if pressed && code == KEY_SPACE && meta_down {
-            self.launcher_shortcut_space = true;
-            self.shell_toggle_launcher(ctx);
-            info!(
-                COMPOSITOR,
-                "global shortcut Super+Space -> shell launcher toggle"
-            );
+
+        if !pressed && self.consumed_shortcut_keys.contains(&code) {
+            self.consumed_shortcut_keys.retain(|k| *k != code);
             return;
         }
-        if !pressed && code == KEY_SPACE && self.launcher_shortcut_space {
-            self.launcher_shortcut_space = false;
-            return;
+
+        let meta_down =
+            self.seat.keys.contains(&KEY_LEFTMETA) || self.seat.keys.contains(&KEY_RIGHTMETA);
+        if pressed && meta_down {
+            let focused = self
+                .seat
+                .keyboard_focus
+                .filter(|s| self.windows.iter().any(|w| w.surface == *s));
+            let handled = match code {
+                KEY_SPACE => {
+                    self.shell_toggle_launcher(ctx);
+                    info!(
+                        COMPOSITOR,
+                        "global shortcut Super+Space -> shell launcher toggle"
+                    );
+                    true
+                }
+                KEY_UP => {
+                    if let Some(surface) = focused {
+                        self.toggle_maximized(ctx, surface);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                KEY_DOWN => {
+                    if let Some(surface) = focused {
+                        self.set_maximized(ctx, surface, false);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                KEY_LEFT => focused.is_some_and(|surface| self.move_window(surface, -64, 0)),
+                KEY_RIGHT => focused.is_some_and(|surface| self.move_window(surface, 64, 0)),
+                KEY_M => {
+                    if let Some(surface) = focused {
+                        self.set_minimized(surface, true);
+                        true
+                    } else {
+                        self.restore_last_minimized().is_some()
+                    }
+                }
+                KEY_TAB => {
+                    let visible: Vec<Resource> = self
+                        .windows
+                        .iter()
+                        .filter(|w| !self.window_minimized(w.surface))
+                        .map(|w| w.surface)
+                        .collect();
+                    if visible.is_empty() {
+                        false
+                    } else {
+                        let next = match focused.and_then(|s| visible.iter().position(|v| *v == s)) {
+                            Some(pos) => visible[(pos + 1) % visible.len()],
+                            None => visible[0],
+                        };
+                        self.raise(next);
+                        self.set_keyboard_focus(ctx, Some(next));
+                        true
+                    }
+                }
+                _ => false,
+            };
+            if handled {
+                if !self.consumed_shortcut_keys.contains(&code) {
+                    self.consumed_shortcut_keys.push(code);
+                }
+                return;
+            }
         }
 
         let Some(surface) = self.seat.keyboard_focus else {
@@ -585,7 +651,12 @@ impl Compositor {
         }
         let focused_mapped = self.seat.keyboard_focus.is_some_and(|s| self.visible(s));
         if !focused_mapped {
-            let top = self.windows.last().map(|w| w.surface);
+            let top = self
+                .windows
+                .iter()
+                .rev()
+                .find(|w| !self.window_minimized(w.surface))
+                .map(|w| w.surface);
             if top != self.seat.keyboard_focus {
                 self.set_keyboard_focus(ctx, top);
             }
