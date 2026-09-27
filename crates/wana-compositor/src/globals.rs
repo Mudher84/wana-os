@@ -713,21 +713,24 @@ impl Compositor {
     fn apply_pending_mode(&mut self, tl: Resource) {
         let usable = self.usable;
         let output = self.output_rect();
-        let Some(t) = self.toplevels.get_mut(&tl) else {
-            return;
+        let (state, xs) = {
+            let Some(t) = self.toplevels.get_mut(&tl) else {
+                return;
+            };
+            let Some(mut state) = t.wm else {
+                return;
+            };
+            state.limits = t.limits;
+            match t.pending_mode {
+                crate::wm::Mode::Normal => state.normal(),
+                crate::wm::Mode::Maximized => state.maximize(usable),
+                crate::wm::Mode::Fullscreen => state.fullscreen(output),
+                crate::wm::Mode::Minimized => state.minimize(),
+            }
+            t.wm = Some(state);
+            (state, t.xdg)
         };
-        let Some(mut state) = t.wm else {
-            return;
-        };
-        state.limits = t.limits;
-        match t.pending_mode {
-            crate::wm::Mode::Normal => state.normal(),
-            crate::wm::Mode::Maximized => state.maximize(usable),
-            crate::wm::Mode::Fullscreen => state.fullscreen(output),
-            crate::wm::Mode::Minimized => state.minimize(),
-        }
-        t.wm = Some(state);
-        if let Some(xs) = t.xdg {
+        if let Some(xs) = xs {
             if let Some(surface) = self.xdg.get(&xs).and_then(|x| x.surface) {
                 self.sync_window_position_from_wm(surface);
                 if !state.visible() {
