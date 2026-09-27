@@ -971,6 +971,41 @@ impl Compositor {
         true
     }
 
+    fn shell_control_request(
+        &mut self,
+        ctx: &Ctx,
+        res: Resource,
+        opcode: u32,
+        args: &[ReqArg],
+    ) {
+        use shell_control::wana_shell_control_v1::request::*;
+        if opcode != ACTIVATE_TOPLEVEL {
+            return;
+        }
+        let Some(ReqArg::Str(Some(identifier))) = args.first() else {
+            return;
+        };
+        let surface = self
+            .foreign_identifiers
+            .iter()
+            .find_map(|(surface, id)| (id == identifier).then_some(*surface));
+        let Some(surface) = surface else {
+            warn!(COMPOSITOR, "shell requested unknown toplevel identifier {identifier:?}");
+            return;
+        };
+        if self.window_minimized(surface) {
+            self.set_minimized(surface, false);
+        }
+        self.raise(surface);
+        self.set_keyboard_focus(ctx, Some(surface));
+        info!(
+            COMPOSITOR,
+            "shell activated toplevel {identifier}: {}",
+            self.title_of(surface)
+        );
+        let _ = res;
+    }
+
     pub(crate) fn shell_toggle_launcher(&self, ctx: &Ctx) {
         for control in &self.shell_controls {
             let _ = ctx.post(
@@ -1370,7 +1405,7 @@ impl Handler for Compositor {
         } else if is(&foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE) {
             self.foreign_list_request(ctx, res, opcode);
         } else if is(&shell_control::WANA_SHELL_CONTROL_V1_INTERFACE) {
-            // Its only request is the destructor, handled by the protocol layer.
+            self.shell_control_request(ctx, res, opcode, &args);
         } else if is(&layer_shell::ZWLR_LAYER_SHELL_V1_INTERFACE) {
             self.layer_shell_request(ctx, res, opcode, &args);
         } else if is(&layer_shell::ZWLR_LAYER_SURFACE_V1_INTERFACE) {
