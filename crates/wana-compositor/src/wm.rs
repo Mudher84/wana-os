@@ -156,6 +156,7 @@ impl WindowState {
         }
         self.mode = Mode::Minimized;
         self.resizing = false;
+        self.activated = false;
     }
 
     pub fn restore_from_minimize(&mut self) {
