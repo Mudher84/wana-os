@@ -52,7 +52,8 @@ use wana_text::layout::FontSet;
 use wana_text::raster::Canvas;
 use wana_text::{fonts, sha256};
 use wana_wayland::protocols::{
-    ext_foreign_toplevel_list_v1 as foreign, wayland, wlr_layer_shell_unstable_v1 as proto,
+    ext_foreign_toplevel_list_v1 as foreign, wana_shell_control_v1 as shell_control, wayland,
+    wlr_layer_shell_unstable_v1 as proto,
 };
 
 const SHELL: Subsystem = Subsystem::Shell;
@@ -370,6 +371,12 @@ fn run(args: &Args) -> Result<(), String> {
     )
     .map_err(|e| format!("{e}: foreign toplevel list is restricted to wana-shell"))?;
     let mut toplevels = Toplevels::new(foreign_list);
+    let shell_control = bind(
+        "wana_shell_control_v1",
+        &shell_control::WANA_SHELL_CONTROL_V1_INTERFACE,
+        1,
+    )
+    .map_err(|e| format!("{e}: shell control is restricted to wana-shell"))?;
 
     fonts::verify_dir(&args.fonts)?;
     let set = FontSet {
@@ -565,6 +572,27 @@ fn run(args: &Args) -> Result<(), String> {
                 continue;
             }
             let mut action = Action::None;
+            if ev.target == shell_control
+                && ev.opcode == shell_control::wana_shell_control_v1::event::TOGGLE_LAUNCHER
+            {
+                if launcher.is_some() {
+                    info!(SHELL, "launcher toggle shortcut: close");
+                    action = Action::Close;
+                } else if apps.is_empty() {
+                    warn!(SHELL, "launcher shortcut: no apps ({})", args.apps.display());
+                } else {
+                    info!(SHELL, "launcher opened from Super+Space");
+                    launcher = Some(open_launcher(
+                        &conn,
+                        compositor,
+                        layer_shell,
+                        shm,
+                        &set,
+                        &apps,
+                        &mut events,
+                    )?);
+                }
+            }
             if let Some(l) = launcher.as_mut() {
                 if let Some((serial, _, _)) = layer::configure_of(&ev, l.ls.layer_surface) {
                     layer::ack(&conn, l.ls.layer_surface, serial)?;
