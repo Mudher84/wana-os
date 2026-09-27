@@ -652,7 +652,7 @@ impl Compositor {
         self.toplevels
             .get(&tl)
             .and_then(|t| t.wm)
-            .map_or(true, crate::wm::WindowState::visible)
+            .is_none_or(crate::wm::WindowState::visible)
     }
 
     fn sync_window_position_from_wm(&mut self, surface: Resource) {
