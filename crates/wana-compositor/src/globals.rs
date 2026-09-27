@@ -32,8 +32,8 @@ use wana_input::keyboard::Keyboard;
 use wana_log::{debug, info, warn, Subsystem};
 use wana_render::compose::Texture;
 use wana_wayland::protocols::{
-    ext_foreign_toplevel_list_v1 as foreign, wayland,
-    wlr_layer_shell_unstable_v1 as layer_shell, xdg_shell,
+    ext_foreign_toplevel_list_v1 as foreign, wayland, wlr_layer_shell_unstable_v1 as layer_shell,
+    xdg_shell,
 };
 use wana_wayland::server::{interface_name, request_name, Arg, Ctx, Handler, ReqArg, Resource};
 use wana_wayland::sys::wl_interface;
@@ -720,11 +720,8 @@ impl Compositor {
             .map(|(t, a)| (t.to_string(), a.to_string()))
             .ok_or("foreign toplevel has no xdg metadata")?;
         let identifier = self.foreign_identifier(surface);
-        let handle = ctx.create_resource(
-            list,
-            &foreign::EXT_FOREIGN_TOPLEVEL_HANDLE_V1_INTERFACE,
-            0,
-        )?;
+        let handle =
+            ctx.create_resource(list, &foreign::EXT_FOREIGN_TOPLEVEL_HANDLE_V1_INTERFACE, 0)?;
         ctx.post(
             list,
             foreign::ext_foreign_toplevel_list_v1::event::TOPLEVEL,
@@ -1026,7 +1023,10 @@ impl Handler for Compositor {
         if std::ptr::eq(g.interface, &wayland::WL_SEAT_INTERFACE) {
             self.seat.seats.push(res);
         }
-        if std::ptr::eq(g.interface, &foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE) {
+        if std::ptr::eq(
+            g.interface,
+            &foreign::EXT_FOREIGN_TOPLEVEL_LIST_V1_INTERFACE,
+        ) {
             self.foreign_list_bound(ctx, res);
         }
         if let Err(e) = self.send_initial(ctx, g.interface, res) {
