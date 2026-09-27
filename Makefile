@@ -523,6 +523,53 @@ launcher-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Phase 13: compositor-owned launcher shortcut through the private
+# Wana shell-control protocol. Super never reaches an application: the
+# compositor turns it into toggle_launcher for its shell connection.
+LAUNCHER_SHORTCUT_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,200,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--apps,--shell-arg,/usr/share/wana-shell/apps.test,--shell-arg,--exit-with-launched wana.test=poweroff wana.shell=0
+launcher-shortcut-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-launcher-shortcut.img "$(LAUNCHER_SHORTCUT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-launcher-shortcut.img --gpu virtio --input virtio --timeout 300 --memory 1024 \
+		--log out/logs/launcher-shortcut-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown' --send 'sendkey down' \
+		--send 'wait:launcher: selected 2/2' --send 'sendkey ret' \
+		--expect '\[COMPOSITOR\] info: shortcut Super -> shell launcher' \
+		--expect '\[SHELL\] info: launcher toggled open by compositor shortcut' \
+		--expect '\[SHELL\] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' \
+		--expect '\[SHELL\] info: launcher: selected 2/2 "نص عربي"' \
+		--expect '\[SHELL\] info: app "نص عربي" exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 13: a minimized public toplevel remains represented in the Dock.
+# A Dock click sends its opaque identifier through wana_shell_control_v1;
+# the compositor restores the saved geometry, raises and focuses it.
+DOCK_ACTIVATE_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,220,--exit-with-shell,--shell,/usr/bin/wana-shell,--shell-arg,--clock,--shell-arg,16:20,--shell-arg,--autostart,--shell-arg,/usr/bin/wana-wl-test,--shell-arg,--autostart-arg,--shell-arg,--window-management,--shell-arg,--autostart-arg,--shell-arg,--hold,--shell-arg,--autostart-arg,--shell-arg,10,--shell-arg,--exit-with-autostart wana.test=poweroff wana.shell=0
+dock-activate-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock-activate.img "$(DOCK_ACTIVATE_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-dock-activate.img --gpu virtio --input virtio --timeout 320 --memory 1024 \
+		--log out/logs/dock-activate-boot.log \
+		--send-on 'client: window-management minimized request accepted' \
+		--send 'mouse_move 300 300' --send 'mouse_move 300 300' --send 'mouse_move 300 300' \
+		--send 'mouse_move 300 300' --send 'mouse_move -300 0' --send 'mouse_move -100 0' \
+		--send 'mouse_button 1' --send 'mouse_button 0' \
+		--expect '\[COMPOSITOR\] info: window minimized: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[SHELL\] info: dock activate: item 1 identifier wana-[0-9a-f]+' \
+		--expect '\[COMPOSITOR\] info: window restored from Dock: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: Dock activate -> "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: keyboard focus: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[SHELL\] info: autostart exited successfully' \
+		--expect '\[COMPOSITOR\] info: shell exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
 # Shell step 3c: the Dock is a bottom layer surface fed by the private
 # ext-foreign-toplevel-list-v1. An ordinary app maps on the public socket;
 # the shell receives its toplevel metadata and redraws the Dock while the
