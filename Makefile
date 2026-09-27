@@ -512,20 +512,30 @@ window-management-boot-test:
 		--send-on '\[COMPOSITOR\] info: client: ready for window management' \
 		--send 'sendkey meta_l-right' \
 		--send 'wait:window moved: .* to 464,260' \
+		--send 'sendkey shift-meta_l-right' \
+		--send 'wait:client: resized buffer applied: 544x320' \
 		--send 'sendkey meta_l-up' \
 		--send 'wait:client: maximized buffer applied: 1280x760' \
+		--send 'sendkey meta_l-f' \
+		--send 'wait:client: fullscreen buffer applied: 1280x800' \
 		--send 'sendkey meta_l-m' \
 		--send 'wait:window minimized:' \
 		--send 'sendkey meta_l-m' \
 		--send 'wait:window restored:' \
-		--screendump-on 'client: maximized buffer applied: 1280x760' --screendump out/test/window-management.ppm \
-		--pixel 0.5,0.5=4f8cff --pixel 0.5,0.025=0b0f1a \
+		--screendump-on 'client: fullscreen buffer applied: 1280x800' --screendump out/test/window-management.ppm \
+		--pixel 0.5,0.5=4f8cff --pixel 0.5,0.025=4f8cff --pixel 0.5,0.92=4f8cff \
 		--expect '\[COMPOSITOR\] info: window mapped: "wana-wl-test" \(org.wana.test\) 480x320 at 400,260' \
 		--expect '\[COMPOSITOR\] info: client: ready for window management' \
 		--expect '\[COMPOSITOR\] info: window moved: "wana-wl-test" \(org.wana.test\) to 464,260' \
+		--expect '\[COMPOSITOR\] info: window resize requested: "wana-wl-test" \(org.wana.test\) 480x320 -> 544x320' \
+		--expect '\[COMPOSITOR\] info: client: resize configure 544x320, states \[\]' \
+		--expect '\[COMPOSITOR\] info: client: resized buffer applied: 544x320' \
 		--expect '\[COMPOSITOR\] info: window maximized: "wana-wl-test" \(org.wana.test\)' \
 		--expect '\[COMPOSITOR\] info: client: maximize configure 1280x760, states \[1\]' \
 		--expect '\[COMPOSITOR\] info: client: maximized buffer applied: 1280x760' \
+		--expect '\[COMPOSITOR\] info: window fullscreen: "wana-wl-test" \(org.wana.test\)' \
+		--expect '\[COMPOSITOR\] info: client: fullscreen configure 1280x800, states \[2\]' \
+		--expect '\[COMPOSITOR\] info: client: fullscreen buffer applied: 1280x800' \
 		--expect '\[COMPOSITOR\] info: window minimized: "wana-wl-test" \(org.wana.test\)' \
 		--expect '\[COMPOSITOR\] info: window restored: "wana-wl-test" \(org.wana.test\)' \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-wl-test exited successfully' \
