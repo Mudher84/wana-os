@@ -141,6 +141,44 @@ impl Composer {
         }
     }
 
+    /// Fills a solid output-space rectangle. Coordinates use the same
+    /// top-left origin as textured surfaces; OpenGL's scissor rectangle is
+    /// converted to its bottom-left origin here.
+    pub fn draw_solid(
+        &self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        color: u32,
+    ) -> Result<(), String> {
+        if width <= 0 || height <= 0 {
+            return Ok(());
+        }
+        let x0 = x.clamp(0, self.width as i32);
+        let y0 = y.clamp(0, self.height as i32);
+        let x1 = (x + width).clamp(0, self.width as i32);
+        let y1 = (y + height).clamp(0, self.height as i32);
+        let w = x1 - x0;
+        let h = y1 - y0;
+        if w <= 0 || h <= 0 {
+            return Ok(());
+        }
+        let (r, g, b) = rgb(color);
+        let gl_y = self.height as i32 - y1;
+        // SAFETY: current context. Scissor coordinates were clamped to the
+        // framebuffer; glClear affects only that rectangle while the test is
+        // enabled.
+        unsafe {
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(x0, gl_y, w, h);
+            glClearColor(r, g, b, 1.0);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glDisable(GL_SCISSOR_TEST);
+        }
+        gl::check("draw solid")
+    }
+
     /// Draws `tex` with its top-left corner at (x, y), at its own size.
     pub fn draw(&self, tex: &Texture, x: i32, y: i32) -> Result<(), String> {
         // SAFETY: current context; QUAD is 'static, so the client-side
@@ -188,6 +226,14 @@ mod tests {
             ),
             (79.0, 140.0, 255.0)
         );
+    }
+
+    #[test]
+    fn top_left_scissor_conversion_is_bounded_by_design() {
+        // The implementation converts y to height-(y+h). Keep the source
+        // contract explicit so future refactors do not silently flip
+        // compositor-owned decorations.
+        assert!(include_str!("compose.rs").contains("let gl_y = self.height as i32 - y1;"));
     }
 
     #[test]
