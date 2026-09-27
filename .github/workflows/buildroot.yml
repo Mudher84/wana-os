@@ -147,6 +147,9 @@ jobs:
       - name: Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)
         run: make dock-boot-test
 
+      - name: Window management (authenticated xdg_toplevel move + resize with real pointer serial)
+        run: make wm-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
