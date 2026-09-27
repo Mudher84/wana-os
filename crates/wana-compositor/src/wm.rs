@@ -29,6 +29,12 @@ pub enum Mode {
     Minimized,
 }
 
+impl Default for Mode {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub min_w: i32,
