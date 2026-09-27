@@ -59,14 +59,17 @@ impl State {
         out
     }
 
-    pub fn minimize(&mut self) {
+    pub fn minimize(&mut self, current: Rect) {
+        if self.mode == Mode::Normal {
+            self.restore = Some(current);
+        }
         self.mode = Mode::Minimized;
     }
 
-    pub fn unminimize(&mut self) {
-        if self.mode == Mode::Minimized {
-            self.mode = Mode::Normal;
-        }
+    pub fn unminimize(&mut self, fallback: Rect) -> Rect {
+        let out = self.restore.take().unwrap_or(fallback);
+        self.mode = Mode::Normal;
+        out
     }
 
     pub fn constrain(&self, mut w: i32, mut h: i32) -> (i32, i32) {
