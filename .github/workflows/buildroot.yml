@@ -147,6 +147,9 @@ jobs:
       - name: Launcher shortcut (Super+Space through private Wana shell-control protocol)
         run: make launcher-shortcut-boot-test
 
+      - name: Window management (move, maximize, minimize, restore through Super shortcuts)
+        run: make window-management-boot-test
+
       - name: Dock (private foreign-toplevel list tracks a public app, Dock redraw + screenshot pixel check)
         run: make dock-boot-test
 
