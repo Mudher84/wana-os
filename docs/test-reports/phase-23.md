@@ -9,6 +9,8 @@ source. The exit gate must prove the security posture in a booted Wana OS guest.
 
 - Debug root console shell is disabled by default. It is available only when
   the kernel command line explicitly contains `wana.shell=1`.
+- Buildroot root password login is disabled, so the default empty root
+  password cannot be used as an authentication path.
 - `/proc` and `/sys` are mounted `nosuid,nodev,noexec`.
 - Volatile tmpfs mounts `/dev/shm`, `/run`, and `/tmp` are mounted
   `nosuid,nodev,noexec`.
@@ -17,7 +19,8 @@ source. The exit gate must prove the security posture in a booted Wana OS guest.
   boot state if any required runtime mount flag is missing.
 - Existing kernel isolation primitives remain enabled: namespaces, cgroups,
   seccomp/filtering, and Landlock.
-- Buildroot's resolved configuration is gated for PIE, strong stack protector,
+- Buildroot's resolved configuration is gated for disabled root password login,
+  PIE, strong stack protector,
   full RELRO, and FORTIFY_SOURCE so a future default change cannot silently
   weaken userspace binaries.
 - Permission policy and audit stores reject symlinks, insecure modes, and
