@@ -8,3 +8,4 @@
 مركز التحكم	/usr/bin/wana-control-center
 أندرويد	/usr/bin/wana-android	ui
 الطاقة	/usr/bin/wana-power-ui
+تحديث النظام	/usr/bin/wana-update-ui

@@ -178,6 +178,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-update-ui"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
+ "wana-theme",
+]
+
+[[package]]
 name = "wana-update"
 version = "0.1.0"
 dependencies = [
