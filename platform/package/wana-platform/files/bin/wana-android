@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+name=wana-android
+root=/var/lib/wana/android/rootfs
+config=/etc/wana/android/lxc.conf
+
+need_root() {
+    [ "$(id -u)" -eq 0 ] || {
+        echo "wana-android: this operation requires root" >&2
+        exit 1
+    }
+}
+
+check_kernel() {
+    missing=""
+    for node in binder hwbinder vndbinder; do
+        [ -e "/dev/$node" ] || missing="$missing /dev/$node"
+    done
+    if [ -n "$missing" ]; then
+        echo "wana-android: Binder devices are not ready:$missing" >&2
+        return 1
+    fi
+}
+
+check_rootfs() {
+    [ -x "$root/system/bin/sh" ] || {
+        echo "wana-android: Android rootfs is not provisioned at $root" >&2
+        return 1
+    }
+}
+
+case "${1:-status}" in
+    status)
+        check_kernel
+        if lxc-info -n "$name" >/dev/null 2>&1; then
+            exec lxc-info -n "$name"
+        fi
+        echo "WANA_ANDROID_READY runtime=lxc rootfs=$root state=STOPPED"
+        ;;
+    start)
+        need_root
+        check_kernel
+        check_rootfs
+        exec lxc-start -n "$name" -f "$config" -d
+        ;;
+    stop)
+        need_root
+        exec lxc-stop -n "$name"
+        ;;
+    shell)
+        need_root
+        exec lxc-attach -n "$name" -- /system/bin/sh
+        ;;
+    *)
+        echo "usage: wana-android {status|start|stop|shell}" >&2
+        exit 2
+        ;;
+esac
