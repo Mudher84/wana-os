@@ -105,6 +105,7 @@ config-check: buildroot-src
 # Refuses when the defconfig was edited after the last `make config`:
 # saving would silently overwrite those edits with the stale .config.
 security-config-check: config
+	@grep -qx '# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$(BR_OUT)/.config" || { echo "[SECURITY] root password login must be disabled" >&2; exit 1; }
 	@grep -qx 'BR2_PIC_PIE=y' "$(BR_OUT)/.config" || { echo "[SECURITY] BR2_PIC_PIE missing" >&2; exit 1; }
 	@grep -qx 'BR2_SSP_STRONG=y' "$(BR_OUT)/.config" || { echo "[SECURITY] BR2_SSP_STRONG missing" >&2; exit 1; }
 	@grep -qx 'BR2_RELRO_FULL=y' "$(BR_OUT)/.config" || { echo "[SECURITY] BR2_RELRO_FULL missing" >&2; exit 1; }
@@ -112,7 +113,7 @@ security-config-check: config
 	   grep -qx 'BR2_FORTIFY_SOURCE_2=y' "$(BR_OUT)/.config" || \
 	   grep -qx 'BR2_FORTIFY_SOURCE_3=y' "$(BR_OUT)/.config"; } || \
 	   { echo "[SECURITY] FORTIFY_SOURCE missing" >&2; exit 1; }
-	@echo "[SECURITY] Buildroot hardening: PIE + SSP_STRONG + RELRO_FULL + FORTIFY: PASS"
+	@echo "[SECURITY] Buildroot hardening: root-login-off + PIE + SSP_STRONG + RELRO_FULL + FORTIFY: PASS"
 
 savedefconfig: buildroot-src
 	@if [ ! -f $(BR_OUT)/.config ] || [ $(BR_EXTERNAL)/configs/wana_x86_64_defconfig -nt $(BR_OUT)/.config ]; then \
