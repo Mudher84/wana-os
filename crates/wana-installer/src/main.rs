@@ -12,12 +12,6 @@ use wana_text::{fonts, sha256};
 const LOG: Subsystem = Subsystem::Shell;
 const WIDTH: u32 = 760;
 const HEIGHT: u32 = 520;
-const BG: u32 = wana_theme::color::BG_DARK;
-const CARD: u32 = wana_theme::color::CARD_DARK;
-const TEXT: u32 = wana_theme::color::TEXT_DARK;
-const DIM: u32 = wana_theme::color::DIM_DARK;
-const ACCENT: u32 = wana_theme::color::ACCENT_BLUE;
-const DANGER: u32 = wana_theme::color::DANGER_STRONG;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Disk {
@@ -108,7 +102,8 @@ fn render(
     selected: usize,
     stage: Stage,
 ) -> Result<Canvas, String> {
-    let mut c = Canvas::new(WIDTH, HEIGHT, BG);
+    let palette = wana_theme::current();
+    let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
     label(&mut c, fonts, "تثبيت وانا", 24.0, 30.0, TEXT)?;
     label(
         &mut c,
@@ -116,7 +111,7 @@ fn render(
         &format!("المصدر: {}", source.display()),
         68.0,
         15.0,
-        DIM,
+        palette.dim,
     )?;
     match stage {
         Stage::Select => {
@@ -135,7 +130,7 @@ fn render(
                     "لا يوجد قرص صالح للتثبيت",
                     170.0,
                     20.0,
-                    DANGER,
+                    palette.danger_strong,
                 )?;
             }
             for (i, d) in list.iter().take(6).enumerate() {
@@ -146,7 +141,7 @@ fn render(
                     y,
                     WIDTH - 64,
                     46,
-                    if i == selected { ACCENT } else { CARD },
+                    if i == selected { palette.accent } else { palette.card },
                 );
                 label(
                     &mut c,
@@ -159,7 +154,14 @@ fn render(
             }
         }
         Stage::Confirm => {
-            fill(&mut c, 32, 150, WIDTH - 64, 180, DANGER);
+            fill(
+                &mut c,
+                32,
+                150,
+                WIDTH - 64,
+                180,
+                palette.danger_strong,
+            );
             label(
                 &mut c,
                 fonts,
@@ -194,7 +196,7 @@ fn render(
                 "اكتمل التثبيت والتحقق من القراءة بنجاح",
                 180.0,
                 24.0,
-                ACCENT,
+                palette.accent,
             )?;
             label(
                 &mut c,
@@ -212,7 +214,7 @@ fn render(
                 "فشل التثبيت — لم يتم اعتماد القرص",
                 190.0,
                 24.0,
-                DANGER,
+                palette.danger_strong,
             )?;
         }
     }

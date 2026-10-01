@@ -8,12 +8,6 @@ use wana_text::raster::{draw, Canvas};
 pub const WIDTH: u32 = 820;
 pub const HEIGHT: u32 = 600;
 
-const BG: u32 = wana_theme::color::BG_DARK;
-const CARD: u32 = wana_theme::color::CARD_DARK;
-const TEXT: u32 = wana_theme::color::TEXT_DARK;
-const DIM: u32 = wana_theme::color::DIM_DARK;
-const ACCENT: u32 = wana_theme::color::ACCENT_TEAL;
-const ALERT: u32 = wana_theme::color::INFO_BLUE;
 
 fn fill(canvas: &mut Canvas, x: u32, y: u32, width: u32, height: u32, rgb: u32) {
     for row in y..(y + height).min(canvas.height) {
@@ -50,7 +44,8 @@ fn short_app(app: &str) -> &str {
 }
 
 pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas, String> {
-    let mut canvas = Canvas::new(WIDTH, HEIGHT, BG);
+    let palette = wana_theme::current();
+    let mut canvas = Canvas::new(WIDTH, HEIGHT, palette.bg);
     label(
         &mut canvas,
         fonts,
@@ -58,7 +53,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
         (36.0, 24.0),
         WIDTH as f32 - 72.0,
         30.0,
-        TEXT,
+        palette.text,
     )?;
     label(
         &mut canvas,
@@ -67,7 +62,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
         (36.0, 68.0),
         WIDTH as f32 - 72.0,
         16.0,
-        DIM,
+        palette.dim,
     )?;
 
     let card_width = 236;
@@ -80,7 +75,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
     .enumerate()
     {
         let x = 28 + index as u32 * 254;
-        fill(&mut canvas, x, 108, card_width, 104, CARD);
+        fill(&mut canvas, x, 108, card_width, 104, palette.card);
         label(
             &mut canvas,
             fonts,
@@ -97,11 +92,11 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
             ((x + 18) as f32, 160.0),
             (card_width - 36) as f32,
             16.0,
-            ACCENT,
+            palette.accent,
         )?;
     }
 
-    fill(&mut canvas, 28, 232, WIDTH - 56, 334, CARD);
+    fill(&mut canvas, 28, 232, WIDTH - 56, 334, palette.card);
     let heading = format!("الإشعارات — {}", notifications.len());
     label(
         &mut canvas,
@@ -110,7 +105,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
         (48.0, 246.0),
         WIDTH as f32 - 96.0,
         22.0,
-        TEXT,
+        palette.text,
     )?;
 
     if notifications.is_empty() {
@@ -139,7 +134,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
                 (48.0, top),
                 WIDTH as f32 - 96.0,
                 16.0,
-                ALERT,
+                palette.info,
             )?;
             label(
                 &mut canvas,

@@ -8,12 +8,6 @@ use wana_text::raster::{draw, Canvas};
 pub const WIDTH: u32 = 820;
 pub const HEIGHT: u32 = 600;
 
-const BG: u32 = wana_theme::color::BG_DARK;
-const CARD: u32 = wana_theme::color::CARD_DARK;
-const TEXT: u32 = wana_theme::color::TEXT_DARK;
-const DIM: u32 = wana_theme::color::DIM_DARK;
-const ALLOW: u32 = wana_theme::color::ACCENT_TEAL;
-const DENY: u32 = wana_theme::color::DANGER;
 
 fn fill(canvas: &mut Canvas, x: u32, y: u32, width: u32, height: u32, rgb: u32) {
     for row in y..(y + height).min(canvas.height) {
@@ -59,14 +53,15 @@ fn permission_ar(permission: &str) -> &str {
 }
 
 pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas, String> {
-    let mut canvas = Canvas::new(WIDTH, HEIGHT, BG);
+    let palette = wana_theme::current();
+    let mut canvas = Canvas::new(WIDTH, HEIGHT, palette.bg);
     label(
         &mut canvas,
         fonts,
         "مركز الأذونات والتدقيق",
         24.0,
         30.0,
-        TEXT,
+        palette.text,
     )?;
     label(
         &mut canvas,
@@ -74,10 +69,10 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
         "كل صلاحية غير مسجلة تُرفض تلقائياً — السجل محلي ومحدود",
         68.0,
         16.0,
-        DIM,
+        palette.dim,
     )?;
 
-    fill(&mut canvas, 28, 112, WIDTH - 56, 184, CARD);
+    fill(&mut canvas, 28, 112, WIDTH - 56, 184, palette.card);
     label(&mut canvas, fonts, "الأذونات", 124.0, 21.0, TEXT)?;
     if rules.is_empty() {
         label(&mut canvas, fonts, "لا توجد قواعد محفوظة", 166.0, 16.0, DIM)?;
@@ -89,9 +84,9 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
                 "مرفوض"
             };
             let color = if rule.decision == Decision::Allow {
-                ALLOW
+                palette.accent
             } else {
-                DENY
+                palette.danger
             };
             let line = format!(
                 "{} — {} — {}",
@@ -110,7 +105,7 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
         }
     }
 
-    fill(&mut canvas, 28, 316, WIDTH - 56, 250, CARD);
+    fill(&mut canvas, 28, 316, WIDTH - 56, 250, palette.card);
     label(&mut canvas, fonts, "آخر أحداث التدقيق", 328.0, 21.0, TEXT)?;
     if audit.is_empty() {
         label(&mut canvas, fonts, "السجل فارغ", 370.0, 16.0, DIM)?;
@@ -135,9 +130,9 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
                 368.0 + index as f32 * 34.0,
                 15.0,
                 if event.decision == Decision::Allow {
-                    ALLOW
+                    palette.accent
                 } else {
-                    DENY
+                    palette.danger
                 },
             )?;
         }
