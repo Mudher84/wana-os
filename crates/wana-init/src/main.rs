@@ -286,6 +286,16 @@ fn spawn_udevd(daemon: &str) -> Option<Child> {
 }
 
 fn prepare_desktop_runtime(problems: &mut Vec<String>) -> bool {
+    if let Err(e) = fs::create_dir_all("/run/dbus") {
+        error!(INIT, "runtime: create /run/dbus: {e}");
+        problems.push("system bus runtime unavailable".into());
+        return false;
+    }
+    if let Err(e) = fs::set_permissions("/run/dbus", fs::Permissions::from_mode(0o755)) {
+        error!(INIT, "runtime: chmod /run/dbus: {e}");
+        problems.push("system bus runtime permissions failed".into());
+        return false;
+    }
     if let Err(e) = fs::create_dir_all(DESKTOP_RUNTIME) {
         error!(INIT, "desktop runtime: create {DESKTOP_RUNTIME}: {e}");
         problems.push("desktop runtime unavailable".into());
