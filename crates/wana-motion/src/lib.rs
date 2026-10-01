@@ -63,8 +63,7 @@ pub fn ease(curve: Curve, step: u32, steps: u32) -> u32 {
                 (4 * x * x * x / u64::from(SCALE * SCALE)) as u32
             } else {
                 let inv = u64::from(SCALE) - x;
-                (u64::from(SCALE)
-                    - 4 * inv * inv * inv / u64::from(SCALE * SCALE)) as u32
+                (u64::from(SCALE) - 4 * inv * inv * inv / u64::from(SCALE * SCALE)) as u32
             }
         }
     }

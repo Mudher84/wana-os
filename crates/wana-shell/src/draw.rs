@@ -306,8 +306,7 @@ mod tests {
     fn launcher_transition_ends_on_the_static_selected_frame() {
         let names = ["نافذة تجريبية", "نص عربي"];
         let fonts = fonts();
-        let final_frame =
-            launcher_transition(&fonts, &names, 0, 1, wana_motion::SCALE).unwrap();
+        let final_frame = launcher_transition(&fonts, &names, 0, 1, wana_motion::SCALE).unwrap();
         assert_eq!(final_frame, launcher(&fonts, &names, 1).unwrap());
 
         let start = launcher_transition(&fonts, &names, 0, 1, 0).unwrap();
