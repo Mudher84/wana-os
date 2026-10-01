@@ -29,6 +29,11 @@ require systemd for Android support.
   service.
 - `wana-android` provides initialization, session start/stop, full UI, APK
   install, package launch, shell and log commands.
+- A provisioned validation disk may contain the root-owned
+  `/var/lib/wana/android-test-package` marker. The normal `ui` command
+  ignores this when absent; when present it validates the package id, launches
+  that already-installed APK, emits `WANA_ANDROID_APK_LAUNCH`, and then opens
+  the full Android UI.
 - Android appears in the Wana launcher and user sessions reuse the native
   `/run/user/1000/wayland-0` display.
 - The release image does not embed a multi-gigabyte Android system image.
@@ -45,8 +50,9 @@ require systemd for Android support.
 2. Boot and report Waydroid 1.6.3 from the Wana image.
 3. Install/provision an official Android image on an expanded test disk.
 4. Start the Android session as uid/gid 1000 through Wana's Wayland socket.
-5. Launch the full Android UI and at least one installed APK without Wana
-   compositor/service errors.
+5. Launch the full Android UI and an already-installed deterministic test APK;
+   the gate must observe both the session-ready and APK-launch markers without
+   Wana compositor/service errors.
 
 ## Evidence
 
