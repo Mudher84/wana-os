@@ -27,6 +27,7 @@ config BR2_PACKAGE_WANA_PLATFORM
 	select BR2_PACKAGE_SBC
 	select BR2_PACKAGE_LIBSNDFILE
 	select BR2_PACKAGE_LXC
+	select BR2_PACKAGE_WANA_WAYDROID
 	help
 	  Wana OS host integration for audio, Bluetooth and compatibility
 	  services. Installs Wana service definitions and management helpers
