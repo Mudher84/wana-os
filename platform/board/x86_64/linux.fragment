@@ -27,6 +27,15 @@ CONFIG_VIRTIO_CONSOLE=y
 CONFIG_VIRTIO_INPUT=y
 CONFIG_HW_RANDOM_VIRTIO=y
 
+# --- Common physical Ethernet controllers (Phase 28) -----------------------
+CONFIG_NET_VENDOR_INTEL=y
+CONFIG_E1000=y
+CONFIG_E1000E=y
+CONFIG_NET_VENDOR_REALTEK=y
+CONFIG_8139CP=y
+CONFIG_8139TOO=y
+CONFIG_R8169=y
+
 # --- Graphics: DRM/KMS (Phase 7) -----------------------------------------
 # simpledrm drives the firmware (UEFI GOP) framebuffer until a native
 # driver takes over; virtio-gpu is the native KMS driver under QEMU.
@@ -35,10 +44,17 @@ CONFIG_DRM_SIMPLEDRM=y
 CONFIG_SYSFB_SIMPLEFB=y
 CONFIG_DRM_VIRTIO_GPU=y
 CONFIG_DRM_BOCHS=y
+CONFIG_DRM_I915=y
+CONFIG_DRM_NOUVEAU=y
+CONFIG_DRM_RADEON=y
 CONFIG_DRM_FBDEV_EMULATION=y
 
 # --- Input (Phase 9): evdev for libinput, USB/virtio HID ------------------
 CONFIG_INPUT_EVDEV=y
+CONFIG_SERIO=y
+CONFIG_SERIO_I8042=y
+CONFIG_KEYBOARD_ATKBD=y
+CONFIG_MOUSE_PS2=y
 CONFIG_HID_GENERIC=y
 CONFIG_USB_HID=y
 CONFIG_USB_XHCI_HCD=y
@@ -46,6 +62,7 @@ CONFIG_USB_XHCI_HCD=y
 # --- Storage and filesystems: installed disk, ESP, live ISO ---------------
 CONFIG_BLK_DEV_NVME=y
 CONFIG_SATA_AHCI=y
+CONFIG_USB_STORAGE=y
 CONFIG_EXT4_FS=y
 CONFIG_VFAT_FS=y
 CONFIG_ISO9660_FS=y
