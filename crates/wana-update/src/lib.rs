@@ -343,6 +343,28 @@ pub fn verify_bundle(dir: &Path) -> Result<Verified, String> {
     })
 }
 
+pub fn verify_staged(dir: &Path) -> Result<Metadata, String> {
+    let text = read_text_regular(&dir.join(UPDATE_FILE), 64 * 1024)?;
+    let metadata = parse_update(&text)?;
+
+    let (rootfs_size, rootfs_sha) = sha256_file(&dir.join(ROOTFS_FILE))?;
+    if rootfs_size != metadata.rootfs_size || rootfs_sha != metadata.rootfs_sha256 {
+        return Err("staged rootfs payload mismatch".into());
+    }
+
+    let (kernel_size, kernel_sha) = sha256_file(&dir.join(KERNEL_FILE))?;
+    if kernel_size != metadata.kernel_size || kernel_sha != metadata.kernel_sha256 {
+        return Err("staged kernel payload mismatch".into());
+    }
+
+    let (initrd_size, initrd_sha) = sha256_file(&dir.join(INITRD_FILE))?;
+    if initrd_size != metadata.initrd_size || initrd_sha != metadata.initrd_sha256 {
+        return Err("staged initrd payload mismatch".into());
+    }
+
+    Ok(metadata)
+}
+
 pub fn effective_uid() -> Result<u32, String> {
     let text = fs::read_to_string("/proc/self/status").map_err(|e| format!("read uid: {e}"))?;
     text.lines()
