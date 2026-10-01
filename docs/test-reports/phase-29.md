@@ -17,7 +17,8 @@ checksums are validated before packaging.
 - Required payload: Live ISO, installed disk image, kernel and compressed
   initramfs.
 - A closed release directory contains the payload, build manifest,
-  `release.json`, and `RELEASE-SHA256SUMS`.
+  `release.json`, and `RELEASE-SHA256SUMS`; the checksum file covers every
+  shipped file except itself, including both metadata files.
 - Beta versions must use `X.Y.Z-beta.N`.
 - `make beta-release-test` reruns critical kernel, boot, graphics, input,
   compositor, application, installer, permissions, security and Phase 28
