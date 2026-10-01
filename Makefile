@@ -482,7 +482,7 @@ layer-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-layer.img "$(LAYER_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-layer.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/layer-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/layer.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/layer.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.078125,0.5=1b3a5c --pixel 0.5,0.3125=1b3a5c \
 		--pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[COMPOSITOR\] info: client: layer "wana-desktop" configured 1280x800' \
@@ -509,7 +509,7 @@ shell-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-shell.img "$(SHELL_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-shell.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/shell-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/shell.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/shell.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[SHELL\] info: desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' \
@@ -572,7 +572,7 @@ dock-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock.img "$(DOCK_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-dock.img --gpu virtio --timeout 260 --memory 1024 \
 		--log out/logs/dock-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/dock.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/dock.ppm \
 		--pixel 0.28125,0.92=3a4560 --pixel 0.5,0.025=0b0f1a --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: dock mapped: 560x64, windows 0, sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-dock" on layer top at 360,736 560x64 \(exclusive zone 0\)' \
