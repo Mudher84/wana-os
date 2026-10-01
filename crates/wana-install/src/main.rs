@@ -61,13 +61,6 @@ fn effective_uid() -> Result<u32, String> {
         .map_err(|e| format!("/proc/self/status: invalid effective uid: {e}"))
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (fs::canonicalize(a), fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
-}
-
 fn validate(a: &Args) -> Result<ValidatedPaths, String> {
     let source_meta = fs::symlink_metadata(&a.image)
         .map_err(|e| format!("installer source {}: {e}", a.image.display()))?;
@@ -84,15 +77,21 @@ fn validate(a: &Args) -> Result<ValidatedPaths, String> {
             a.image.display()
         ));
     }
-    if same_file(&a.image, &a.target) {
-        return Err("installer source and target are the same file/device".into());
-    }
     let expected = format!("ERASE:{}", a.target.display());
     if a.confirm != expected {
         return Err(format!("confirmation mismatch; expected {expected:?}"));
     }
     let meta = fs::symlink_metadata(&a.target)
         .map_err(|e| format!("target {}: {e}", a.target.display()))?;
+    if source_meta.dev() == meta.dev() && source_meta.ino() == meta.ino() {
+        return Err("installer source and target are the same file/device".into());
+    }
+    if source_meta.file_type().is_block_device()
+        && meta.file_type().is_block_device()
+        && source_meta.rdev() == meta.rdev()
+    {
+        return Err("installer source and target refer to the same block device".into());
+    }
     if meta.file_type().is_symlink() {
         return Err(format!(
             "installer target must not be a symlink: {}",
@@ -306,6 +305,25 @@ mod tests {
         let _ = fs::remove_file(src);
         let _ = fs::remove_file(dst);
         let _ = fs::remove_file(old);
+    }
+
+    #[test]
+    fn validation_rejects_hardlinked_source_and_target() {
+        let src = temp("src-hardlink");
+        let dst = temp("dst-hardlink");
+        fs::write(&src, b"image").unwrap();
+        fs::hard_link(&src, &dst).unwrap();
+
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        assert!(validate(&args).is_err());
+
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(dst);
     }
 
     #[test]
