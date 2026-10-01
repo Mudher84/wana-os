@@ -50,7 +50,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 
 | # | Phase | Status |
 |---|-------|--------|
-| 22 | Permissions + audit center | NOT STARTED |
+| 22 | Permissions + audit center | IN PROGRESS |
 | 23 | Security hardening | NOT STARTED |
 | 24 | Notifications + control center | NOT STARTED |
 | 25 | Visual polish | NOT STARTED |

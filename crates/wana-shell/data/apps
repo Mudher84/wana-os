@@ -4,3 +4,4 @@
 نص عربي	/usr/bin/wana-wl-test	--text	--hold	600
 الإعدادات	/usr/bin/wana-settings
 الملفات	/usr/bin/wana-files	--path	/
+الأذونات والخصوصية	/usr/bin/wana-permissions
