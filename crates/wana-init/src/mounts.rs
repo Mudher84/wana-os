@@ -105,14 +105,19 @@ fn verify_mountinfo(text: &str) -> Result<usize, String> {
     let mut verified = 0;
 
     for target in HARDENED_RUNTIME_TARGETS {
-        let options = text.lines().find_map(|line| {
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            (fields.len() > 5 && fields[4] == *target).then_some(fields[5])
-        }).ok_or_else(|| format!("{target}: mount not found"))?;
+        let options = text
+            .lines()
+            .find_map(|line| {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                (fields.len() > 5 && fields[4] == *target).then_some(fields[5])
+            })
+            .ok_or_else(|| format!("{target}: mount not found"))?;
 
         for flag in required {
             if !options.split(',').any(|option| option == flag) {
-                return Err(format!("{target}: missing {flag} in mount options {options}"));
+                return Err(format!(
+                    "{target}: missing {flag} in mount options {options}"
+                ));
             }
         }
         verified += 1;
@@ -178,12 +183,17 @@ mod tests {
 29 1 0:25 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
 30 1 0:26 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
 "#;
-        assert_eq!(verify_mountinfo(good).unwrap(), HARDENED_RUNTIME_TARGETS.len());
+        assert_eq!(
+            verify_mountinfo(good).unwrap(),
+            HARDENED_RUNTIME_TARGETS.len()
+        );
 
         let bad = good.replace(
             "/ /tmp rw,nosuid,nodev,noexec,relatime",
             "/ /tmp rw,nosuid,nodev,relatime",
         );
-        assert!(verify_mountinfo(&bad).unwrap_err().contains("/tmp: missing noexec"));
+        assert!(verify_mountinfo(&bad)
+            .unwrap_err()
+            .contains("/tmp: missing noexec"));
     }
 }
