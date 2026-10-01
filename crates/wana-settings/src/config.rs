@@ -67,6 +67,33 @@ fn secure_metadata(path: &Path) -> Result<Option<fs::Metadata>, String> {
     }
 }
 
+fn secure_parent_directory(parent: &Path) -> Result<(), String> {
+    fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+    let meta = fs::symlink_metadata(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!(
+            "{}: settings directory must be a real directory",
+            parent.display()
+        ));
+    }
+    let euid = effective_uid()?;
+    if meta.uid() != euid {
+        return Err(format!(
+            "{}: settings directory owner uid {} does not match effective uid {euid}",
+            parent.display(),
+            meta.uid()
+        ));
+    }
+    if meta.mode() & 0o022 != 0 {
+        return Err(format!(
+            "{}: settings directory is group/other writable (mode {:o})",
+            parent.display(),
+            meta.mode() & 0o777
+        ));
+    }
+    Ok(())
+}
+
 impl Settings {
     pub fn load(path: &Path) -> Result<Self, String> {
         let Some(before) = secure_metadata(path)? else {
@@ -134,7 +161,7 @@ impl Settings {
 
     pub fn save_atomic(&self, path: &Path) -> Result<(), String> {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+        secure_parent_directory(parent)?;
 
         let file_name = path
             .file_name()
@@ -190,11 +217,20 @@ mod tests {
     static N: AtomicUsize = AtomicUsize::new(0);
 
     fn path() -> PathBuf {
-        std::env::temp_dir().join(format!(
+        let dir = std::env::temp_dir().join(format!(
             "wana-settings-test-{}-{}",
             std::process::id(),
             N.fetch_add(1, Ordering::Relaxed)
-        ))
+        ));
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        dir.join("settings.conf")
+    }
+
+    fn cleanup(path: &Path) {
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir_all(parent);
+        }
     }
 
     #[test]
@@ -213,8 +249,7 @@ mod tests {
         assert_eq!(Settings::load(&p).unwrap(), Settings::default());
         assert!(stale.exists());
 
-        let _ = fs::remove_file(&p);
-        let _ = fs::remove_file(stale);
+        cleanup(&p);
     }
 
     #[test]
@@ -233,7 +268,7 @@ mod tests {
             fs::metadata(&p).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        let _ = fs::remove_file(p);
+        cleanup(&p);
     }
 
     #[test]
@@ -246,8 +281,17 @@ mod tests {
         symlink(&real, &link).unwrap();
         assert!(Settings::load(&link).is_err());
         assert!(Settings::default().save_atomic(&link).is_err());
-        let _ = fs::remove_file(link);
-        let _ = fs::remove_file(real);
+        cleanup(&link);
+        cleanup(&real);
+    }
+
+    #[test]
+    fn insecure_settings_directory_is_rejected() {
+        let p = path();
+        let parent = p.parent().unwrap();
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(Settings::default().save_atomic(&p).is_err());
+        cleanup(&p);
     }
 
     #[test]
