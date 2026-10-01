@@ -3,7 +3,19 @@ set -eu
 
 case "${1:-status}" in
     status)
-        exec bluetoothctl show
+        i=0
+        while [ "$i" -lt 50 ]; do
+            if output=$(bluetoothctl list 2>/dev/null); then
+                count=$(printf '%s\n' "$output" | grep -c '^Controller ' || true)
+                echo "WANA_BLUETOOTH_READY adapters=$count"
+                printf '%s\n' "$output"
+                exit 0
+            fi
+            sleep 0.1
+            i=$((i + 1))
+        done
+        echo "WANA_BLUETOOTH_NOT_READY" >&2
+        exit 1
         ;;
     list)
         exec bluetoothctl devices
