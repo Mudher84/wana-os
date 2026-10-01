@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+images=/var/lib/waydroid/images
+system="$images/system.img"
+vendor="$images/vendor.img"
+
+while [ ! -s "$system" ] || [ ! -s "$vendor" ]; do
+    echo "WANA_ANDROID_CONTAINER_WAIT images=$images"
+    sleep 2
+done
+
+echo "WANA_ANDROID_CONTAINER_START images=$images"
+exec /usr/bin/waydroid container start
