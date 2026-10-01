@@ -510,7 +510,7 @@ shell-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-shell.img "$(SHELL_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-shell.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/shell-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/shell.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/shell.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[SHELL\] info: desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' \
@@ -573,7 +573,7 @@ dock-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock.img "$(DOCK_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-dock.img --gpu virtio --timeout 260 --memory 1024 \
 		--log out/logs/dock-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/dock.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/dock.ppm \
 		--pixel 0.28125,0.92=3a4560 --pixel 0.5,0.025=0b0f1a --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: dock mapped: 560x64, windows 0, sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-dock" on layer top at 360,736 560x64 \(exclusive zone 0\)' \
@@ -594,7 +594,7 @@ settings-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-settings.img "$(SETTINGS_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-settings.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/settings-boot.log \
-		--screendump-on 'settings mapped' --screendump out/test/settings.ppm \
+		--screendump-on 'settings mapped' --screendump-delay-ms 200 --screendump out/test/settings.ppm \
 		--pixel 0.234375,0.225=111827 --pixel 0.25,0.4=1e293b \
 		--expect '\[COMPOSITOR\] info: window mapped: "الإعدادات — وانا" \(org.wana.Settings\) 720x480 at 280,160' \
 		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, sha256 [0-9a-f]{64}' \
@@ -626,7 +626,7 @@ files-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-files.img "$(FILES_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-files.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/files-boot.log \
-		--screendump-on 'files mapped' --screendump out/test/files.ppm \
+		--screendump-on 'files mapped' --screendump-delay-ms 200 --screendump out/test/files.ppm \
 		--pixel 0.21875,0.2=111827 --pixel 0.25,0.36=1e293b \
 		--expect '\[COMPOSITOR\] info: window mapped: "الملفات — وانا" \(org.wana.Files\) 760x520 at 260,140' \
 		--expect '\[SHELL\] info: files mapped: 760x520, path=/etc, entries=[1-9][0-9]*, sha256 [0-9a-f]{64}' \
@@ -747,7 +747,7 @@ permissions-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-permissions.img "$(PERMISSIONS_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-permissions.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/permissions-boot.log \
-		--screendump-on 'permission center mapped' --screendump out/test/permissions.ppm \
+		--screendump-on 'permission center mapped' --screendump-delay-ms 200 --screendump out/test/permissions.ppm \
 		--pixel 0.5,0.35=1e293b --pixel 0.1953125,0.15=111827 \
 		--expect '\[COMPOSITOR\] info: window mapped: "الأذونات والخصوصية — وانا" \(org.wana.Permissions\) 820x600 at 230,100' \
 		--expect '\[SHELL\] info: permission center mapped: 820x600 rules=4 audit=4 sha256 [0-9a-f]{64}' \
@@ -765,7 +765,7 @@ control-center-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-control-center.img "$(CONTROL_CENTER_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-control-center.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/control-center-boot.log \
-		--screendump-on 'control center mapped' --screendump out/test/control-center.ppm \
+		--screendump-on 'control center mapped' --screendump-delay-ms 200 --screendump out/test/control-center.ppm \
 		--pixel 0.5,0.35=1e293b --pixel 0.03,0.10=111827 \
 		--expect '\[COMPOSITOR\] info: window mapped: "مركز التحكم — وانا" \(org.wana.ControlCenter\) 820x600 at 230,100' \
 		--expect '\[SHELL\] info: control center mapped: 820x600 notifications=3 sha256 [0-9a-f]{64}' \
