@@ -15,6 +15,13 @@ without using ccache.
 - Normal installed boot has a dedicated production-session gate: PID 1 prepares
   `/run/user/1000`, starts `wana-services`, and launches the compositor +
   shell as uid/gid 1000 without `wana.run`.
+- The normal service graph now also includes safe root-volume expansion,
+  system/user D-Bus, WPA/DHCP, BlueZ, PipeWire, Pulse compatibility,
+  WirePlumber and the privileged Waydroid container manager.
+- Stable inherits the reproducible extended compatibility gates for audio,
+  Bluetooth, Wine64 and the pinned Waydroid runtime. The Android OTA/session
+  gate remains separate because it intentionally consumes provisioned external
+  Android images rather than changing release reproducibility.
 - `make stable-bundle VERSION=X.Y.Z` accepts only a stable version without a
   prerelease suffix and reuses the already-tested image.
 - Release versions are bound to `[workspace.package].version`.
@@ -72,7 +79,8 @@ Phase 30 is PASS only when an actual stable candidate has:
    version;
 9. the production desktop gate proves the compositor/shell session runs as
    uid/gid 1000 with `/run/user/1000` and no inherited root supplementary
-   groups.
+   groups;
+10. the reproducible Phase 31–34 runtime payload gates pass.
 
 Until that evidence exists, Wana OS is not labeled Stable.
 
