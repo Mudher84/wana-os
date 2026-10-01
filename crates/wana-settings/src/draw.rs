@@ -120,8 +120,10 @@ mod tests {
         let dark = settings(&fonts(), &Settings::default()).unwrap();
         assert_eq!((dark.width, dark.height), (WIDTH, HEIGHT));
         assert_eq!(dark, settings(&fonts(), &Settings::default()).unwrap());
-        let mut light = Settings::default();
-        light.theme = "light".into();
+        let light = Settings {
+            theme: "light".into(),
+            ..Settings::default()
+        };
         assert_ne!(dark, settings(&fonts(), &light).unwrap());
     }
 }
