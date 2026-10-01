@@ -69,6 +69,13 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 33 | Windows compatibility — native Wayland Wine64 runtime ([phase 33 report](test-reports/phase-33.md)) | IN PROGRESS |
 | 34 | Android compatibility + elastic installed storage — Waydroid/LXC/Binder and automatic root expansion ([phase 34 report](test-reports/phase-34.md)) | IN PROGRESS |
 
-Implementation for phases 12–34 is allowed to land before evidence is collected.
+## Milestone 7: System lifecycle
+
+| # | Phase | Status |
+|---|-------|--------|
+| 35 | Power + session lifecycle — peer-authenticated shutdown/reboot broker and native confirmation UI ([phase 35 report](test-reports/phase-35.md)) | IN PROGRESS |
+| 36 | Atomic A/B system updates + trial-boot rollback + recovery entries ([phase 36 report](test-reports/phase-36.md)) | IN PROGRESS |
+
+Implementation for phases 12–36 is allowed to land before evidence is collected.
 No phase is promoted to PASS until its final exit gate has actually run and the
 resulting evidence is recorded.
