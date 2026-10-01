@@ -8,6 +8,7 @@ config BR2_PACKAGE_WANA_WINE64
 	select BR2_PACKAGE_DBUS
 	select BR2_PACKAGE_FONTCONFIG
 	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_PULSEAUDIO
 	help
 	  Wana OS 64-bit Wine compatibility runtime built with the native
 	  Wayland driver. This avoids the i386-only constraint of Buildroot's
