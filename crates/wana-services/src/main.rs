@@ -53,7 +53,10 @@ fn effective_uid() -> Result<u32, String> {
 fn secure_directory(path: &Path) -> Result<(), String> {
     let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
-        return Err(format!("{}: service directory must be a real directory", path.display()));
+        return Err(format!(
+            "{}: service directory must be a real directory",
+            path.display()
+        ));
     }
     let euid = effective_uid()?;
     if meta.uid() != euid {
@@ -76,7 +79,10 @@ fn secure_directory(path: &Path) -> Result<(), String> {
 fn read_secure_service(path: &Path) -> Result<String, String> {
     let before = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if before.file_type().is_symlink() || !before.is_file() {
-        return Err(format!("{}: service config must be a regular non-symlink file", path.display()));
+        return Err(format!(
+            "{}: service config must be a regular non-symlink file",
+            path.display()
+        ));
     }
     let euid = effective_uid()?;
     if before.uid() != euid {
@@ -99,7 +105,10 @@ fn read_secure_service(path: &Path) -> Result<String, String> {
         .metadata()
         .map_err(|e| format!("metadata {}: {e}", path.display()))?;
     if before.dev() != opened.dev() || before.ino() != opened.ino() {
-        return Err(format!("{}: service config changed while opening", path.display()));
+        return Err(format!(
+            "{}: service config changed while opening",
+            path.display()
+        ));
     }
 
     let mut text = String::new();
