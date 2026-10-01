@@ -27,6 +27,7 @@ struct Service {
     restart: Restart,
     uid: u32,
     gid: u32,
+    home: Option<PathBuf>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -126,6 +127,7 @@ fn parse(path: &Path) -> Result<Service, String> {
     let mut restart = Restart::Never;
     let mut uid = 0u32;
     let mut gid = 0u32;
+    let mut home = None;
     let mut seen = BTreeSet::new();
 
     for (line_no, raw) in text.lines().enumerate() {
@@ -207,6 +209,17 @@ fn parse(path: &Path) -> Result<Service, String> {
                     .parse()
                     .map_err(|_| format!("{}:{}: invalid gid", path.display(), line_no + 1))?
             }
+            "home" => {
+                let p = PathBuf::from(value);
+                if !p.is_absolute() || value.split('/').any(|part| part == "..") {
+                    return Err(format!(
+                        "{}:{}: home must be an absolute safe path",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                home = Some(p);
+            }
             _ => {
                 return Err(format!(
                     "{}:{}: unknown field {key}",
@@ -225,6 +238,7 @@ fn parse(path: &Path) -> Result<Service, String> {
         restart,
         uid,
         gid,
+        home,
     })
 }
 
@@ -292,6 +306,9 @@ fn spawn(s: &Service) -> Result<Child, String> {
         .uid(s.uid)
         .gid(s.gid)
         .current_dir("/");
+    if let Some(home) = &s.home {
+        cmd.env("HOME", home);
+    }
     let child = cmd
         .spawn()
         .map_err(|e| format!("{}: {}: {e}", s.name, s.exec.display()))?;
@@ -414,6 +431,7 @@ mod tests {
         assert_eq!(order(&map).unwrap(), ["a", "b"]);
         assert_eq!(map["b"].uid, 10);
         assert_eq!(map["b"].gid, 20);
+        assert_eq!(map["b"].home, None);
         let _ = fs::remove_dir_all(d);
     }
 
