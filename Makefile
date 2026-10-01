@@ -972,10 +972,21 @@ android-session-boot-test:
 	@test -n "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: ANDROID_TEST_DISK is required (pre-provisioned image)" >&2; exit 2; }
 	@test -s "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: missing $(ANDROID_TEST_DISK)" >&2; exit 2; }
 	mkdir -p out/logs
-	tools/qemu-graphics-test.py --disk "$(ANDROID_TEST_DISK)" --gpu virtio --timeout 420 --memory 3072 \
+	tools/qemu-graphics-test.py --disk "$(ANDROID_TEST_DISK)" --gpu virtio --input virtio --timeout 420 --memory 3072 \
 		--log out/logs/android-session-boot.log \
-		--send-on '\[SHELL\] info: ready' --send 'sendkey meta_l' \
-		--expect '\[SHELL\] info: ready' \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/7' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/7' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/7' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/7' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/7' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/7' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/7 "أندرويد"' \
+		--send 'sendkey ret' \
+		--send 'wait:WANA_ANDROID_SESSION_READY display=wayland-0' --send 'quit' \
+		--expect '\[SHELL\] info: apps: 7 from /usr/share/wana-shell/apps' \
+		--expect '\[SHELL\] info: app "أندرويد": /usr/bin/wana-android ui \(pid [0-9]+\)' \
 		--expect 'WANA_ANDROID_SESSION_READY display=wayland-0' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
