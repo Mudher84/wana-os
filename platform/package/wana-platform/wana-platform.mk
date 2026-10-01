@@ -20,6 +20,7 @@ define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/services/30-pipewire.service $(TARGET_DIR)/etc/wana/services.d/pipewire.service
 	$(INSTALL) -D -m 0644 $(@D)/services/35-pipewire-pulse.service $(TARGET_DIR)/etc/wana/services.d/pipewire-pulse.service
 	$(INSTALL) -D -m 0644 $(@D)/services/40-wireplumber.service $(TARGET_DIR)/etc/wana/services.d/wireplumber.service
+	$(INSTALL) -D -m 0644 $(@D)/services/45-power.service $(TARGET_DIR)/etc/wana/services.d/power.service
 	$(INSTALL) -D -m 0644 $(@D)/services/50-waydroid-container.service $(TARGET_DIR)/etc/wana/services.d/waydroid-container.service
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-grow-root $(TARGET_DIR)/usr/bin/wana-grow-root
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-audio $(TARGET_DIR)/usr/bin/wana-audio

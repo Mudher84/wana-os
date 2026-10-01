@@ -104,6 +104,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-power"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
 name = "wana-render"
 version = "0.1.0"
 dependencies = [
