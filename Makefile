@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check windows-compatibility-boot-test android-compatibility-boot-test extended-compatibility-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test extended-compatibility-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -907,6 +907,28 @@ compatibility-image-check:
 	@test -x $(BR_OUT)/target/usr/bin/wine64 || test -x $(BR_OUT)/target/usr/bin/wine
 	@echo "[COMPAT] image payload: PASS"
 
+AUDIO_COMPAT_ARGS := wana.run=/usr/bin/wana-audio,status wana.services=1 wana.test=poweroff wana.shell=0
+audio-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-audio-compat.img "$(AUDIO_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-audio-compat.img \
+		--log out/logs/audio-compatibility-boot.log --timeout 180 \
+		--expect 'WANA_AUDIO_READY runtime=/run/user/1000' \
+		--expect '\[INIT\] info: /usr/bin/wana-audio exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+BLUETOOTH_COMPAT_ARGS := wana.run=/usr/bin/wana-bluetooth,status wana.services=1 wana.test=poweroff wana.shell=0
+bluetooth-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-bluetooth-compat.img "$(BLUETOOTH_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-bluetooth-compat.img \
+		--log out/logs/bluetooth-compatibility-boot.log --timeout 180 \
+		--expect 'WANA_BLUETOOTH_READY adapters=[0-9]+' \
+		--expect '\[INIT\] info: /usr/bin/wana-bluetooth exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
 WINDOWS_COMPAT_ARGS := wana.run=/usr/bin/wana-winrun,--version wana.test=poweroff wana.shell=0
 windows-compatibility-boot-test:
 	mkdir -p out/logs out/test
@@ -932,6 +954,8 @@ android-compatibility-boot-test:
 extended-compatibility-test:
 	$(MAKE) compatibility-image-check
 	$(MAKE) production-session-boot-test
+	$(MAKE) audio-compatibility-boot-test
+	$(MAKE) bluetooth-compatibility-boot-test
 	$(MAKE) windows-compatibility-boot-test
 	$(MAKE) android-compatibility-boot-test
 
