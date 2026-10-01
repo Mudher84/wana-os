@@ -5,7 +5,7 @@ use wana_log::{error, info, Subsystem};
 const LOG: Subsystem = Subsystem::Security;
 
 fn usage() -> String {
-    "usage: wana-update {verify BUNDLE_DIR|stage BUNDLE_DIR|status|clear}".into()
+    "usage: wana-update {verify BUNDLE_DIR|stage BUNDLE_DIR|fetch-stage|status|clear}".into()
 }
 
 fn run() -> Result<(), String> {
@@ -42,6 +42,22 @@ fn run() -> Result<(), String> {
                 metadata.version,
                 metadata.commit
             );
+            Ok(())
+        }
+        Some("fetch-stage") => {
+            if args.next().is_some() {
+                return Err(usage());
+            }
+            match wana_update::fetch_latest_and_stage()? {
+                wana_update::FetchOutcome::Current(metadata) => println!(
+                    "WANA_UPDATE_CURRENT version={} commit={}",
+                    metadata.version, metadata.commit
+                ),
+                wana_update::FetchOutcome::Staged(metadata) => println!(
+                    "WANA_UPDATE_STAGED version={} commit={}",
+                    metadata.version, metadata.commit
+                ),
+            }
             Ok(())
         }
         Some("status") => {
