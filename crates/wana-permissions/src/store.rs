@@ -24,7 +24,9 @@ impl Decision {
         match value {
             "allow" => Ok(Self::Allow),
             "deny" => Ok(Self::Deny),
-            _ => Err(format!("invalid decision {value:?}; expected allow or deny")),
+            _ => Err(format!(
+                "invalid decision {value:?}; expected allow or deny"
+            )),
         }
     }
 
@@ -154,10 +156,7 @@ impl Store {
 
         let mut text = String::new();
         for ((app, permission), decision) in map {
-            text.push_str(&format!(
-                "{app}\t{permission}\t{}\n",
-                decision.as_str()
-            ));
+            text.push_str(&format!("{app}\t{permission}\t{}\n", decision.as_str()));
         }
         write_atomic(&self.root, &self.policy_path(), &text)?;
         self.append_audit("policy-set", actor, app, permission, decision)
@@ -242,7 +241,9 @@ impl Store {
         decision: Decision,
     ) -> Result<(), String> {
         let mut entries = self.audit()?;
-        let seq = entries.last().map_or(1, |entry| entry.seq.saturating_add(1));
+        let seq = entries
+            .last()
+            .map_or(1, |entry| entry.seq.saturating_add(1));
         entries.push(Audit {
             seq,
             action: action.into(),
@@ -339,7 +340,10 @@ fn ensure_dir(root: &Path) -> Result<(), String> {
         .map_err(|e| format!("create {}: {e}", root.display()))?;
     let meta = fs::symlink_metadata(root).map_err(|e| format!("{}: {e}", root.display()))?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
-        return Err(format!("{}: permission store is not a real directory", root.display()));
+        return Err(format!(
+            "{}: permission store is not a real directory",
+            root.display()
+        ));
     }
     let euid = effective_uid()?;
     if meta.uid() != euid {
@@ -426,12 +430,7 @@ mod tests {
             Decision::Deny
         );
         store
-            .set(
-                "settings",
-                "org.wana.Files",
-                "files.read",
-                Decision::Allow,
-            )
+            .set("settings", "org.wana.Files", "files.read", Decision::Allow)
             .unwrap();
         assert_eq!(
             store.decision("org.wana.Files", "files.read").unwrap(),
