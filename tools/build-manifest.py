@@ -55,7 +55,7 @@ def read_kv(path: Path) -> dict:
 
 def git_info() -> dict:
     commit = run("git", "rev-parse", "HEAD", cwd=ROOT)
-    dirty = bool(run("git", "status", "--porcelain", "--untracked-files=no", cwd=ROOT))
+    dirty = bool(run("git", "status", "--porcelain", cwd=ROOT))
     return {
         "commit": commit or None,
         "describe": run("git", "describe", "--always", "--dirty", "--tags", cwd=ROOT) or None,
