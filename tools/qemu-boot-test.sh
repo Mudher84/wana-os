@@ -5,16 +5,16 @@
 #
 # Usage:
 #   tools/qemu-boot-test.sh (--kernel bzImage [--initrd file] [--append "args"] | --disk disk.img)
-#                           [--disk-bus virtio|nvme] [--timeout secs] [--log file]
+#                           [--disk-bus virtio|nvme] [--persistent-disk] [--timeout secs] [--log file]
 #                           [--input-after SECS TEXT] --expect REGEX...
 #
 # --disk boots a whole disk image through the firmware. --disk-bus selects
-# virtio-blk (default) or NVMe; snapshot mode never writes the source image.
+# virtio-blk (default) or NVMe; snapshot mode never writes the source image.\n# --persistent-disk explicitly disables snapshot mode for multi-boot mutation tests.
 # --input-after types TEXT (printf escapes allowed, e.g. 'exit\n') on the
 # serial console SECS seconds after QEMU starts.
 set -eu
 
-kernel= disk= initrd= append= disk_bus=virtio timeout=120 log=qemu-serial.log
+kernel= disk= initrd= append= disk_bus=virtio persistent_disk=0 timeout=120 log=qemu-serial.log
 input_delay= input_text=
 expects=$(mktemp)
 trap 'rm -f "$expects" "${vars:-}"' EXIT
@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --kernel) kernel=$2; shift 2 ;;
         --disk) disk=$2; shift 2 ;;
-        --disk-bus) disk_bus=$2; shift 2 ;;
+        --disk-bus) disk_bus=$2; shift 2 ;;\n        --persistent-disk) persistent_disk=1; shift ;;
         --initrd) initrd=$2; shift 2 ;;
         --append) append=$2; shift 2 ;;
         --timeout) timeout=$2; shift 2 ;;
@@ -53,17 +53,19 @@ cp "$ovmf_vars_src" "$vars"
 accel=tcg
 [ -w /dev/kvm ] && accel=kvm
 
-echo "[BOOT] info: qemu accel=$accel firmware=$ovmf_code ${disk:+disk=$disk bus=$disk_bus}${kernel:+kernel=$kernel} timeout=${timeout}s"
+echo "[BOOT] info: qemu accel=$accel firmware=$ovmf_code ${disk:+disk=$disk bus=$disk_bus persistent=$persistent_disk}${kernel:+kernel=$kernel} timeout=${timeout}s"
 set -- -machine q35,accel=$accel -m 1024 -smp 2 -nographic -no-reboot \
     -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
     -drive if=pflash,format=raw,file="$vars"
 if [ -n "$disk" ]; then
+    snapshot=on
+    [ "$persistent_disk" -eq 1 ] && snapshot=off
     if [ "$disk_bus" = nvme ]; then
         set -- "$@" \
-            -drive file="$disk",if=none,id=wana-disk0,format=raw,snapshot=on \
+            -drive file="$disk",if=none,id=wana-disk0,format=raw,snapshot="$snapshot" \
             -device nvme,drive=wana-disk0,serial=WANA0001
     else
-        set -- "$@" -drive file="$disk",if=virtio,format=raw,snapshot=on
+        set -- "$@" -drive file="$disk",if=virtio,format=raw,snapshot="$snapshot"
     fi
 else
     set -- "$@" -kernel "$kernel" -append "console=ttyS0 panic=-1 $append"
