@@ -40,6 +40,7 @@ define WANA_COMPOSITOR_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(WANA_COMPOSITOR_BIN_DIR)/wana-control-center $(TARGET_DIR)/usr/bin/wana-control-center
 	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps $(TARGET_DIR)/etc/wana/apps
 	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps.test $(TARGET_DIR)/usr/share/wana-shell/apps.test
+	$(INSTALL) -D -m 0644 $(BR2_EXTERNAL_WANA_PATH)/board/x86_64/desktop.service $(TARGET_DIR)/etc/wana/services.d/desktop.service
 endef
 
 $(eval $(cargo-package))
