@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+[ "$#" -gt 0 ] || {
+    echo "usage: wana-winrun PROGRAM.exe [arguments...]" >&2
+    exit 2
+}
+
+prefix=${WANA_WINEPREFIX:-${HOME:-/home/wana}/.local/share/wana/wine}
+mkdir -p "$prefix"
+export WINEPREFIX="$prefix"
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+
+if command -v wine64 >/dev/null 2>&1; then
+    exec wine64 "$@"
+fi
+if command -v wine >/dev/null 2>&1; then
+    exec wine "$@"
+fi
+
+echo "wana-winrun: Wine runtime is not installed in this image" >&2
+exit 127
