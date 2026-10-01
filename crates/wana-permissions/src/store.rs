@@ -241,9 +241,13 @@ impl Store {
         decision: Decision,
     ) -> Result<(), String> {
         let mut entries = self.audit()?;
-        let seq = entries
-            .last()
-            .map_or(1, |entry| entry.seq.saturating_add(1));
+        let seq = match entries.last() {
+            Some(entry) => entry
+                .seq
+                .checked_add(1)
+                .ok_or("audit sequence exhausted")?,
+            None => 1,
+        };
         entries.push(Audit {
             seq,
             action: action.into(),
@@ -357,6 +361,29 @@ fn ensure_dir(root: &Path) -> Result<(), String> {
         .map_err(|e| format!("chmod {}: {e}", root.display()))
 }
 
+fn create_temp(root: &Path, name: &str) -> Result<(PathBuf, File), String> {
+    for attempt in 0..64u32 {
+        let path = root.join(format!(
+            ".{name}.tmp-{}-{attempt}",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("create {}: {e}", path.display())),
+        }
+    }
+    Err(format!(
+        "{}: no free atomic temp slot after 64 attempts",
+        root.display()
+    ))
+}
+
 fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
     ensure_dir(root)?;
     secure_metadata(path)?;
@@ -365,14 +392,8 @@ fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| format!("invalid store path {}", path.display()))?;
-    let tmp = root.join(format!(".{name}.tmp-{}", std::process::id()));
+    let (tmp, mut file) = create_temp(root, name)?;
     let result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
         file.write_all(text.as_bytes())
             .map_err(|e| format!("write {}: {e}", tmp.display()))?;
         file.sync_all()
@@ -480,4 +501,49 @@ mod tests {
         assert!(store.rules().is_err());
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn stale_temp_slot_does_not_block_policy_write() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let stale = root.join(format!(
+            ".policy.tsv.tmp-{}-0",
+            std::process::id()
+        ));
+        fs::write(&stale, "stale").unwrap();
+
+        let store = Store::new(&root);
+        store
+            .set("org.wana.Test", "files.read", Decision::Allow, "tester")
+            .expect("a second temp slot must be used");
+        assert_eq!(store.policy().unwrap().len(), 1);
+        assert!(stale.exists(), "unrelated stale temp is left untouched");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn audit_sequence_exhaustion_is_rejected_without_rewrite() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let audit = root.join("audit.tsv");
+        fs::write(
+            &audit,
+            format!(
+                "{}\tset\ttester\torg.wana.Test\tfiles.read\tallow\n",
+                u64::MAX
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&audit, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&audit).unwrap();
+
+        let store = Store::new(&root);
+        assert!(store
+            .set("org.wana.Test", "files.read", Decision::Allow, "tester")
+            .unwrap_err()
+            .contains("audit sequence exhausted"));
+        assert_eq!(fs::read(&audit).unwrap(), before);
+        let _ = fs::remove_dir_all(root);
+    }
+
 }
