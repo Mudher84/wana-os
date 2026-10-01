@@ -44,6 +44,9 @@ const UPDATE_DATA_MOUNT: &str = "/run/wana-update-data";
 const UPDATE_NEW_ROOT: &str = "/run/wana-update-new";
 const UPDATE_ESP_MOUNT: &str = "/run/wana-update-esp";
 const UPDATE_ESP_DEVICE: &str = "/dev/disk/by-label/WANA-ESP";
+const SERVICES_READY_MARKER: &str = "/run/wana/services.ready";
+const UPDATE_STATE_ROOT: &str = "/var/lib/wana/update";
+const UPDATE_TRIAL_FILE: &str = "/var/lib/wana/update/trial-boot.cfg";
 
 fn main() {
     let pid = std::process::id();
@@ -164,6 +167,34 @@ fn main() {
         );
         None
     };
+
+    if !opts.live
+        && !opts.update
+        && opts.run.is_none()
+        && opts.test.is_none()
+        && want_services
+    {
+        if !wait_for_path(Path::new(SERVICES_READY_MARKER), Duration::from_secs(20)) {
+            error!(INIT, "services readiness marker did not appear: {SERVICES_READY_MARKER}");
+            problems.push("service graph did not become ready".into());
+        }
+        match settle_trial_boot(opts.active_slot, problems.is_empty()) {
+            Ok(Some(previous)) => {
+                warn!(
+                    INIT,
+                    "trial boot failed; restoring previous slot={previous} and rebooting"
+                );
+                let err = sys::halt(Halt::Reboot);
+                error!(INIT, "rollback reboot failed: {err}");
+                supervise(false, udevd, services);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                error!(INIT, "trial boot state: {e}");
+                problems.push("trial boot state invalid".into());
+            }
+        }
+    }
 
     let uptime = read_first_field("/proc/uptime").unwrap_or_else(|| "?".into());
     if problems.is_empty() {
@@ -453,6 +484,105 @@ fn finish_update_state(pending: &Path, update_root: &Path) -> Result<(), String>
         .map_err(|e| format!("sync {}: {e}", update_root.display()))
 }
 
+fn write_trial_boot(update_root: &Path, previous: char, next: char) -> Result<(), String> {
+    let path = update_root.join("trial-boot.cfg");
+    let temp = update_root.join(format!(".trial-boot.tmp-{}", std::process::id()));
+    if let Ok(meta) = fs::symlink_metadata(&temp) {
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            return Err(format!("unsafe stale trial temp {}", temp.display()));
+        }
+        fs::remove_file(&temp).map_err(|e| format!("remove {}: {e}", temp.display()))?;
+    }
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|e| format!("create {}: {e}", temp.display()))?;
+    writeln!(file, "previous={previous}\nnext={next}")
+        .map_err(|e| format!("write {}: {e}", temp.display()))?;
+    file.sync_all()
+        .map_err(|e| format!("sync {}: {e}", temp.display()))?;
+    fs::rename(&temp, &path)
+        .map_err(|e| format!("replace {}: {e}", path.display()))?;
+    File::open(update_root)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("sync {}: {e}", update_root.display()))
+}
+
+fn read_trial_boot() -> Result<Option<(char, char)>, String> {
+    let path = Path::new(UPDATE_TRIAL_FILE);
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.uid() != 0 || meta.len() > 128 {
+        return Err(format!("{}: unsafe trial state", path.display()));
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let mut previous = None;
+    let mut next = None;
+    for line in text.lines() {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| format!("{}: malformed trial state", path.display()))?;
+        let slot = match value {
+            "A" => 'A',
+            "B" => 'B',
+            _ => return Err(format!("{}: invalid slot {value:?}", path.display())),
+        };
+        match key {
+            "previous" if previous.is_none() => previous = Some(slot),
+            "next" if next.is_none() => next = Some(slot),
+            _ => return Err(format!("{}: duplicate/unknown field {key:?}", path.display())),
+        }
+    }
+    let previous = previous.ok_or_else(|| format!("{}: missing previous", path.display()))?;
+    let next = next.ok_or_else(|| format!("{}: missing next", path.display()))?;
+    if previous == next {
+        return Err(format!("{}: previous and next slots are identical", path.display()));
+    }
+    Ok(Some((previous, next)))
+}
+
+fn remove_trial_boot() -> Result<(), String> {
+    match fs::remove_file(UPDATE_TRIAL_FILE) {
+        Ok(()) => {
+            File::open(UPDATE_STATE_ROOT)
+                .and_then(|dir| dir.sync_all())
+                .map_err(|e| format!("sync {UPDATE_STATE_ROOT}: {e}"))?;
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("remove {UPDATE_TRIAL_FILE}: {e}")),
+    }
+}
+
+fn settle_trial_boot(active: char, healthy: bool) -> Result<Option<char>, String> {
+    let Some((previous, next)) = read_trial_boot()? else {
+        return Ok(None);
+    };
+    if active == previous {
+        info!(INIT, "trial boot already on previous slot={previous}; clearing trial state");
+        remove_trial_boot()?;
+        return Ok(None);
+    }
+    if active != next {
+        return Err(format!(
+            "trial boot active slot {active} matches neither previous={previous} nor next={next}"
+        ));
+    }
+    if healthy {
+        info!(INIT, "trial boot confirmed: slot={next}");
+        remove_trial_boot()?;
+        return Ok(None);
+    }
+    write_slot_selector(Path::new(UPDATE_STATE_ROOT), previous)?;
+    remove_trial_boot()?;
+    Ok(Some(previous))
+}
+
 fn apply_staged_update(opts: &cmdline::Options) -> Result<char, String> {
     let data_spec = opts.data.as_deref().ok_or("update boot missing wana.data")?;
     let root_a = opts.root_a.as_deref().ok_or("update boot missing wana.root_a")?;
@@ -520,8 +650,13 @@ fn apply_staged_update(opts: &cmdline::Options) -> Result<char, String> {
     // Pending is removed before the selector changes. If power is lost here,
     // GRUB still boots the old active slot rather than re-entering update mode.
     finish_update_state(&pending, &update_root)?;
+    write_trial_boot(&update_root, opts.active_slot, inactive)?;
     write_slot_selector(&update_root, inactive)?;
-    info!(INIT, "update selector committed: slot={inactive}");
+    info!(
+        INIT,
+        "update selector committed: slot={inactive}; previous={} trial=armed",
+        opts.active_slot
+    );
     Ok(inactive)
 }
 
