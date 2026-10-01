@@ -4,6 +4,7 @@ exec=/usr/bin/dbus-daemon
 arg=--system
 arg=--nofork
 arg=--nopidfile
+ready_path=/run/dbus/system_bus_socket
 restart=always
 uid=0
 gid=0
