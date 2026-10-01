@@ -25,32 +25,32 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 9 | Input stack (udev + libinput -> wana-input): QEMU-injected keys, pointer and click decoded by `wana-input` in the Buildroot image, in CI ([phase 09 report](test-reports/phase-09.md)) | PASS |
 | 10 | Compositor MVP (surfaces, focus, z-order, pointer, keyboard) on libwayland-server ([decision 0001](decisions/0001-wayland-protocol-layer.md), [phase 10 report](test-reports/phase-10.md)): client windows composited with GLES, input routed to the focused client, click-to-raise, client cursors; CI boot tests with screenshot pixels; reproducible 12/12 | PASS |
 | 11 | Desktop shell MVP; Arabic text stack, privileged layer-shell, desktop/top bar, launcher, live Dock via ext-foreign-toplevel-list-v1, bounded shell restart, descriptor isolation; CI + Buildroot/QEMU + reproducibility PASS ([decision 0002](decisions/0002-text-stack.md), [decision 0003](decisions/0003-shell-surfaces.md), [phase 11 report](test-reports/phase-11.md)) | PASS |
-| 12 | Window management | NOT STARTED |
+| 12 | Window management ([phase 12 report](test-reports/phase-12.md)) | IN PROGRESS |
 
 ## Milestone 3: Usable desktop
 
 | # | Phase | Status |
 |---|-------|--------|
-| 13 | Dock + launcher | NOT STARTED |
-| 14 | Settings | NOT STARTED |
-| 15 | Networking | NOT STARTED |
-| 16 | Files | NOT STARTED |
-| 17 | System services | NOT STARTED |
+| 13 | Dock + launcher ([phase 13 report](test-reports/phase-13.md)) | IN PROGRESS |
+| 14 | Settings ([phase 14 report](test-reports/phase-14.md)) | IN PROGRESS |
+| 15 | Networking ([phase 15 report](test-reports/phase-15.md)) | IN PROGRESS |
+| 16 | Files ([phase 16 report](test-reports/phase-16.md)) | IN PROGRESS |
+| 17 | System services ([phase 17 report](test-reports/phase-17.md)) | IN PROGRESS |
 
 ## Milestone 4: Installable system
 
 | # | Phase | Status |
 |---|-------|--------|
-| 18 | Live ISO | NOT STARTED |
-| 19 | Installer core | NOT STARTED |
-| 20 | Installer GUI | NOT STARTED |
-| 21 | Installed-disk boot | NOT STARTED |
+| 18 | Live ISO ([phase 18 report](test-reports/phase-18.md)) | IN PROGRESS |
+| 19 | Installer core ([phase 19 report](test-reports/phase-19.md)) | IN PROGRESS |
+| 20 | Installer GUI ([phase 20 report](test-reports/phase-20.md)) | IN PROGRESS |
+| 21 | Installed-disk boot ([phase 21 report](test-reports/phase-21.md)) | IN PROGRESS |
 
 ## Milestone 5: Product quality
 
 | # | Phase | Status |
 |---|-------|--------|
-| 22 | Permissions + audit center | IN PROGRESS |
+| 22 | Permissions + audit center ([phase 22 report](test-reports/phase-22.md)) | IN PROGRESS |
 | 23 | Security hardening ([phase 23 report](test-reports/phase-23.md)) | IN PROGRESS |
 | 24 | Notifications + control center ([phase 24 report](test-reports/phase-24.md)) | IN PROGRESS |
 | 25 | Visual polish ([phase 25 report](test-reports/phase-25.md)) | IN PROGRESS |
