@@ -129,7 +129,8 @@ def main() -> int:
             "sha256": entries[name]["sha256"],
         })
 
-    shutil.copyfile(manifest_path, args.out / manifest_path.name)
+    bundle_manifest = args.out / manifest_path.name
+    shutil.copyfile(manifest_path, bundle_manifest)
     metadata = {
         "schema": 1,
         "project": "wana-os",
@@ -138,12 +139,18 @@ def main() -> int:
         "commit": commit,
         "payload": release_entries,
     }
-    (args.out / "release.json").write_text(
+    release_json = args.out / "release.json"
+    release_json.write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )
+
+    # Close the release directory over every shipped file except the checksum
+    # file itself. This lets recipients verify not only payload bytes but also
+    # the build provenance and release metadata that describe those bytes.
+    closed_files = [*(args.out / name for name in PAYLOAD), bundle_manifest, release_json]
     with (args.out / "RELEASE-SHA256SUMS").open("w") as output:
-        for entry in release_entries:
-            output.write(f"{entry['sha256']}  {entry['path']}\n")
+        for path in closed_files:
+            output.write(f"{sha256(path)}  {path.name}\n")
 
     print(
         f"[RELEASE] {args.channel} {args.version}: PASS "
