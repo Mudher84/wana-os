@@ -62,7 +62,12 @@ pub struct Store {
 
 impl Store {
     pub fn system() -> Self {
-        Self::new("/var/lib/wana/permissions")
+        let root = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .map(|home| home.join(".local/state/wana/permissions"))
+            .unwrap_or_else(|| PathBuf::from("/var/lib/wana/permissions"));
+        Self::new(root)
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {
