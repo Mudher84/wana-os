@@ -441,12 +441,7 @@ mod tests {
 
         let store = Store::new(&root);
         store
-            .set(
-                "system",
-                "org.wana.Files",
-                "files.read",
-                Decision::Allow,
-            )
+            .set("system", "org.wana.Files", "files.read", Decision::Allow)
             .unwrap();
         assert_eq!(
             store.decision("org.wana.Files", "files.read").unwrap(),
