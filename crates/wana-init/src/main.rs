@@ -103,7 +103,16 @@ fn main() {
         }
     }
 
-    let services = start_services(&mut problems);
+    let want_services = opts.services.unwrap_or(opts.run.is_none());
+    let services = if want_services {
+        start_services(&mut problems)
+    } else {
+        info!(
+            INIT,
+            "services: disabled for one-shot wana.run boot (set wana.services=1 to override)"
+        );
+        None
+    };
 
     let uptime = read_first_field("/proc/uptime").unwrap_or_else(|| "?".into());
     if problems.is_empty() {
