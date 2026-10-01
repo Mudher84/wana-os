@@ -283,10 +283,7 @@ fn prepare_desktop_runtime(problems: &mut Vec<String>) -> bool {
         problems.push("desktop runtime unavailable".into());
         return false;
     }
-    if let Err(e) = fs::set_permissions(
-        DESKTOP_RUNTIME,
-        fs::Permissions::from_mode(0o700),
-    ) {
+    if let Err(e) = fs::set_permissions(DESKTOP_RUNTIME, fs::Permissions::from_mode(0o700)) {
         error!(INIT, "desktop runtime: chmod {DESKTOP_RUNTIME}: {e}");
         problems.push("desktop runtime permissions failed".into());
         return false;
