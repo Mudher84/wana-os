@@ -1,12 +1,14 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use wana_log::{error, info, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
 const CHUNK: usize = 1024 * 1024;
+// Linux O_NOFOLLOW. Wana OS targets Linux/x86_64; refuse a final symlink at open time.
+const O_NOFOLLOW: i32 = 0o400000;
 
 #[derive(Debug)]
 struct Args {
@@ -117,7 +119,11 @@ fn validate(a: &Args) -> Result<ValidatedPaths, String> {
 }
 
 fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> Result<u64, String> {
-    let mut src = File::open(image).map_err(|e| format!("open {}: {e}", image.display()))?;
+    let mut src = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(image)
+        .map_err(|e| format!("open source {} without symlink following: {e}", image.display()))?;
     let opened_source = src
         .metadata()
         .map_err(|e| format!("metadata {}: {e}", image.display()))?;
@@ -139,8 +145,9 @@ fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> R
     let mut dst = OpenOptions::new()
         .read(true)
         .write(true)
+        .custom_flags(O_NOFOLLOW)
         .open(target)
-        .map_err(|e| format!("open target {}: {e}", target.display()))?;
+        .map_err(|e| format!("open target {} without symlink following: {e}", target.display()))?;
     let opened_target = dst
         .metadata()
         .map_err(|e| format!("metadata target {}: {e}", target.display()))?;
@@ -305,6 +312,38 @@ mod tests {
         let _ = fs::remove_file(src);
         let _ = fs::remove_file(dst);
         let _ = fs::remove_file(old);
+    }
+
+    #[test]
+    fn copy_rejects_target_symlink_swap_after_validation() {
+        use std::os::unix::fs::symlink;
+
+        let src = temp("src-symlink-swap");
+        let dst = temp("dst-symlink-swap");
+        let old = temp("old-dst-symlink-swap");
+        let victim = temp("victim-symlink-swap");
+        fs::write(&src, b"image-data").unwrap();
+        fs::write(&dst, b"original-target").unwrap();
+        fs::write(&victim, b"victim-data").unwrap();
+
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        let validated = validate(&args).unwrap();
+
+        fs::rename(&dst, &old).unwrap();
+        symlink(&victim, &dst).unwrap();
+        let error = copy_and_verify(&src, &dst, &validated).unwrap_err();
+        assert!(error.contains("without symlink following"));
+        assert_eq!(fs::read(&victim).unwrap(), b"victim-data");
+
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(dst);
+        let _ = fs::remove_file(old);
+        let _ = fs::remove_file(victim);
     }
 
     #[test]
