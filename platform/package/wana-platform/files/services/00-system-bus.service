@@ -1,0 +1,9 @@
+# System D-Bus used by BlueZ and system integration.
+name=system-bus
+exec=/usr/bin/dbus-daemon
+arg=--system
+arg=--nofork
+arg=--nopidfile
+restart=always
+uid=0
+gid=0
