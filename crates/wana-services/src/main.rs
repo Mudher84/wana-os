@@ -11,6 +11,12 @@ use wana_log::{error, info, warn, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
 
+extern "C" {
+    fn setgroups(size: usize, list: *const u32) -> i32;
+    fn setgid(gid: u32) -> i32;
+    fn setuid(uid: u32) -> i32;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Restart {
     Never,
@@ -303,11 +309,28 @@ fn spawn(s: &Service) -> Result<Child, String> {
     cmd.args(&s.args)
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
-        .uid(s.uid)
-        .gid(s.gid)
         .current_dir("/");
     if let Some(home) = &s.home {
         cmd.env("HOME", home);
+    }
+    let (uid, gid) = (s.uid, s.gid);
+    // SAFETY: this runs in the child after fork and before exec. These libc
+    // identity calls are async-signal-safe. Drop all inherited supplementary
+    // groups before changing gid/uid so a non-root service cannot retain root
+    // group access accidentally.
+    unsafe {
+        cmd.pre_exec(move || {
+            if setgroups(0, std::ptr::null()) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if setgid(gid) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if setuid(uid) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
     }
     let child = cmd
         .spawn()
