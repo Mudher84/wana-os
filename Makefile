@@ -483,7 +483,7 @@ layer-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-layer.img "$(LAYER_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-layer.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/layer-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/layer.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/layer.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.078125,0.5=1b3a5c --pixel 0.5,0.3125=1b3a5c \
 		--pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[COMPOSITOR\] info: client: layer "wana-desktop" configured 1280x800' \
