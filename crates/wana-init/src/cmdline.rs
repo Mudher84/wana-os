@@ -122,7 +122,7 @@ mod tests {
         let o = parse("console=ttyS0 wana.log=debug wana.test=poweroff wana.shell=1\n");
         assert_eq!(o.log_level, Level::Debug);
         assert_eq!(o.test, Some(TestAction::PowerOff));
-        assert!(!o.shell);
+        assert!(o.shell);
         assert!(o.warnings.is_empty());
     }
 
@@ -148,7 +148,7 @@ mod tests {
         assert!(parse("").udev);
         let o = parse("wana.udev=0");
         assert!(!o.udev);
-        assert!(o.shell);
+        assert!(!o.shell);
         assert!(o.warnings.is_empty());
         assert_eq!(parse("wana.udev=later").warnings.len(), 1);
     }
