@@ -103,13 +103,15 @@ fn main() {
         }
     }
 
-    let want_services = opts.services.unwrap_or(opts.run.is_none());
+    let want_services = opts
+        .services
+        .unwrap_or(opts.run.is_none() && opts.test.is_none());
     let services = if want_services {
         start_services(&mut problems)
     } else {
         info!(
             INIT,
-            "services: disabled for one-shot wana.run boot (set wana.services=1 to override)"
+            "services: disabled for automated/one-shot boot (set wana.services=1 to override)"
         );
         None
     };
