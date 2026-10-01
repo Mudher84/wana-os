@@ -1,6 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use wana_log::{error, info, Subsystem};
@@ -14,6 +14,14 @@ struct Args {
     target: PathBuf,
     confirm: String,
     allow_regular: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ValidatedPaths {
+    source_dev: u64,
+    source_ino: u64,
+    target_dev: u64,
+    target_ino: u64,
 }
 
 fn args() -> Result<Args, String> {
@@ -60,7 +68,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-fn validate(a: &Args) -> Result<(), String> {
+fn validate(a: &Args) -> Result<ValidatedPaths, String> {
     let source_meta = fs::symlink_metadata(&a.image)
         .map_err(|e| format!("installer source {}: {e}", a.image.display()))?;
     if source_meta.file_type().is_symlink() {
@@ -101,11 +109,25 @@ fn validate(a: &Args) -> Result<(), String> {
     if ty.is_block_device() && effective_uid()? != 0 {
         return Err("installing to a block device requires effective uid 0".into());
     }
-    Ok(())
+    Ok(ValidatedPaths {
+        source_dev: source_meta.dev(),
+        source_ino: source_meta.ino(),
+        target_dev: meta.dev(),
+        target_ino: meta.ino(),
+    })
 }
 
-fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
+fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> Result<u64, String> {
     let mut src = File::open(image).map_err(|e| format!("open {}: {e}", image.display()))?;
+    let opened_source = src
+        .metadata()
+        .map_err(|e| format!("metadata {}: {e}", image.display()))?;
+    if opened_source.dev() != validated.source_dev || opened_source.ino() != validated.source_ino {
+        return Err(format!(
+            "installer source changed after validation: {}",
+            image.display()
+        ));
+    }
     let source_len = src
         .seek(SeekFrom::End(0))
         .map_err(|e| format!("size {}: {e}", image.display()))?;
@@ -120,7 +142,16 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
         .write(true)
         .open(target)
         .map_err(|e| format!("open target {}: {e}", target.display()))?;
-    if dst.metadata().map(|m| m.is_file()).unwrap_or(false) {
+    let opened_target = dst
+        .metadata()
+        .map_err(|e| format!("metadata target {}: {e}", target.display()))?;
+    if opened_target.dev() != validated.target_dev || opened_target.ino() != validated.target_ino {
+        return Err(format!(
+            "installer target changed after validation: {}",
+            target.display()
+        ));
+    }
+    if opened_target.is_file() {
         dst.set_len(source_len)
             .map_err(|e| format!("size target {}: {e}", target.display()))?;
     }
@@ -190,14 +221,14 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
 
 fn run() -> Result<(), String> {
     let a = args()?;
-    validate(&a)?;
+    let validated = validate(&a)?;
     info!(
         LOG,
         "installer write authorized: image={} target={}",
         a.image.display(),
         a.target.display()
     );
-    let bytes = copy_and_verify(&a.image, &a.target)?;
+    let bytes = copy_and_verify(&a.image, &a.target, &validated)?;
     info!(LOG, "installer readback PASS: {bytes} bytes");
     Ok(())
 }
@@ -234,10 +265,47 @@ mod tests {
         let data: Vec<u8> = (0..2_500_000).map(|i| (i % 251) as u8).collect();
         fs::write(&src, &data).unwrap();
         fs::write(&dst, b"x").unwrap();
-        assert_eq!(copy_and_verify(&src, &dst).unwrap(), data.len() as u64);
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        let validated = validate(&args).unwrap();
+        assert_eq!(
+            copy_and_verify(&src, &dst, &validated).unwrap(),
+            data.len() as u64
+        );
         assert_eq!(fs::read(&dst).unwrap(), data);
         let _ = fs::remove_file(src);
         let _ = fs::remove_file(dst);
+    }
+
+    #[test]
+    fn copy_rejects_target_replaced_after_validation() {
+        let src = temp("src-toctou");
+        let dst = temp("dst-toctou");
+        let old = temp("old-dst-toctou");
+        fs::write(&src, b"image-data").unwrap();
+        fs::write(&dst, b"original-target").unwrap();
+
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        let validated = validate(&args).unwrap();
+
+        fs::rename(&dst, &old).unwrap();
+        fs::write(&dst, b"replacement-target").unwrap();
+        let error = copy_and_verify(&src, &dst, &validated).unwrap_err();
+        assert!(error.contains("target changed after validation"));
+        assert_eq!(fs::read(&dst).unwrap(), b"replacement-target");
+
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(dst);
+        let _ = fs::remove_file(old);
     }
 
     #[test]
