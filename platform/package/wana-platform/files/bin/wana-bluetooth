@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+case "${1:-status}" in
+    status)
+        exec bluetoothctl show
+        ;;
+    list)
+        exec bluetoothctl devices
+        ;;
+    power)
+        [ "$#" -eq 2 ] || { echo "usage: wana-bluetooth power {on|off}" >&2; exit 2; }
+        exec bluetoothctl power "$2"
+        ;;
+    scan)
+        timeout="${2:-10}"
+        exec bluetoothctl --timeout "$timeout" scan on
+        ;;
+    pair|connect|disconnect|remove)
+        action=$1
+        [ "$#" -eq 2 ] || { echo "usage: wana-bluetooth $action MAC" >&2; exit 2; }
+        exec bluetoothctl "$action" "$2"
+        ;;
+    raw)
+        shift
+        exec bluetoothctl "$@"
+        ;;
+    *)
+        echo "usage: wana-bluetooth {status|list|power on|power off|scan [SECONDS]|pair MAC|connect MAC|disconnect MAC|remove MAC|raw ...}" >&2
+        exit 2
+        ;;
+esac
