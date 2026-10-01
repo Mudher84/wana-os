@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -702,19 +702,39 @@ files-boot-test:
 
 # Phase 17: PID1 starts wana-services before declaring ready. The test
 # also asks the manager to validate the canonical service directory.
-SERVICES_ARGS := wana.run=/usr/sbin/wana-services,check,/etc/wana/services.d wana.test=poweroff wana.shell=0
+SERVICES_ARGS := wana.run=/usr/sbin/wana-services,check,/etc/wana/services.d wana.services=1 wana.test=poweroff wana.shell=0
 services-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-services.img "$(SERVICES_ARGS)"
 	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
 		--log out/logs/services-boot.log --timeout 180 \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
-		--expect '\[INIT\] info: services ready: 0 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 0 service\(s\)' \
+		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: services ready: 1 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 1 service\(s\)' \
+		--expect '\[INIT\] info: service order: desktop' \
 		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down' \
 		--reject '\[INIT\] error'
+
+# Production desktop boot: boot the unmodified installed image with no
+# wana.run test command. PID 1 must start wana-services, which starts the
+# persistent compositor + shell session as uid/gid 1000.
+production-session-boot-test:
+	mkdir -p out/logs out/test
+	tools/qemu-graphics-test.py --disk $(BR_OUT)/images/disk.img --gpu virtio --timeout 30 --memory 1024 \
+		--log out/logs/production-session-boot.log \
+		--screendump-on '\[SHELL\] info: ready' --screendump-delay-ms 500 --screendump out/test/production-session.ppm \
+		--pixel 0.5,0.025=0b0f1a \
+		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
+		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: XDG_RUNTIME_DIR=/run/user/1000' \
+		--expect '\[SHELL\] info: ready' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
 # Phase 18: boot the generated UEFI Live ISO. Live mode runs entirely
 # from the initramfs, with no installed root partition. The QEMU monitor exits
@@ -885,6 +905,7 @@ beta-bundle:
 # is enforced by the stable GitHub workflow with an independent no-ccache build.
 stable-release-test:
 	$(MAKE) beta-release-test
+	$(MAKE) production-session-boot-test
 	$(MAKE) gl-boot-test
 	$(MAKE) seat-boot-test
 	$(MAKE) text-boot-test
