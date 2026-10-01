@@ -63,8 +63,7 @@ const FD_CLOEXEC: i32 = 1;
 const BTN_LEFT: u32 = 0x110;
 const CAP_POINTER: u32 = 1;
 const CAP_KEYBOARD: u32 = 2;
-const LAUNCHER_SELECTION_MOTION: Motion =
-    Motion::new(duration::QUICK_MS, 6, Curve::EaseOutCubic);
+const LAUNCHER_SELECTION_MOTION: Motion = Motion::new(duration::QUICK_MS, 6, Curve::EaseOutCubic);
 
 extern "C" {
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
