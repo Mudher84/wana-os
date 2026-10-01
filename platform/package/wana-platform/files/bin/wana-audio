@@ -1,7 +1,13 @@
 #!/bin/sh
 set -eu
 
-runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    runtime=$XDG_RUNTIME_DIR
+elif [ "$(id -u)" -eq 0 ] && [ -d /run/user/1000 ]; then
+    runtime=/run/user/1000
+else
+    runtime=/run/user/$(id -u)
+fi
 export XDG_RUNTIME_DIR="$runtime"
 
 case "${1:-status}" in
