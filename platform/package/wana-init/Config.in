@@ -1,0 +1,9 @@
+config BR2_PACKAGE_WANA_INIT
+	bool "wana-init"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  Wana OS init (PID 1): early mounts, system identity,
+	  process reaping and console shell supervision.
+	  Installed as /usr/sbin/wana-init; /init and /sbin/init
+	  point to it (see board post-build script).

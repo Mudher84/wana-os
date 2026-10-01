@@ -1,0 +1,16 @@
+[package]
+name = "wana-settings"
+description = "Native Wana OS settings application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wana-client = { path = "../wana-client" }
+wana-log = { path = "../wana-log" }
+wana-text = { path = "../wana-text" }
+
+[lints]
+workspace = true

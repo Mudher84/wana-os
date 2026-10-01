@@ -1,0 +1,349 @@
+//! One xdg_toplevel window with a memfd-backed XRGB8888 buffer, and the
+//! steps of mapping it (configure handshake, then a buffer with a frame
+//! callback).
+
+use crate::client::{Connection, Proxy, Req, Val};
+use crate::input::Devices;
+use crate::wait_for;
+use std::fs::File;
+use wana_log::info;
+use wana_wayland::protocols::{wayland, xdg_shell};
+
+pub const BORDER_PX: i32 = 8;
+
+/// The globals a window needs.
+#[derive(Debug, Clone, Copy)]
+pub struct Shell {
+    pub compositor: Proxy,
+    pub shm: Proxy,
+    pub wm_base: Proxy,
+}
+
+#[derive(Debug)]
+pub struct Window {
+    /// Name used in the client's log lines.
+    pub name: &'static str,
+    pub surface: Proxy,
+    pub xdg: Proxy,
+    pub toplevel: Proxy,
+    pub buffer: Proxy,
+    /// The pool's file (kept open; `--truncate-pool` shrinks it).
+    pub file: File,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// XRGB8888 little-endian pixels: `fill` inside a `border` frame.
+pub fn pattern(width: i32, height: i32, fill: u32, border: u32) -> Vec<u8> {
+    let mut px = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let edge =
+                x < BORDER_PX || y < BORDER_PX || x >= width - BORDER_PX || y >= height - BORDER_PX;
+            let rgb = if edge { border } else { fill };
+            px.extend_from_slice(&(0xFF00_0000 | rgb).to_le_bytes());
+        }
+    }
+    px
+}
+
+/// A surface without a role showing a `size` x `size` square of `rgb`
+/// (to be used as a cursor image).
+pub fn solid_surface(
+    conn: &Connection,
+    shell: &Shell,
+    size: i32,
+    rgb: u32,
+) -> Result<Proxy, String> {
+    let w = Window::buffer(conn, shell, size, size, &pattern(size, size, rgb, rgb))?.0;
+    let surface = conn
+        .request(
+            shell.compositor,
+            wayland::wl_compositor::request::CREATE_SURFACE,
+            Some((&wayland::WL_SURFACE_INTERFACE, 4)),
+            &[Req::NewId],
+        )?
+        .expect("surface");
+    conn.request(
+        surface,
+        wayland::wl_surface::request::ATTACH,
+        None,
+        &[Req::Object(Some(w)), Req::Int(0), Req::Int(0)],
+    )?;
+    conn.request(surface, wayland::wl_surface::request::COMMIT, None, &[])?;
+    Ok(surface)
+}
+
+impl Window {
+    /// Creates the pool, buffer, surface and toplevel (not yet committed).
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        conn: &Connection,
+        shell: &Shell,
+        name: &'static str,
+        title: &str,
+        width: i32,
+        height: i32,
+        fill: u32,
+        border: u32,
+    ) -> Result<Window, String> {
+        let px = pattern(width, height, fill, border);
+        Window::with_pixels(conn, shell, name, title, width, height, &px)
+    }
+
+    /// A window showing `bytes` (XRGB8888, `width` x `height`, packed).
+    pub fn with_pixels(
+        conn: &Connection,
+        shell: &Shell,
+        name: &'static str,
+        title: &str,
+        width: i32,
+        height: i32,
+        bytes: &[u8],
+    ) -> Result<Window, String> {
+        let (buffer, file) = Window::buffer(conn, shell, width, height, bytes)?;
+        let surface = conn
+            .request(
+                shell.compositor,
+                wayland::wl_compositor::request::CREATE_SURFACE,
+                Some((&wayland::WL_SURFACE_INTERFACE, 4)),
+                &[Req::NewId],
+            )?
+            .expect("surface");
+        let xdg = conn
+            .request(
+                shell.wm_base,
+                xdg_shell::xdg_wm_base::request::GET_XDG_SURFACE,
+                Some((&xdg_shell::XDG_SURFACE_INTERFACE, 1)),
+                &[Req::NewId, Req::Object(Some(surface))],
+            )?
+            .expect("xdg_surface");
+        let toplevel = conn
+            .request(
+                xdg,
+                xdg_shell::xdg_surface::request::GET_TOPLEVEL,
+                Some((&xdg_shell::XDG_TOPLEVEL_INTERFACE, 1)),
+                &[Req::NewId],
+            )?
+            .expect("xdg_toplevel");
+        conn.request(
+            toplevel,
+            xdg_shell::xdg_toplevel::request::SET_TITLE,
+            None,
+            &[Req::Str(title)],
+        )?;
+        conn.request(
+            toplevel,
+            xdg_shell::xdg_toplevel::request::SET_APP_ID,
+            None,
+            &[Req::Str("org.wana.test")],
+        )?;
+        Ok(Window {
+            name,
+            surface,
+            xdg,
+            toplevel,
+            buffer,
+            file,
+            width,
+            height,
+        })
+    }
+
+    /// A wl_buffer over a new memfd pool holding `bytes` (XRGB8888).
+    pub(crate) fn buffer(
+        conn: &Connection,
+        shell: &Shell,
+        width: i32,
+        height: i32,
+        bytes: &[u8],
+    ) -> Result<(Proxy, File), String> {
+        let b = wana_client::shm::Buffer::new(conn, shell.shm, width, height, bytes)?;
+        let file = b.file().try_clone().map_err(|e| format!("memfd: {e}"))?;
+        Ok((b.buffer, file))
+    }
+
+    /// Attaches the buffer (damaging all of it) and commits, optionally
+    /// with a frame callback.
+    pub fn attach_commit(
+        &self,
+        conn: &Connection,
+        with_frame: bool,
+    ) -> Result<Option<Proxy>, String> {
+        let s = self.surface;
+        conn.request(
+            s,
+            wayland::wl_surface::request::ATTACH,
+            None,
+            &[Req::Object(Some(self.buffer)), Req::Int(0), Req::Int(0)],
+        )?;
+        conn.request(
+            s,
+            wayland::wl_surface::request::DAMAGE,
+            None,
+            &[
+                Req::Int(0),
+                Req::Int(0),
+                Req::Int(self.width),
+                Req::Int(self.height),
+            ],
+        )?;
+        let cb = if with_frame {
+            conn.request(
+                s,
+                wayland::wl_surface::request::FRAME,
+                Some((&wayland::WL_CALLBACK_INTERFACE, 1)),
+                &[Req::NewId],
+            )?
+        } else {
+            None
+        };
+        conn.request(s, wayland::wl_surface::request::COMMIT, None, &[])?;
+        Ok(cb)
+    }
+
+    /// Initial commit without a buffer, then waits for the configure and
+    /// acks it.
+    pub fn configure(
+        &self,
+        conn: &Connection,
+        wm_base: Proxy,
+        devices: Option<&mut Devices>,
+    ) -> Result<(), String> {
+        conn.request(
+            self.surface,
+            wayland::wl_surface::request::COMMIT,
+            None,
+            &[],
+        )?;
+        let xdg = self.xdg;
+        let serial = wait_for(conn, wm_base, devices, |ev| {
+            (ev.target == xdg && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE)
+                .then(|| match ev.args.first() {
+                    Some(Val::Uint(s)) => Some(*s),
+                    _ => None,
+                })
+                .flatten()
+        })?;
+        info!(
+            crate::LOG,
+            "client: configure received (serial {serial}); acking"
+        );
+        conn.request(
+            xdg,
+            xdg_shell::xdg_surface::request::ACK_CONFIGURE,
+            None,
+            &[Req::Uint(serial)],
+        )?;
+        Ok(())
+    }
+
+    /// Sends one xdg_toplevel state request and waits for the matching
+    /// toplevel.configure + xdg_surface.configure pair, then acknowledges it.
+    pub fn request_state(
+        &self,
+        conn: &Connection,
+        wm_base: Proxy,
+        opcode: u32,
+        args: &[Req<'_>],
+        devices: Option<&mut Devices>,
+    ) -> Result<(i32, i32, Vec<u32>), String> {
+        conn.request(self.toplevel, opcode, None, args)?;
+        let mut top: Option<(i32, i32, Vec<u32>)> = None;
+        let (serial, cfg) = wait_for(conn, wm_base, devices, |ev| {
+            if ev.target == self.toplevel && ev.opcode == xdg_shell::xdg_toplevel::event::CONFIGURE
+            {
+                if let [Val::Int(w), Val::Int(h), Val::Array(bytes)] = &ev.args[..] {
+                    let states = bytes
+                        .chunks_exact(4)
+                        .map(|b| u32::from_ne_bytes(b.try_into().expect("state word")))
+                        .collect();
+                    top = Some((*w, *h, states));
+                }
+                return None;
+            }
+            if ev.target == self.xdg && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE {
+                if let (Some(Val::Uint(serial)), Some(cfg)) = (ev.args.first(), top.take()) {
+                    return Some((*serial, cfg));
+                }
+            }
+            None
+        })?;
+        conn.request(
+            self.xdg,
+            xdg_shell::xdg_surface::request::ACK_CONFIGURE,
+            None,
+            &[Req::Uint(serial)],
+        )?;
+        Ok(cfg)
+    }
+
+    /// Commits the buffer with a frame callback and waits until the
+    /// compositor reports the frame presented.
+    pub fn present(
+        &self,
+        conn: &Connection,
+        wm_base: Proxy,
+        devices: Option<&mut Devices>,
+    ) -> Result<(), String> {
+        let frame = self.attach_commit(conn, true)?.expect("frame callback");
+        info!(
+            crate::LOG,
+            "client: committed {}x{} XRGB8888 buffer with a frame callback",
+            self.width,
+            self.height
+        );
+        let buffer = self.buffer;
+        let mut released = false;
+        let time = wait_for(conn, wm_base, devices, |ev| {
+            if ev.target == buffer && ev.opcode == wayland::wl_buffer::event::RELEASE {
+                released = true;
+            }
+            (ev.target == frame && ev.opcode == wayland::wl_callback::event::DONE)
+                .then(|| match ev.args.first() {
+                    Some(Val::Uint(t)) => Some(*t),
+                    _ => None,
+                })
+                .flatten()
+        })?;
+        info!(
+            crate::LOG,
+            "client: frame presented (callback done at {time} ms); buffer {}",
+            if released {
+                "released"
+            } else {
+                "not released yet"
+            }
+        );
+        Ok(())
+    }
+
+    pub fn destroy(&self, conn: &Connection) {
+        conn.destroy(self.toplevel, xdg_shell::xdg_toplevel::request::DESTROY);
+        conn.destroy(self.xdg, xdg_shell::xdg_surface::request::DESTROY);
+        conn.destroy(self.surface, wayland::wl_surface::request::DESTROY);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pattern_has_border_and_fill() {
+        let (w, h) = (480, 320);
+        let px = pattern(w, h, 0x4F8CFF, 0xFFFFFF);
+        assert_eq!(px.len(), (w * h * 4) as usize);
+        let at = |x: i32, y: i32| {
+            let i = ((y * w + x) * 4) as usize;
+            u32::from_le_bytes(px[i..i + 4].try_into().unwrap()) & 0xFF_FFFF
+        };
+        assert_eq!(at(0, 0), 0xFFFFFF);
+        assert_eq!(at(w - 1, h - 1), 0xFFFFFF);
+        assert_eq!(at(BORDER_PX, BORDER_PX), 0x4F8CFF);
+        assert_eq!(at(w / 2, h / 2), 0x4F8CFF);
+        // Little-endian XRGB: bytes B, G, R, X.
+        let c = ((h / 2 * w + w / 2) * 4) as usize;
+        assert_eq!(&px[c..c + 3], &[0xFF, 0x8C, 0x4F]);
+    }
+}

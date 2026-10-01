@@ -1,0 +1,9 @@
+config BR2_PACKAGE_WANA_FONTS
+	bool "wana-fonts"
+	help
+	  The fonts Wana's own UI uses, pinned: Noto Naskh Arabic,
+	  Noto Sans Arabic and Noto Sans (variable fonts, OFL-1.1),
+	  downloaded as single files from google/fonts at a fixed
+	  commit and checked against wana-fonts.hash. Installed in
+	  /usr/share/fonts/wana with a SHA256SUMS file that
+	  wana-text verifies at run time.

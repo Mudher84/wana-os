@@ -1,0 +1,21 @@
+[package]
+name = "wana-render"
+description = "Wana OS renderer: GBM buffers, EGL context, OpenGL ES drawing on DRM/KMS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Links the system GBM, EGL and GLESv2 libraries (Mesa) directly through
+# small FFI declarations (src/ffi.rs); no crates.io dependencies.
+[dependencies]
+wana-log = { path = "../wana-log" }
+wana-drm = { path = "../wana-drm" }
+
+[[bin]]
+name = "wana-gl"
+path = "src/bin/wana-gl.rs"
+
+[lints]
+workspace = true

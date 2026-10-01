@@ -1,0 +1,7 @@
+# Computed locally from the files at google/fonts 2125bc9b447971543caaa132530b828e5e682819.
+sha256  02d9310b6b55b3bf8a5084fced9106ccd914650d730cbe8ff3b57f691d2931f6  NotoNaskhArabic%5Bwght%5D.ttf
+sha256  63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e  NotoSansArabic%5Bwdth%2Cwght%5D.ttf
+sha256  e0890ec6da515d47b9d7cdb8b4ded1d9255fc4e5254ae03f9a579da6cb354717  NotoSans%5Bwdth%2Cwght%5D.ttf
+# Licenses, from ofl/notonaskharabic (= ofl/notosansarabic) and ofl/notosans.
+sha256  07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96  OFL-arabic.txt
+sha256  cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a  OFL-latin.txt

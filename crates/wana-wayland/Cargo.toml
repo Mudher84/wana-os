@@ -1,0 +1,19 @@
+[package]
+name = "wana-wayland"
+description = "Wana OS Wayland protocol layer: libwayland-server FFI and generated protocol tables"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+# Links the system libwayland-server (freedesktop reference implementation)
+# through small FFI declarations (src/sys.rs); protocol tables are generated
+# at build time from the protocol XML by src/scanner.rs. No crates.io
+# dependencies (decision 0001).
+[dependencies]
+wana-log = { path = "../wana-log" }
+
+[lints]
+workspace = true
