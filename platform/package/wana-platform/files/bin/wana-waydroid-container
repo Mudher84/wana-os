@@ -1,14 +1,16 @@
 #!/bin/sh
 set -eu
 
-images=/var/lib/waydroid/images
-system="$images/system.img"
-vendor="$images/vendor.img"
+work=/var/lib/waydroid
+config="$work/waydroid.cfg"
+rootfs="$work/rootfs"
 
-while [ ! -s "$system" ] || [ ! -s "$vendor" ]; do
-    echo "WANA_ANDROID_CONTAINER_WAIT images=$images"
-    sleep 2
-done
+if [ ! -f "$config" ] || [ ! -d "$rootfs" ]; then
+    echo "WANA_ANDROID_CONTAINER_WAIT config=$config rootfs=$rootfs"
+    while [ ! -f "$config" ] || [ ! -d "$rootfs" ]; do
+        sleep 2
+    done
+fi
 
-echo "WANA_ANDROID_CONTAINER_START images=$images"
+echo "WANA_ANDROID_CONTAINER_START config=$config rootfs=$rootfs"
 exec /usr/bin/waydroid container start
