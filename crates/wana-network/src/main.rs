@@ -105,7 +105,10 @@ fn ensure_secret_dir(parent: &Path) -> Result<(), String> {
         .map_err(|e| format!("create {}: {e}", parent.display()))?;
     let meta = fs::symlink_metadata(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
-        return Err(format!("{}: network secret directory must be a real directory", parent.display()));
+        return Err(format!(
+            "{}: network secret directory must be a real directory",
+            parent.display()
+        ));
     }
     let euid = effective_uid()?;
     if meta.uid() != euid {
@@ -123,7 +126,10 @@ fn secure_secret(path: &Path) -> Result<Option<fs::Metadata>, String> {
     match fs::symlink_metadata(path) {
         Ok(meta) => {
             if meta.file_type().is_symlink() || !meta.is_file() {
-                return Err(format!("{}: network secret must be a regular non-symlink file", path.display()));
+                return Err(format!(
+                    "{}: network secret must be a regular non-symlink file",
+                    path.display()
+                ));
             }
             let euid = effective_uid()?;
             if meta.uid() != euid {
