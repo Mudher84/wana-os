@@ -13,11 +13,11 @@ use wana_text::{fonts, sha256};
 const LOG: Subsystem = Subsystem::Shell;
 const WIDTH: u32 = 760;
 const HEIGHT: u32 = 520;
-const BG: u32 = 0x111827;
-const CARD: u32 = 0x1E293B;
-const TEXT: u32 = 0xF1F5F9;
-const DIM: u32 = 0xA8B3C7;
-const ACCENT: u32 = 0x4F8CFF;
+const BG: u32 = wana_theme::color::BG_DARK;
+const CARD: u32 = wana_theme::color::CARD_DARK;
+const TEXT: u32 = wana_theme::color::TEXT_DARK;
+const DIM: u32 = wana_theme::color::DIM_DARK;
+const ACCENT: u32 = wana_theme::color::ACCENT_BLUE;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
