@@ -132,8 +132,8 @@ def main():
     ap.add_argument("--tolerance", type=int, default=8)
     ap.add_argument("--input", choices=["virtio", "ps2"], default="ps2",
                     help="input devices: q35 built-in PS/2 only, or also virtio keyboard + tablet")
-    ap.add_argument("--network", choices=["none", "virtio"], default="none",
-                    help="network device: none, or virtio-net on QEMU user networking")
+    ap.add_argument("--network", choices=["none", "virtio", "e1000", "rtl8139"], default="none",
+                    help="network device on QEMU user networking")
     ap.add_argument("--writable-disk", action="append", default=[],
                     help="extra writable raw virtio disk (repeatable; changes persist)")
     ap.add_argument("--send-on", help="regex; send the --send monitor commands when a log line matches")
@@ -164,10 +164,15 @@ def main():
     cmd += ["-vga", "none", "-device", "virtio-gpu-pci"] if args.gpu == "virtio" else ["-vga", "std"]
     if args.input == "virtio":
         cmd += ["-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"]
-    if args.network == "virtio":
+    if args.network != "none":
+        device = {
+            "virtio": "virtio-net-pci",
+            "e1000": "e1000",
+            "rtl8139": "rtl8139",
+        }[args.network]
         cmd += [
             "-netdev", "user,id=wana-net0",
-            "-device", "virtio-net-pci,netdev=wana-net0",
+            "-device", f"{device},netdev=wana-net0",
         ]
     if args.disk:
         cmd += ["-drive", f"file={args.disk},if=virtio,format=raw,snapshot=on"]
