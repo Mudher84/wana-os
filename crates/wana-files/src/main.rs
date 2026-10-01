@@ -13,6 +13,12 @@ use wana_text::{fonts, sha256};
 const LOG: Subsystem = Subsystem::Shell;
 const WIDTH: u32 = 760;
 const HEIGHT: u32 = 520;
+const KEY_ESC: u32 = 1;
+const KEY_BACKSPACE: u32 = 14;
+const KEY_ENTER: u32 = 28;
+const KEY_UP: u32 = 103;
+const KEY_DOWN: u32 = 108;
+const PAGE_ROWS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
@@ -45,6 +51,16 @@ fn scan(path: &Path) -> Result<Vec<Entry>, String> {
     Ok(out)
 }
 
+fn visible_start(selected: usize, len: usize) -> usize {
+    if len <= PAGE_ROWS {
+        0
+    } else {
+        selected
+            .saturating_sub(PAGE_ROWS - 1)
+            .min(len.saturating_sub(PAGE_ROWS))
+    }
+}
+
 fn fill(c: &mut Canvas, x: u32, y: u32, w: u32, h: u32, rgb: u32) {
     for row in y..(y + h).min(c.height) {
         let start = (row * c.width + x.min(c.width)) as usize;
@@ -73,64 +89,87 @@ fn label(
     Ok(())
 }
 
-fn render(fonts: &FontSet, path: &Path, entries: &[Entry]) -> Result<Canvas, String> {
+fn render(
+    fonts: &FontSet,
+    path: &Path,
+    entries: &[Entry],
+    selected: usize,
+) -> Result<Canvas, String> {
     let palette = wana_theme::current();
     let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
-    label(
-        &mut c,
-        fonts,
-        "الملفات",
-        24.0,
-        30.0,
-        palette.text,
-    )?;
+    label(&mut c, fonts, "الملفات", 20.0, 28.0, palette.text)?;
     label(
         &mut c,
         fonts,
         &format!("المسار: {}", path.display()),
-        68.0,
-        16.0,
+        60.0,
+        15.0,
         palette.dim,
     )?;
 
     if entries.is_empty() {
         label(&mut c, fonts, "المجلد فارغ", 140.0, 20.0, palette.dim)?;
-        return Ok(c);
-    }
-
-    for (i, e) in entries.iter().take(8).enumerate() {
-        let y = 112 + i as u32 * 48;
-        fill(&mut c, 32, y, WIDTH - 64, 40, palette.card);
-        let kind = if e.symlink {
-            "رابط"
-        } else if e.dir {
-            "مجلد"
-        } else {
-            "ملف"
-        };
-        label(
-            &mut c,
-            fonts,
-            &format!("{kind} — {}", e.name),
-            y as f32 + 9.0,
-            17.0,
-            if e.dir {
+    } else {
+        let start = visible_start(selected, entries.len());
+        for (row, (index, entry)) in entries
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(PAGE_ROWS)
+            .enumerate()
+        {
+            let y = 96 + row as u32 * 46;
+            let active = index == selected;
+            fill(
+                &mut c,
+                32,
+                y,
+                WIDTH - 64,
+                38,
+                if active { palette.accent } else { palette.card },
+            );
+            let kind = if entry.symlink {
+                "رابط"
+            } else if entry.dir {
+                "مجلد"
+            } else {
+                "ملف"
+            };
+            let color = if active {
+                wana_theme::color::TEXT_DARK
+            } else if entry.dir {
                 palette.accent
             } else {
                 palette.text
-            },
-        )?;
-    }
-    if entries.len() > 8 {
+            };
+            label(
+                &mut c,
+                fonts,
+                &format!("{kind} — {}", entry.name),
+                y as f32 + 8.0,
+                16.0,
+                color,
+            )?;
+        }
+        let end = (start + PAGE_ROWS).min(entries.len());
         label(
             &mut c,
             fonts,
-            &format!("و {} عناصر أخرى", entries.len() - 8),
-            500.0,
-            15.0,
+            &format!("{}–{} من {}", start + 1, end, entries.len()),
+            466.0,
+            13.0,
             palette.dim,
         )?;
     }
+
+    label(
+        &mut c,
+        fonts,
+        "↑↓ اختيار   Enter فتح مجلد   Backspace رجوع   Esc خروج",
+        492.0,
+        12.0,
+        palette.dim,
+    )?;
     Ok(c)
 }
 
@@ -169,21 +208,37 @@ fn parse_args() -> Result<Args, String> {
     Ok(out)
 }
 
+fn present(
+    app: &App,
+    window: &Window,
+    fonts: &FontSet,
+    path: &Path,
+    entries: &[Entry],
+    selected: usize,
+) -> Result<String, String> {
+    let canvas = render(fonts, path, entries, selected)?;
+    let hash = sha256::hex(&sha256::digest(&canvas.bytes()));
+    window.present(app, &canvas.bytes())?;
+    Ok(hash)
+}
+
 fn run() -> Result<(), String> {
     let a = parse_args()?;
-    let entries = scan(&a.path)?;
+    let mut path = fs::canonicalize(&a.path)
+        .map_err(|e| format!("{}: {e}", a.path.display()))?;
+    let mut entries = scan(&path)?;
     if a.list {
-        for e in &entries {
+        for entry in &entries {
             println!(
                 "{}\t{}",
-                if e.symlink {
+                if entry.symlink {
                     "link"
-                } else if e.dir {
+                } else if entry.dir {
                     "dir"
                 } else {
                     "file"
                 },
-                e.name
+                entry.name
             );
         }
         return Ok(());
@@ -196,9 +251,9 @@ fn run() -> Result<(), String> {
             .map(|n| Font::load(&a.fonts.join(n)))
             .collect::<Result<_, _>>()?,
     };
-    let canvas = render(&set, &a.path, &entries)?;
-    let hash = sha256::hex(&sha256::digest(&canvas.bytes()));
+
     let app = App::connect()?;
+    let keyboard = app.keyboard()?.ok_or("files requires a keyboard seat")?;
     let window = Window::new(
         &app,
         "الملفات — وانا",
@@ -206,14 +261,16 @@ fn run() -> Result<(), String> {
         WIDTH as i32,
         HEIGHT as i32,
     )?;
-    window.present(&app, &canvas.bytes())?;
+    let mut selected = 0usize;
+    let hash = present(&app, &window, &set, &path, &entries, selected)?;
     info!(
         LOG,
-        "files mapped: {}x{}, path={}, entries={}, sha256 {hash}",
+        "files mapped: {}x{}, path={}, entries={}, selected={}, sha256 {hash}",
         WIDTH,
         HEIGHT,
-        a.path.display(),
-        entries.len()
+        path.display(),
+        entries.len(),
+        selected
     );
 
     let deadline = a.hold.map(|s| Instant::now() + Duration::from_secs(s));
@@ -226,6 +283,57 @@ fn run() -> Result<(), String> {
             if window.close_event(&ev) {
                 window.destroy(&app);
                 return Ok(());
+            }
+            if let Some((key, pressed)) = app.key_event(keyboard, &ev) {
+                if !pressed {
+                    continue;
+                }
+                let mut redraw = false;
+                match key {
+                    KEY_UP if !entries.is_empty() => {
+                        selected = selected.saturating_sub(1);
+                        redraw = true;
+                    }
+                    KEY_DOWN if !entries.is_empty() => {
+                        selected = (selected + 1).min(entries.len() - 1);
+                        redraw = true;
+                    }
+                    KEY_ENTER if !entries.is_empty() && entries[selected].dir => {
+                        let next = path.join(&entries[selected].name);
+                        path = fs::canonicalize(&next)
+                            .map_err(|e| format!("{}: {e}", next.display()))?;
+                        entries = scan(&path)?;
+                        selected = 0;
+                        redraw = true;
+                        info!(LOG, "files entered directory: {}", path.display());
+                    }
+                    KEY_BACKSPACE => {
+                        if let Some(parent) = path.parent() {
+                            if parent != path {
+                                path = parent.to_path_buf();
+                                entries = scan(&path)?;
+                                selected = 0;
+                                redraw = true;
+                                info!(LOG, "files moved to parent: {}", path.display());
+                            }
+                        }
+                    }
+                    KEY_ESC => {
+                        window.destroy(&app);
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                if redraw {
+                    let hash = present(&app, &window, &set, &path, &entries, selected)?;
+                    info!(
+                        LOG,
+                        "files view: path={} entries={} selected={} sha256 {hash}",
+                        path.display(),
+                        entries.len(),
+                        selected
+                    );
+                }
             }
             app.protocol_event(&ev)?;
         }
@@ -275,5 +383,14 @@ mod tests {
         assert!(link.symlink);
         assert!(!link.dir);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn visible_window_follows_selection() {
+        assert_eq!(visible_start(0, 20), 0);
+        assert_eq!(visible_start(7, 20), 0);
+        assert_eq!(visible_start(8, 20), 1);
+        assert_eq!(visible_start(19, 20), 12);
+        assert_eq!(visible_start(4, 5), 0);
     }
 }
