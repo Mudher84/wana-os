@@ -177,6 +177,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-update"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
 name = "wana-wayland"
 version = "0.1.0"
 dependencies = [
