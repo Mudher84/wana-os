@@ -232,14 +232,25 @@ fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| format!("invalid notification path {}", path.display()))?;
-    let tmp = root.join(format!(".{name}.tmp-{}", std::process::id()));
+    let pid = std::process::id();
+    let (tmp, mut file) = (0..64)
+        .find_map(|slot| {
+            let tmp = root.join(format!(".{name}.tmp-{pid}-{slot}"));
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&tmp)
+            {
+                Ok(file) => Some(Ok((tmp, file))),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(e) => Some(Err(format!("create {}: {e}", tmp.display()))),
+            }
+        })
+        .transpose()?
+        .ok_or_else(|| format!("no free atomic temp slot for {}", path.display()))?;
+
     let result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
         file.write_all(text.as_bytes())
             .map_err(|e| format!("write {}: {e}", tmp.display()))?;
         file.sync_all()
@@ -287,6 +298,24 @@ mod tests {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    #[test]
+    fn stale_temp_file_does_not_block_notification_write() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let stale = root.join(format!(
+            ".history.tsv.tmp-{}-0",
+            std::process::id()
+        ));
+        fs::write(&stale, "stale").unwrap();
+
+        let store = Store::new(&root);
+        store.push("org.wana.Test", "title", "body").unwrap();
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(stale.exists());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
