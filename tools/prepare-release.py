@@ -153,6 +153,7 @@ def main() -> int:
     by_name = {entry["path"]: entry for entry in release_entries}
     rootfs = by_name["rootfs.ext4.zst"]
     kernel = by_name["bzImage"]
+    initrd = by_name["rootfs.cpio.zst"]
     update_txt = args.out / "update.txt"
     update_txt.write_text(
         "WANA-UPDATE-1\n"
@@ -164,6 +165,9 @@ def main() -> int:
         "kernel=bzImage\n"
         f"kernel_size={kernel['size']}\n"
         f"kernel_sha256={kernel['sha256']}\n"
+        "initrd=rootfs.cpio.zst\n"
+        f"initrd_size={initrd['size']}\n"
+        f"initrd_sha256={initrd['sha256']}\n"
     )
 
     bundle_entries = [
