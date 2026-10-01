@@ -55,7 +55,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 24 | Notifications + control center ([phase 24 report](test-reports/phase-24.md)) | IN PROGRESS |
 | 25 | Visual polish | NOT STARTED |
 | 26 | Motion system ([phase 26 report](test-reports/phase-26.md)) | IN PROGRESS |
-| 27 | Performance | NOT STARTED |
+| 27 | Performance ([phase 27 report](test-reports/phase-27.md)) | IN PROGRESS |
 | 28 | Hardware compatibility | NOT STARTED |
 | 29 | Beta release | NOT STARTED |
 | 30 | Stable release | NOT STARTED |
