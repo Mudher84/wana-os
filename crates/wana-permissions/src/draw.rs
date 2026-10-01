@@ -144,3 +144,48 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
     }
     Ok(canvas)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{Audit, Decision, Rule};
+    use wana_text::font::Font;
+
+    fn fonts() -> FontSet {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/fonts");
+        wana_text::fonts::verify_dir(&dir).expect("pinned fonts");
+        FontSet {
+            fonts: ["NotoSans-VF.ttf", "NotoSansArabic-VF.ttf"]
+                .iter()
+                .map(|name| Font::load(&dir.join(name)).unwrap())
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn center_is_deterministic_and_decisions_change_pixels() {
+        let rules = vec![Rule {
+            app: "org.wana.Files".into(),
+            permission: "files.read".into(),
+            decision: Decision::Allow,
+        }];
+        let audit = vec![Audit {
+            seq: 1,
+            action: "policy-set".into(),
+            actor: "settings".into(),
+            app: "org.wana.Files".into(),
+            permission: "files.read".into(),
+            decision: Decision::Allow,
+        }];
+        let first = center(&fonts(), &rules, &audit).unwrap();
+        let second = center(&fonts(), &rules, &audit).unwrap();
+        assert_eq!(first, second);
+        assert_eq!((first.width, first.height), (WIDTH, HEIGHT));
+
+        let denied = vec![Rule {
+            decision: Decision::Deny,
+            ..rules[0].clone()
+        }];
+        assert_ne!(first, center(&fonts(), &denied, &audit).unwrap());
+    }
+}

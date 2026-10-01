@@ -70,10 +70,10 @@ fn quote_wpa(s: &str) -> Result<String, String> {
 }
 
 fn wifi_config(ssid: &str, psk: &str) -> Result<String, String> {
-    if ssid.is_empty() || ssid.as_bytes().len() > 32 {
+    if ssid.is_empty() || ssid.len() > 32 {
         return Err("SSID must be 1..32 bytes".into());
     }
-    if !(8..=63).contains(&psk.as_bytes().len()) {
+    if !(8..=63).contains(&psk.len()) {
         return Err("WPA passphrase must be 8..63 bytes".into());
     }
     let ssid = quote_wpa(ssid)?;
