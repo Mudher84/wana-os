@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -61,6 +61,7 @@ help:
 	@echo "    make installer-gui-boot-test   drive the native installer GUI from the Live ISO into a target disk"
 	@echo "    make installed-disk-boot-test  boot the disk produced by the installer through OVMF + GRUB"
 	@echo "    make permissions-boot-test  boot native permissions + bounded audit center"
+	@echo "    make security-hardening-boot-test  verify runtime mount hardening + debug shell default"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -156,6 +157,22 @@ system-boot-test:
 		--expect '\[INIT\] info: wana-init [0-9.]+ starting' \
 		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
+
+# Phase 23: security hardening must be visible in the running guest, not
+# only in source-level unit tests. PID 1 verifies mount flags from mountinfo
+# and reports the secure default for the debug root console shell.
+security-hardening-boot-test:
+	mkdir -p out/logs
+	tools/qemu-boot-test.sh --kernel $(BR_OUT)/images/bzImage \
+		--initrd $(BR_OUT)/images/rootfs.cpio.zst \
+		--append "wana.test=poweroff" \
+		--log out/logs/security-hardening-boot.log --timeout 180 \
+		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
+		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: security mounts: 5/5 hardened \(nosuid,nodev,noexec\)' \
+		--expect '\[INIT\] info: debug console shell: disabled' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
