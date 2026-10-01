@@ -517,4 +517,16 @@ mod tests {
         assert_eq!(c.pixels, [0xFF00_0000, 0xFF7F_7F7F]);
         assert_eq!(&c.bytes()[..4], &[0, 0, 0, 0xFF]);
     }
+
+    #[test]
+    fn canvas_bytes_are_exact_packed_xrgb8888() {
+        let c = Canvas {
+            width: 2,
+            height: 1,
+            pixels: vec![0xFF11_2233, 0xFFAA_BBCC],
+        };
+        let bytes = c.bytes();
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(bytes, [0x33, 0x22, 0x11, 0xFF, 0xCC, 0xBB, 0xAA, 0xFF]);
+    }
 }
