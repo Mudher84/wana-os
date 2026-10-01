@@ -13,11 +13,6 @@ use wana_text::{fonts, sha256};
 const LOG: Subsystem = Subsystem::Shell;
 const WIDTH: u32 = 760;
 const HEIGHT: u32 = 520;
-const BG: u32 = wana_theme::color::BG_DARK;
-const CARD: u32 = wana_theme::color::CARD_DARK;
-const TEXT: u32 = wana_theme::color::TEXT_DARK;
-const DIM: u32 = wana_theme::color::DIM_DARK;
-const ACCENT: u32 = wana_theme::color::ACCENT_BLUE;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
@@ -79,15 +74,23 @@ fn label(
 }
 
 fn render(fonts: &FontSet, path: &Path, entries: &[Entry]) -> Result<Canvas, String> {
-    let mut c = Canvas::new(WIDTH, HEIGHT, BG);
-    label(&mut c, fonts, "الملفات", 24.0, 30.0, TEXT)?;
+    let palette = wana_theme::current();
+    let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
+    label(
+        &mut c,
+        fonts,
+        "الملفات",
+        24.0,
+        30.0,
+        palette.text,
+    )?;
     label(
         &mut c,
         fonts,
         &format!("المسار: {}", path.display()),
         68.0,
         16.0,
-        DIM,
+        palette.dim,
     )?;
 
     if entries.is_empty() {
@@ -97,7 +100,7 @@ fn render(fonts: &FontSet, path: &Path, entries: &[Entry]) -> Result<Canvas, Str
 
     for (i, e) in entries.iter().take(8).enumerate() {
         let y = 112 + i as u32 * 48;
-        fill(&mut c, 32, y, WIDTH - 64, 40, CARD);
+        fill(&mut c, 32, y, WIDTH - 64, 40, palette.card);
         let kind = if e.symlink {
             "رابط"
         } else if e.dir {
@@ -111,7 +114,11 @@ fn render(fonts: &FontSet, path: &Path, entries: &[Entry]) -> Result<Canvas, Str
             &format!("{kind} — {}", e.name),
             y as f32 + 9.0,
             17.0,
-            if e.dir { ACCENT } else { TEXT },
+            if e.dir {
+                palette.accent
+            } else {
+                palette.text
+            },
         )?;
     }
     if entries.len() > 8 {

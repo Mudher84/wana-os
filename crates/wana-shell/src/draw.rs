@@ -59,10 +59,12 @@ pub fn mix(a: u32, b: u32, i: u32, n: u32) -> u32 {
 
 /// The desktop background: top color to bottom color, row by row.
 pub fn desktop(width: u32, height: u32) -> Canvas {
-    let mut c = Canvas::new(width, height, DESKTOP_TOP);
+    let palette = wana_theme::current();
+    let mut c = Canvas::new(width, height, palette.desktop_top);
     let last = height.saturating_sub(1);
     for y in 0..height {
-        let rgb = 0xFF00_0000 | mix(DESKTOP_TOP, DESKTOP_BOTTOM, y, last);
+        let rgb =
+            0xFF00_0000 | mix(palette.desktop_top, palette.desktop_bottom, y, last);
         let row = (y * width) as usize;
         c.pixels[row..row + width as usize].fill(rgb);
     }
@@ -87,7 +89,8 @@ pub fn clock(unix_secs: u64) -> (u32, u32) {
 
 /// The top bar with `time` ("HH:MM", shown in Arabic-Indic digits).
 pub fn bar(width: u32, fonts: &FontSet, time: &str) -> Result<Canvas, String> {
-    let mut c = Canvas::new(width, BAR_HEIGHT, BAR);
+    let palette = wana_theme::current();
+    let mut c = Canvas::new(width, BAR_HEIGHT, palette.shell_bar);
     let text_width = width as f32 - 2.0 * BAR_PADDING;
     let style = |align| Style {
         size: BAR_TEXT_SIZE,
@@ -103,7 +106,15 @@ pub fn bar(width: u32, fonts: &FontSet, time: &str) -> Result<Canvas, String> {
     ] {
         let l = layout(&text, fonts, &style(align))?;
         let top = (BAR_HEIGHT as f32 - l.height) / 2.0;
-        draw(&mut c, &l, fonts, BAR_TEXT_SIZE, BAR_PADDING, top, BAR_TEXT);
+        draw(
+            &mut c,
+            &l,
+            fonts,
+            BAR_TEXT_SIZE,
+            BAR_PADDING,
+            top,
+            palette.shell_bar_text,
+        );
     }
     Ok(c)
 }
@@ -167,25 +178,48 @@ pub fn launcher_transition(
     to: usize,
     progress: u32,
 ) -> Result<Canvas, String> {
+    let palette = wana_theme::current();
     let (w, h) = (LAUNCHER_WIDTH, launcher_height(names.len()));
-    let mut c = Canvas::new(w, h, LAUNCHER_BORDER);
-    fill(&mut c, 1, 1, w - 2, h - 2, LAUNCHER_BG);
-    line(&mut c, fonts, APPS_TITLE, 0, LAUNCHER_HEADER, LAUNCHER_DIM)?;
+    let mut c = Canvas::new(w, h, palette.shell_border);
+    fill(&mut c, 1, 1, w - 2, h - 2, palette.shell_panel);
+    line(
+        &mut c,
+        fonts,
+        APPS_TITLE,
+        0,
+        LAUNCHER_HEADER,
+        palette.shell_dim,
+    )?;
     for (i, name) in names.iter().enumerate() {
         let top = LAUNCHER_HEADER + LAUNCHER_ROW * i as u32;
         let row_color = if from == to && i == to {
-            Some(ACCENT)
+            Some(palette.accent)
         } else if i == from {
-            Some(wana_motion::mix_rgb(ACCENT, LAUNCHER_BG, progress))
+            Some(wana_motion::mix_rgb(
+                palette.accent,
+                palette.shell_panel,
+                progress,
+            ))
         } else if i == to {
-            Some(wana_motion::mix_rgb(LAUNCHER_BG, ACCENT, progress))
+            Some(wana_motion::mix_rgb(
+                palette.shell_panel,
+                palette.accent,
+                progress,
+            ))
         } else {
             None
         };
         if let Some(rgb) = row_color {
             fill(&mut c, 8, top + 2, w - 16, LAUNCHER_ROW - 4, rgb);
         }
-        line(&mut c, fonts, name, top, LAUNCHER_ROW, BAR_TEXT)?;
+        line(
+            &mut c,
+            fonts,
+            name,
+            top,
+            LAUNCHER_ROW,
+            palette.shell_bar_text,
+        )?;
     }
     Ok(c)
 }
@@ -193,9 +227,17 @@ pub fn launcher_transition(
 /// Draws the bottom Dock. The first four mapped toplevels are shown from
 /// right to left. If more are open, the last slot becomes a compact +N count.
 pub fn dock(width: u32, fonts: &FontSet, names: &[String]) -> Result<Canvas, String> {
+    let palette = wana_theme::current();
     let width = width.max(160);
-    let mut c = Canvas::new(width, DOCK_HEIGHT, DOCK_BORDER);
-    fill(&mut c, 1, 1, width - 2, DOCK_HEIGHT - 2, DOCK_BG);
+    let mut c = Canvas::new(width, DOCK_HEIGHT, palette.shell_border);
+    fill(
+        &mut c,
+        1,
+        1,
+        width - 2,
+        DOCK_HEIGHT - 2,
+        palette.dock_bg,
+    );
     if names.is_empty() {
         return Ok(c);
     }
@@ -216,7 +258,7 @@ pub fn dock(width: u32, fonts: &FontSet, names: &[String]) -> Result<Canvas, Str
             6,
             cell.saturating_sub(4),
             DOCK_HEIGHT - 12,
-            LAUNCHER_BG,
+            palette.shell_panel,
         );
         let style = Style {
             size: DOCK_TEXT,
@@ -227,7 +269,15 @@ pub fn dock(width: u32, fonts: &FontSet, names: &[String]) -> Result<Canvas, Str
         };
         let l = layout(label, fonts, &style)?;
         let y = (DOCK_HEIGHT as f32 - l.height) / 2.0;
-        draw(&mut c, &l, fonts, DOCK_TEXT, (x + 8) as f32, y, BAR_TEXT);
+        draw(
+            &mut c,
+            &l,
+            fonts,
+            DOCK_TEXT,
+            (x + 8) as f32,
+            y,
+            palette.shell_bar_text,
+        );
     }
     Ok(c)
 }

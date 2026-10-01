@@ -7,15 +7,6 @@ use wana_text::raster::{draw, Canvas};
 
 pub const WIDTH: u32 = 720;
 pub const HEIGHT: u32 = 480;
-const BG_DARK: u32 = wana_theme::color::BG_DARK;
-const BG_LIGHT: u32 = wana_theme::color::BG_LIGHT;
-const CARD_DARK: u32 = wana_theme::color::CARD_DARK;
-const CARD_LIGHT: u32 = wana_theme::color::CARD_LIGHT;
-const TEXT_DARK: u32 = wana_theme::color::TEXT_DARK;
-const TEXT_LIGHT: u32 = wana_theme::color::TEXT_LIGHT;
-const DIM_DARK: u32 = wana_theme::color::DIM_DARK;
-const DIM_LIGHT: u32 = wana_theme::color::DIM_LIGHT;
-
 fn fill(c: &mut Canvas, x: u32, y: u32, w: u32, h: u32, rgb: u32) {
     for row in y..(y + h).min(c.height) {
         let start = (row * c.width + x.min(c.width)) as usize;
@@ -45,14 +36,9 @@ fn text(
 }
 
 pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
-    let light = s.theme == "light";
-    let bg = if light { BG_LIGHT } else { BG_DARK };
-    let card = if light { CARD_LIGHT } else { CARD_DARK };
-    let fg = if light { TEXT_LIGHT } else { TEXT_DARK };
-    let dim = if light { DIM_LIGHT } else { DIM_DARK };
-
-    let mut c = Canvas::new(WIDTH, HEIGHT, bg);
-    text(&mut c, fonts, "الإعدادات", 28.0, 30.0, fg)?;
+    let palette = wana_theme::palette(&s.theme, &s.accent);
+    let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
+    text(&mut c, fonts, "الإعدادات", 28.0, 30.0, palette.text)?;
     text(
         &mut c,
         fonts,
@@ -93,9 +79,9 @@ pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
     .enumerate()
     {
         let y = 112 + i as u32 * 82;
-        fill(&mut c, 32, y, WIDTH - 64, 70, card);
-        text(&mut c, fonts, name, y as f32 + 10.0, 20.0, fg)?;
-        text(&mut c, fonts, value, y as f32 + 38.0, 16.0, dim)?;
+        fill(&mut c, 32, y, WIDTH - 64, 70, palette.card);
+        text(&mut c, fonts, name, y as f32 + 10.0, 20.0, palette.text)?;
+        text(&mut c, fonts, value, y as f32 + 38.0, 16.0, palette.dim)?;
     }
     Ok(c)
 }
