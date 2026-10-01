@@ -7,4 +7,5 @@ source "$BR2_EXTERNAL_WANA_PATH/package/wana-compositor/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-fonts/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-text/Config.in"
 source "$BR2_EXTERNAL_WANA_PATH/package/wana-platform/Config.in"
+source "$BR2_EXTERNAL_WANA_PATH/package/wana-wine64/Config.in"
 endmenu
