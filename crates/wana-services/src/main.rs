@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use wana_log::{error, info, warn, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
+const READY_MARKER: &str = "/run/wana/services.ready";
 
 extern "C" {
     fn setgroups(size: usize, list: *const u32) -> i32;
@@ -436,7 +437,10 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
         wait_ready(&map[name], &mut child)?;
         children.insert(name.clone(), child);
     }
-    info!(LOG, "services ready: {} service(s)", children.len());
+    fs::create_dir_all("/run/wana").map_err(|e| format!("create /run/wana: {e}"))?;
+    fs::write(READY_MARKER, format!("services={}\n", children.len()))
+        .map_err(|e| format!("write {READY_MARKER}: {e}"))?;
+    info!(LOG, "services ready: {} service(s); marker={READY_MARKER}", children.len());
     let deadline = timeout.map(|d| Instant::now() + d);
 
     loop {
@@ -470,6 +474,11 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
 }
 
 fn run() -> Result<(), String> {
+    match fs::remove_file(READY_MARKER) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("remove stale {READY_MARKER}: {e}")),
+    }
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "run".into());
     let dir = PathBuf::from(args.next().unwrap_or_else(|| "/etc/wana/services.d".into()));
