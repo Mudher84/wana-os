@@ -981,6 +981,7 @@ android-compatibility-boot-test:
 android-session-boot-test:
 	@test -n "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: ANDROID_TEST_DISK is required (pre-provisioned image)" >&2; exit 2; }
 	@test -s "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: missing $(ANDROID_TEST_DISK)" >&2; exit 2; }
+	@test -n "$(ANDROID_TEST_PACKAGE)" || { echo "[ANDROID] error: ANDROID_TEST_PACKAGE is required and must match /var/lib/wana/android-test-package inside the test disk" >&2; exit 2; }
 	mkdir -p out/logs
 	tools/qemu-graphics-test.py --disk "$(ANDROID_TEST_DISK)" --gpu virtio --input virtio --timeout 420 --memory 3072 \
 		--log out/logs/android-session-boot.log \
@@ -998,6 +999,7 @@ android-session-boot-test:
 		--expect '\[SHELL\] info: apps: 7 from /usr/share/wana-shell/apps' \
 		--expect '\[SHELL\] info: app "أندرويد": /usr/bin/wana-android ui \(pid [0-9]+\)' \
 		--expect 'WANA_ANDROID_SESSION_READY display=wayland-0' \
+		--expect 'WANA_ANDROID_APK_LAUNCH package=$(ANDROID_TEST_PACKAGE)' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
 extended-compatibility-test:
