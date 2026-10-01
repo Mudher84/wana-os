@@ -550,6 +550,7 @@ launcher-boot-test:
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-launcher" on layer overlay at 400,340 480x160 \(exclusive zone 0\)' \
 		--expect '\[COMPOSITOR\] info: keyboard focus: layer "wana-launcher"' \
 		--expect '\[SHELL\] info: launcher shown: 480x160, selected 1/2 "نافذة تجريبية", sha256 $(LAUNCHER_SHA)' \
+		--expect '\[SHELL\] info: motion launcher-selection: 1 -> 2, 6 frames, 120ms, ease-out-cubic' \
 		--expect '\[SHELL\] info: launcher: selected 2/2 "نص عربي"' \
 		--expect '\[SHELL\] info: launcher closed' \
 		--expect '\[SHELL\] info: app "نص عربي": /usr/bin/wana-wl-test --no-inherited-fds --text --hold 2 \(pid [0-9]+\)' \
