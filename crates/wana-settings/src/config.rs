@@ -140,17 +140,27 @@ impl Settings {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| format!("invalid settings path {}", path.display()))?;
-        let tmp: PathBuf = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
-
         secure_metadata(path)?;
 
+        let pid = std::process::id();
+        let (tmp, mut file) = (0..64)
+            .find_map(|slot| {
+                let tmp: PathBuf = parent.join(format!(".{file_name}.tmp-{pid}-{slot}"));
+                match OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&tmp)
+                {
+                    Ok(file) => Some(Ok((tmp, file))),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                    Err(e) => Some(Err(format!("create {}: {e}", tmp.display()))),
+                }
+            })
+            .transpose()?
+            .ok_or_else(|| format!("no free atomic temp slot for {}", path.display()))?;
+
         let result = (|| -> Result<(), String> {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&tmp)
-                .map_err(|e| format!("create {}: {e}", tmp.display()))?;
             file.write_all(self.encode().as_bytes())
                 .map_err(|e| format!("write {}: {e}", tmp.display()))?;
             file.sync_all()
@@ -185,6 +195,26 @@ mod tests {
             std::process::id(),
             N.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    #[test]
+    fn stale_temp_file_does_not_block_settings_save() {
+        let p = path();
+        let parent = p.parent().unwrap();
+        fs::create_dir_all(parent).unwrap();
+        let file_name = p.file_name().unwrap().to_str().unwrap();
+        let stale = parent.join(format!(
+            ".{file_name}.tmp-{}-0",
+            std::process::id()
+        ));
+        fs::write(&stale, "stale").unwrap();
+
+        Settings::default().save_atomic(&p).unwrap();
+        assert_eq!(Settings::load(&p).unwrap(), Settings::default());
+        assert!(stale.exists());
+
+        let _ = fs::remove_file(&p);
+        let _ = fs::remove_file(stale);
     }
 
     #[test]
