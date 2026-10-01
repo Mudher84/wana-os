@@ -713,6 +713,10 @@ services-boot-test:
 		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
+		--expect '\[INIT\] info: service power started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service power ready: /run/wana/power.sock' \
+		--expect '\[INIT\] info: service update started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service update ready: /run/wana/update.sock' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
@@ -725,11 +729,13 @@ services-boot-test:
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 11 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 13 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 13 service\(s\)' \
 		--expect '\[INIT\] info: service order: grow-root' \
 		--expect '\[INIT\] info: service order: system-bus' \
 		--expect '\[INIT\] info: service order: bluetooth' \
+		--expect '\[INIT\] info: service order: power' \
+		--expect '\[INIT\] info: service order: update' \
 		--expect '\[INIT\] info: service order: user-bus' \
 		--expect '\[INIT\] info: service order: pipewire' \
 		--expect '\[INIT\] info: service order: pipewire-pulse' \
@@ -756,6 +762,10 @@ production-session-boot-test:
 		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
+		--expect '\[INIT\] info: service power started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service power ready: /run/wana/power.sock' \
+		--expect '\[INIT\] info: service update started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service update ready: /run/wana/update.sock' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
@@ -768,7 +778,7 @@ production-session-boot-test:
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 13 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: session environment: language=ar locale=ar_IQ.UTF-8 timezone=Asia/Baghdad theme=dark accent=blue' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
