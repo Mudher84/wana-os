@@ -10,7 +10,7 @@ WANA_WINE64_SITE = https://dl.winehq.org/wine/source/11.0
 WANA_WINE64_LICENSE = LGPL-2.1+
 WANA_WINE64_LICENSE_FILES = COPYING.LIB LICENSE
 WANA_WINE64_DEPENDENCIES = host-bison host-flex host-wana-wine64 \
-	wayland alsa-lib dbus fontconfig freetype udev
+	wayland alsa-lib dbus fontconfig freetype pulseaudio udev
 HOST_WANA_WINE64_DEPENDENCIES = host-bison host-flex host-freetype
 
 WANA_WINE64_CONF_OPTS = \
@@ -39,7 +39,7 @@ WANA_WINE64_CONF_OPTS = \
 	--without-oss \
 	--without-pcap \
 	--without-pcsclite \
-	--without-pulse \
+	--with-pulse \
 	--without-sane \
 	--without-sdl \
 	--with-udev \
