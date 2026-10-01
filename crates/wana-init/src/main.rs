@@ -197,8 +197,7 @@ fn start_udev(problems: &mut Vec<String>) -> Option<Child> {
 }
 
 fn mount_live_media() -> Result<(&'static str, u64), String> {
-    fs::create_dir_all(LIVE_MOUNT)
-        .map_err(|e| format!("create {LIVE_MOUNT}: {e}"))?;
+    fs::create_dir_all(LIVE_MOUNT).map_err(|e| format!("create {LIVE_MOUNT}: {e}"))?;
 
     let mut last_error = None;
     for source in ["/dev/sr0", "/dev/sr1", "/dev/cdrom"] {
@@ -213,8 +212,9 @@ fn mount_live_media() -> Result<(&'static str, u64), String> {
             "",
         ) {
             Ok(()) => {
-                let meta = fs::metadata(LIVE_IMAGE)
-                    .map_err(|e| format!("{source} mounted but {LIVE_IMAGE} is unavailable: {e}"))?;
+                let meta = fs::metadata(LIVE_IMAGE).map_err(|e| {
+                    format!("{source} mounted but {LIVE_IMAGE} is unavailable: {e}")
+                })?;
                 if !meta.is_file() || meta.len() == 0 {
                     return Err(format!(
                         "{source} mounted but {LIVE_IMAGE} is not a non-empty regular file"
