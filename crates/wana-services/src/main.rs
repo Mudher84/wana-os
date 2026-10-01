@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
@@ -34,8 +36,80 @@ fn valid_name(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
+fn effective_uid() -> Result<u32, String> {
+    let status = fs::read_to_string("/proc/self/status")
+        .map_err(|e| format!("read /proc/self/status: {e}"))?;
+    let line = status
+        .lines()
+        .find(|line| line.starts_with("Uid:"))
+        .ok_or("/proc/self/status: Uid field missing")?;
+    line.split_whitespace()
+        .nth(2)
+        .ok_or("/proc/self/status: effective uid missing")?
+        .parse()
+        .map_err(|e| format!("/proc/self/status: invalid effective uid: {e}"))
+}
+
+fn secure_directory(path: &Path) -> Result<(), String> {
+    let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!("{}: service directory must be a real directory", path.display()));
+    }
+    let euid = effective_uid()?;
+    if meta.uid() != euid {
+        return Err(format!(
+            "{}: service directory owner uid {} does not match effective uid {euid}",
+            path.display(),
+            meta.uid()
+        ));
+    }
+    if meta.mode() & 0o022 != 0 {
+        return Err(format!(
+            "{}: service directory is group/other writable (mode {:o})",
+            path.display(),
+            meta.mode() & 0o777
+        ));
+    }
+    Ok(())
+}
+
+fn read_secure_service(path: &Path) -> Result<String, String> {
+    let before = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if before.file_type().is_symlink() || !before.is_file() {
+        return Err(format!("{}: service config must be a regular non-symlink file", path.display()));
+    }
+    let euid = effective_uid()?;
+    if before.uid() != euid {
+        return Err(format!(
+            "{}: service config owner uid {} does not match effective uid {euid}",
+            path.display(),
+            before.uid()
+        ));
+    }
+    if before.mode() & 0o022 != 0 {
+        return Err(format!(
+            "{}: service config is group/other writable (mode {:o})",
+            path.display(),
+            before.mode() & 0o777
+        ));
+    }
+
+    let mut file = File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    let opened = file
+        .metadata()
+        .map_err(|e| format!("metadata {}: {e}", path.display()))?;
+    if before.dev() != opened.dev() || before.ino() != opened.ino() {
+        return Err(format!("{}: service config changed while opening", path.display()));
+    }
+
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    Ok(text)
+}
+
 fn parse(path: &Path) -> Result<Service, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = read_secure_service(path)?;
     let mut name = None;
     let mut exec = None;
     let mut args = Vec::new();
@@ -146,8 +220,10 @@ fn parse(path: &Path) -> Result<Service, String> {
 }
 
 fn load(dir: &Path) -> Result<BTreeMap<String, Service>, String> {
-    if !dir.exists() {
-        return Ok(BTreeMap::new());
+    match fs::symlink_metadata(dir) {
+        Ok(_) => secure_directory(dir)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(e) => return Err(format!("{}: {e}", dir.display())),
     }
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
@@ -329,6 +405,23 @@ mod tests {
         assert_eq!(order(&map).unwrap(), ["a", "b"]);
         assert_eq!(map["b"].uid, 10);
         assert_eq!(map["b"].gid, 20);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn insecure_service_files_are_rejected() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let d = dir();
+        let service = d.join("bad.service");
+        fs::write(&service, "name=bad\nexec=/bin/true\n").unwrap();
+        fs::set_permissions(&service, fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(load(&d).is_err());
+
+        fs::remove_file(&service).unwrap();
+        symlink("/etc/passwd", &service).unwrap();
+        assert!(load(&d).is_err());
+
         let _ = fs::remove_dir_all(d);
     }
 
