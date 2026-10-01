@@ -594,6 +594,9 @@ fn spawn_client(
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
         .env("XDG_RUNTIME_DIR", dir)
         .env("WAYLAND_DISPLAY", display);
+    if let Some(home) = std::env::var_os("HOME") {
+        cmd.env("HOME", home);
+    }
     if debug {
         cmd.env("WAYLAND_DEBUG", "1");
     }
