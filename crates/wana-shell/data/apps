@@ -5,3 +5,4 @@
 الإعدادات	/usr/bin/wana-settings
 الملفات	/usr/bin/wana-files	--path	/
 الأذونات والخصوصية	/usr/bin/wana-permissions
+مركز التحكم	/usr/bin/wana-control-center

@@ -177,6 +177,9 @@ jobs:
       - name: Permissions + audit center (atomic 0600 policy, bounded audit, native UI)
         run: make permissions-boot-test
 
+      - name: Notifications + control center (bounded secure history, native Arabic UI)
+        run: make control-center-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7

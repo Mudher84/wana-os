@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test control-center-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -61,6 +61,7 @@ help:
 	@echo "    make installer-gui-boot-test   drive the native installer GUI from the Live ISO into a target disk"
 	@echo "    make installed-disk-boot-test  boot the disk produced by the installer through OVMF + GRUB"
 	@echo "    make permissions-boot-test  boot native permissions + bounded audit center"
+	@echo "    make control-center-boot-test  boot native notification history + control center"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -722,6 +723,24 @@ permissions-boot-test:
 		--expect '\[COMPOSITOR\] info: window mapped: "الأذونات والخصوصية — وانا" \(org.wana.Permissions\) 820x600 at 230,100' \
 		--expect '\[SHELL\] info: permission center mapped: 820x600 rules=4 audit=4 sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-permissions exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 24: bounded notification history + native control center. The test
+# seeds three deterministic notifications through the real secure store and
+# verifies that the native UI renders the resulting history.
+CONTROL_CENTER_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,120,--run,/usr/bin/wana-control-center,--root,/tmp/wana-notifications,--test-seed,--hold,3 wana.test=poweroff wana.shell=0
+control-center-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-control-center.img "$(CONTROL_CENTER_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-control-center.img --gpu virtio --timeout 240 --memory 1024 \
+		--log out/logs/control-center-boot.log \
+		--screendump-on 'control center mapped' --screendump out/test/control-center.ppm \
+		--pixel 0.5,0.35=1e293b --pixel 0.03,0.10=111827 \
+		--expect '\[COMPOSITOR\] info: window mapped: "مركز التحكم — وانا" \(org.wana.ControlCenter\) 820x600 at 230,100' \
+		--expect '\[SHELL\] info: control center mapped: 820x600 notifications=3 sha256 [0-9a-f]{64}' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-control-center exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
