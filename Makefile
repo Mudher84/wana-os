@@ -885,6 +885,14 @@ beta-bundle:
 # is enforced by the stable GitHub workflow with an independent no-ccache build.
 stable-release-test:
 	$(MAKE) beta-release-test
+	$(MAKE) gl-boot-test
+	$(MAKE) seat-boot-test
+	$(MAKE) text-boot-test
+	$(MAKE) text-window-boot-test
+	$(MAKE) layer-boot-test
+	$(MAKE) shell-boot-test
+	$(MAKE) dock-boot-test
+	$(MAKE) window-management-boot-test
 
 stable-bundle:
 	@test -f "$(BR_OUT)/images/build-manifest.json" || { echo "[RELEASE] error: build image first" >&2; exit 2; }
