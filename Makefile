@@ -711,14 +711,18 @@ services-boot-test:
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 6 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 6 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 8 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 8 service\(s\)' \
 		--expect '\[INIT\] info: service order: system-bus' \
 		--expect '\[INIT\] info: service order: bluetooth' \
+		--expect '\[INIT\] info: service order: wpa-supplicant' \
+		--expect '\[INIT\] info: service order: dhcpcd' \
 		--expect '\[INIT\] info: service order: user-bus' \
 		--expect '\[INIT\] info: service order: pipewire' \
 		--expect '\[INIT\] info: service order: wireplumber' \
@@ -740,11 +744,13 @@ production-session-boot-test:
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 6 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 8 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
@@ -893,6 +899,9 @@ compatibility-image-check:
 	test -x $(BR_OUT)/target/usr/bin/lxc-start
 	test -x $(BR_OUT)/target/usr/bin/wana-audio
 	test -x $(BR_OUT)/target/usr/bin/wana-bluetooth
+	test -x $(BR_OUT)/target/usr/bin/wana-wifi
+	test -x $(BR_OUT)/target/usr/sbin/wpa_supplicant
+	test -x $(BR_OUT)/target/sbin/dhcpcd
 	test -x $(BR_OUT)/target/usr/bin/wana-android
 	test -x $(BR_OUT)/target/usr/bin/wana-winrun
 	@test -x $(BR_OUT)/target/usr/bin/wine64 || test -x $(BR_OUT)/target/usr/bin/wine
