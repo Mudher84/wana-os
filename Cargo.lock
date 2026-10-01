@@ -27,6 +27,7 @@ dependencies = [
  "wana-client",
  "wana-log",
  "wana-text",
+ "wana-theme",
 ]
 
 [[package]]
@@ -43,6 +44,7 @@ dependencies = [
  "wana-client",
  "wana-log",
  "wana-text",
+ "wana-theme",
 ]
 
 [[package]]
@@ -73,6 +75,7 @@ dependencies = [
  "wana-client",
  "wana-log",
  "wana-text",
+ "wana-theme",
 ]
 
 [[package]]
@@ -93,6 +96,7 @@ dependencies = [
  "wana-client",
  "wana-log",
  "wana-text",
+ "wana-theme",
 ]
 
 [[package]]
@@ -117,6 +121,7 @@ dependencies = [
  "wana-client",
  "wana-log",
  "wana-text",
+ "wana-theme",
 ]
 
 [[package]]
@@ -126,6 +131,7 @@ dependencies = [
  "wana-client",
  "wana-log",
  "wana-text",
+ "wana-theme",
  "wana-wayland",
 ]
 
