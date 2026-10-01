@@ -85,6 +85,14 @@ fn main() {
     set_identity();
     if opts.live {
         info!(INIT, "boot mode: Live ISO");
+    } else {
+        match sys::remount_rw("/") {
+            Ok(()) => info!(INIT, "installed root: remounted read-write"),
+            Err(e) => {
+                error!(INIT, "installed root: remount read-write failed: {e}");
+                problems.push("installed root is not writable".into());
+            }
+        }
     }
 
     let udevd = if opts.udev {
