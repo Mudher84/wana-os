@@ -9,6 +9,7 @@
 //! | `wana.test=poweroff\|reboot` | automated test boot: stop the machine once init is ready |
 //! | `wana.shell=1` | explicitly start the debug root shell on the console (default off) |
 //! | `wana.udev=0` | do not start udevd (static `/dev` from devtmpfs only) |
+//! | `wana.services=0|1` | disable/force system services; by default one-shot `wana.run` boots skip services |
 //! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
 //! | `wana.live=1` | booted from the read-only Live ISO/initramfs path |
 
@@ -29,6 +30,9 @@ pub struct Options {
     pub shell: bool,
     /// Start udevd and coldplug devices (when udevd is installed).
     pub udev: bool,
+    /// Explicit system-service policy. None means services on for normal boot,
+    /// off for one-shot `wana.run` bring-up/test boots.
+    pub services: Option<bool>,
     /// Program (absolute path) and arguments to run once after `ready`.
     pub run: Option<Vec<String>>,
     /// Booted from the Live ISO path.
@@ -44,6 +48,7 @@ impl Default for Options {
             test: None,
             shell: false,
             udev: true,
+            services: None,
             run: None,
             live: false,
             warnings: Vec::new(),
@@ -78,9 +83,10 @@ pub fn parse(cmdline: &str) -> Options {
                     .warnings
                     .push(format!("wana.live: unknown value {value:?}")),
             },
-            "shell" | "udev" => match parse_bool(value) {
+            "shell" | "udev" | "services" => match parse_bool(value) {
                 Some(on) if key == "shell" => opts.shell = on,
-                Some(on) => opts.udev = on,
+                Some(on) if key == "udev" => opts.udev = on,
+                Some(on) => opts.services = Some(on),
                 None => opts
                     .warnings
                     .push(format!("wana.{key}: unknown value {value:?}")),
@@ -151,6 +157,14 @@ mod tests {
         assert!(!o.shell);
         assert!(o.warnings.is_empty());
         assert_eq!(parse("wana.udev=later").warnings.len(), 1);
+    }
+
+    #[test]
+    fn service_policy_is_optional_and_validated() {
+        assert_eq!(parse("").services, None);
+        assert_eq!(parse("wana.services=0").services, Some(false));
+        assert_eq!(parse("wana.services=1").services, Some(true));
+        assert_eq!(parse("wana.services=maybe").warnings.len(), 1);
     }
 
     #[test]
