@@ -48,6 +48,9 @@ pub fn start(
         .env("WAYLAND_SOCKET", shell_fd.to_string())
         // The public socket, for the programs the shell starts.
         .env("WAYLAND_DISPLAY", public_display);
+    if let Some(home) = std::env::var_os("HOME") {
+        cmd.env("HOME", home);
+    }
     // SAFETY: runs in the child between fork and exec; fcntl is
     // async-signal-safe. It clears close-on-exec on the shell's end only.
     unsafe {
