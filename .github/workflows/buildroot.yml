@@ -177,6 +177,9 @@ jobs:
       - name: Permissions + audit center (atomic 0600 policy, bounded audit, native UI)
         run: make permissions-boot-test
 
+      - name: Security hardening (runtime mount flags + secure debug-shell default)
+        run: make security-hardening-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
