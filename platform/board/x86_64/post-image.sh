@@ -15,8 +15,17 @@ done
 # ESP contents: GRUB (installed by Buildroot), our grub.cfg, the kernel.
 mkdir -p "$out/efi-part/wana"
 cp "$out/bzImage" "$out/efi-part/wana/bzImage"
-sed "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" "$board/grub.cfg" > "$out/efi-part/EFI/BOOT/grub.cfg"
+cp "$out/bzImage" "$out/efi-part/wana/bzImage-A"
+cp "$out/bzImage" "$out/efi-part/wana/bzImage-B"
 sed -e "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" \
+    -e "s/__ROOT_A_PARTUUID__/$WANA_ROOT_A_PARTUUID/g" \
+    -e "s/__ROOT_B_PARTUUID__/$WANA_ROOT_B_PARTUUID/g" \
+    -e "s/__DATA_PARTUUID__/$WANA_DATA_PARTUUID/g" \
+    "$board/grub.cfg" > "$out/efi-part/EFI/BOOT/grub.cfg"
+sed -e "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" \
+    -e "s/__ROOT_A_PARTUUID__/$WANA_ROOT_A_PARTUUID/g" \
+    -e "s/__ROOT_B_PARTUUID__/$WANA_ROOT_B_PARTUUID/g" \
+    -e "s/__ROOT_SLOT_SIZE__/$WANA_ROOT_SLOT_SIZE/g" \
     -e "s/__DATA_PARTUUID__/$WANA_DATA_PARTUUID/g" \
     -e "s/__ESP_PARTUUID__/$WANA_ESP_PARTUUID/g" \
     -e "s/__DISK_GUID__/$WANA_DISK_GUID/g" \
