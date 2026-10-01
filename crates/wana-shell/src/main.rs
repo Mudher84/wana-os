@@ -41,7 +41,7 @@ use std::fs::File;
 use std::os::unix::io::FromRawFd;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use toplevels::Toplevels;
 use wana_client::client::{Connection, Event, Proxy, Req, Val};
 use wana_client::layer::{self, LayerSurface, Spec};
@@ -804,9 +804,19 @@ fn animate_launcher_selection(
             )?,
             false,
         )?;
-        // wait() flushes the committed frame and keeps input/protocol events
-        // queued for the main loop instead of dropping them during motion.
-        conn.wait(motion.frame_ms() as i32)?;
+        // wait() may return early when Wayland traffic arrives. Keep waiting
+        // until the frame deadline so QUICK_MS is a real minimum duration,
+        // while protocol/input events remain queued for the main loop.
+        let deadline = Instant::now() + Duration::from_millis(u64::from(motion.frame_ms()));
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(now);
+            let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+            conn.wait(timeout_ms)?;
+        }
     }
     info!(
         SHELL,
