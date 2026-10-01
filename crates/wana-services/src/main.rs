@@ -35,6 +35,7 @@ struct Service {
     gid: u32,
     home: Option<PathBuf>,
     env: Vec<(String, String)>,
+    ready_path: Option<PathBuf>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -142,6 +143,7 @@ fn parse(path: &Path) -> Result<Service, String> {
     let mut gid = 0u32;
     let mut home = None;
     let mut env = Vec::new();
+    let mut ready_path = None;
     let mut seen = BTreeSet::new();
 
     for (line_no, raw) in text.lines().enumerate() {
@@ -234,6 +236,17 @@ fn parse(path: &Path) -> Result<Service, String> {
                 }
                 home = Some(p);
             }
+            "ready_path" => {
+                let p = PathBuf::from(value);
+                if !p.is_absolute() || value.split('/').any(|part| part == "..") {
+                    return Err(format!(
+                        "{}:{}: ready_path must be an absolute safe path",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                ready_path = Some(p);
+            }
             "env" => {
                 let (name, val) = value.split_once('=').ok_or_else(|| {
                     format!("{}:{}: env must be NAME=VALUE", path.display(), line_no + 1)
@@ -274,6 +287,7 @@ fn parse(path: &Path) -> Result<Service, String> {
         gid,
         home,
         env,
+        ready_path,
     })
 }
 
@@ -378,11 +392,49 @@ fn spawn(s: &Service) -> Result<Child, String> {
     Ok(child)
 }
 
+fn wait_ready(service: &Service, child: &mut Child) -> Result<(), String> {
+    let Some(path) = &service.ready_path else {
+        return Ok(());
+    };
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if path.exists() {
+            info!(
+                LOG,
+                "service {} ready: {}",
+                service.name,
+                path.display()
+            );
+            return Ok(());
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| format!("{}: readiness wait: {e}", service.name))?
+        {
+            return Err(format!(
+                "service {} exited {status} before readiness path {} appeared",
+                service.name,
+                path.display()
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "service {} readiness timeout waiting for {}",
+                service.name,
+                path.display()
+            ));
+        }
+        sleep(Duration::from_millis(50));
+    }
+}
+
 fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Result<(), String> {
     let sequence = order(&map)?;
     let mut children: BTreeMap<String, Child> = BTreeMap::new();
     for name in &sequence {
-        children.insert(name.clone(), spawn(&map[name])?);
+        let mut child = spawn(&map[name])?;
+        wait_ready(&map[name], &mut child)?;
+        children.insert(name.clone(), child);
     }
     info!(LOG, "services ready: {} service(s)", children.len());
     let deadline = timeout.map(|d| Instant::now() + d);
@@ -478,7 +530,7 @@ mod tests {
         .unwrap();
         fs::write(
             d.join("b.service"),
-            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\nhome=/tmp\nenv=XDG_RUNTIME_DIR=/run/user/10\nenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/10/bus\n",
+            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\nhome=/tmp\nready_path=/run/user/10/bus\nenv=XDG_RUNTIME_DIR=/run/user/10\nenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/10/bus\n",
         )
         .unwrap();
         let map = load(&d).unwrap();
@@ -486,6 +538,7 @@ mod tests {
         assert_eq!(map["b"].uid, 10);
         assert_eq!(map["b"].gid, 20);
         assert_eq!(map["b"].home, Some(PathBuf::from("/tmp")));
+        assert_eq!(map["b"].ready_path, Some(PathBuf::from("/run/user/10/bus")));
         assert_eq!(
             map["b"].env,
             [
