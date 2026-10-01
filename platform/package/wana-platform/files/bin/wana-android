@@ -39,6 +39,20 @@ session_running() {
     waydroid status 2>/dev/null | grep -q 'Session:[[:space:]]*RUNNING'
 }
 
+launch_test_package() {
+    marker=/var/lib/wana/android-test-package
+    [ -f "$marker" ] || return 0
+    package=$(tr -d '\r\n' < "$marker")
+    case "$package" in
+        ''|*[!A-Za-z0-9._]*)
+            echo "wana-android: invalid test package marker" >&2
+            return 1
+            ;;
+    esac
+    waydroid app launch "$package"
+    echo "WANA_ANDROID_APK_LAUNCH package=$package"
+}
+
 start_session() {
     need_user
     wait_wayland
@@ -79,6 +93,7 @@ case "${1:-status}" in
         ;;
     ui)
         start_session
+        launch_test_package
         exec waydroid show-full-ui
         ;;
     install)
