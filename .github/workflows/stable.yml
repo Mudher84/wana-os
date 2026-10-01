@@ -1,0 +1,167 @@
+name: stable candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version, for example 0.1.0
+        required: true
+        type: string
+      publish:
+        description: Publish the verified bundle as a GitHub release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    name: candidate A + runtime gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate stable version
+        id: version
+        shell: bash
+        run: |
+          set -eu
+          version="${{ inputs.version }}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "invalid stable version: $version" >&2
+            exit 2
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y -qq
+
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod a+rw /dev/kvm
+          fi
+
+      - name: Cache downloads
+        uses: actions/cache@v6
+        with:
+          path: dl
+          key: br-dl-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}
+          restore-keys: br-dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v6
+        with:
+          path: ~/.buildroot-ccache
+          key: br-ccache-stable-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-${{ github.sha }}
+          restore-keys: |
+            br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-
+            br-ccache-
+
+      - name: Build candidate A
+        shell: bash
+        run: |
+          set -o pipefail
+          make image 2>&1 | tee stable-image-A.log | { grep -E '^>>>|\[BUILD\]' || true; }
+
+      - name: Stable runtime gates
+        run: make stable-release-test
+
+      - name: Prepare stable bundle
+        run: make stable-bundle VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Upload candidate bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: stable-candidate-A
+          path: out/release/wana-os-${{ steps.version.outputs.version }}/
+          retention-days: 90
+          if-no-files-found: error
+
+  rebuild:
+    name: independent rebuild B
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CCACHE_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y -qq
+
+      - name: Cache downloads
+        uses: actions/cache@v6
+        with:
+          path: dl
+          key: br-dl-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}
+          restore-keys: br-dl-
+
+      - name: Build candidate B without ccache
+        shell: bash
+        run: |
+          set -o pipefail
+          make image 2>&1 | tee stable-image-B.log | { grep -E '^>>>|\[BUILD\]' || true; }
+
+      - name: Upload rebuild manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: stable-manifest-B
+          path: |
+            out/build/wana_x86_64/images/build-manifest.json
+            out/build/wana_x86_64/images/SHA256SUMS
+          retention-days: 90
+          if-no-files-found: error
+
+  compare:
+    name: reproducibility + publish
+    needs: [candidate, rebuild]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-candidate-A
+          path: candidate
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-manifest-B
+          path: rebuild
+
+      - name: Compare independent builds
+        shell: bash
+        run: |
+          set -eu
+          manifest_a="$(find candidate -name build-manifest.json -type f -print -quit)"
+          manifest_b="$(find rebuild -name build-manifest.json -type f -print -quit)"
+          test -n "$manifest_a" -a -n "$manifest_b"
+          tools/compare-manifests.py "$manifest_a" "$manifest_b"
+
+      - name: Publish stable GitHub release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+        shell: bash
+        run: |
+          set -eu
+          gh release create "v$VERSION" candidate/*             --target "$GITHUB_SHA"             --generate-notes             --title "Wana OS $VERSION"
