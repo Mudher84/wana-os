@@ -646,7 +646,7 @@ installer-core-boot-test:
 	test -s $(BR_OUT)/images/Wana-OS-Live.iso
 	test -s $(BR_OUT)/images/disk.img
 	rm -f out/test/installed-core.img out/test/installed-core.tmp.img out/test/live-installer-core.iso
-	@size=$(stat -c%s $(BR_OUT)/images/disk.img); truncate -s $((size + 134217728)) out/test/installed-core.tmp.img
+	@size=$$(stat -c%s $(BR_OUT)/images/disk.img); truncate -s $$((size + 134217728)) out/test/installed-core.tmp.img
 	XORRISO=$(BR_OUT)/host/bin/xorriso python3 tools/mk-test-live-iso.py $(BR_OUT)/images/Wana-OS-Live.iso out/test/live-installer-core.iso "$(INSTALL_CORE_ARGS)"
 	tools/qemu-graphics-test.py --iso out/test/live-installer-core.iso --gpu std --timeout 420 --memory 1024 \
 		--writable-disk out/test/installed-core.tmp.img \
@@ -669,7 +669,7 @@ installer-gui-boot-test:
 	test -s $(BR_OUT)/images/Wana-OS-Live.iso
 	test -s $(BR_OUT)/images/disk.img
 	rm -f out/test/installed-gui.img out/test/installed-gui.tmp.img out/test/live-installer-gui.iso
-	@size=$(stat -c%s $(BR_OUT)/images/disk.img); truncate -s $((size + 134217728)) out/test/installed-gui.tmp.img
+	@size=$$(stat -c%s $(BR_OUT)/images/disk.img); truncate -s $$((size + 134217728)) out/test/installed-gui.tmp.img
 	XORRISO=$(BR_OUT)/host/bin/xorriso python3 tools/mk-test-live-iso.py $(BR_OUT)/images/Wana-OS-Live.iso out/test/live-installer-gui.iso "$(INSTALL_GUI_ARGS)"
 	tools/qemu-graphics-test.py --iso out/test/live-installer-gui.iso --gpu virtio --input virtio --timeout 480 --memory 1024 \
 		--writable-disk out/test/installed-gui.tmp.img \
@@ -700,7 +700,7 @@ installed-disk-boot-test:
 		--log out/logs/installed-disk-boot.log --timeout 240 \
 		--expect 'BdsDxe: starting Boot' \
 		--expect '\[BOOT\] info: loading Wana OS kernel' \
-		--expect "root=PARTUUID=$WANA_ROOT_PARTUUID" \
+		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
 		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
