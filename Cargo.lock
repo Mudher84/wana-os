@@ -28,6 +28,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-files"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
+]
+
+[[package]]
 name = "wana-init"
 version = "0.1.0"
 dependencies = [
@@ -42,8 +51,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-install"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
+name = "wana-installer"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
+]
+
+[[package]]
 name = "wana-log"
 version = "0.1.0"
+
+[[package]]
+name = "wana-network"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
 
 [[package]]
 name = "wana-render"
@@ -51,6 +83,22 @@ version = "0.1.0"
 dependencies = [
  "wana-drm",
  "wana-log",
+]
+
+[[package]]
+name = "wana-services"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
+name = "wana-settings"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
 ]
 
 [[package]]
