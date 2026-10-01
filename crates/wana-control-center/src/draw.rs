@@ -8,12 +8,12 @@ use wana_text::raster::{draw, Canvas};
 pub const WIDTH: u32 = 820;
 pub const HEIGHT: u32 = 600;
 
-const BG: u32 = 0x111827;
-const CARD: u32 = 0x1E293B;
-const TEXT: u32 = 0xF1F5F9;
-const DIM: u32 = 0xA8B3C7;
-const ACCENT: u32 = 0x2DD4BF;
-const ALERT: u32 = 0x60A5FA;
+const BG: u32 = wana_theme::color::BG_DARK;
+const CARD: u32 = wana_theme::color::CARD_DARK;
+const TEXT: u32 = wana_theme::color::TEXT_DARK;
+const DIM: u32 = wana_theme::color::DIM_DARK;
+const ACCENT: u32 = wana_theme::color::ACCENT_TEAL;
+const ALERT: u32 = wana_theme::color::INFO_BLUE;
 
 fn fill(canvas: &mut Canvas, x: u32, y: u32, width: u32, height: u32, rgb: u32) {
     for row in y..(y + height).min(canvas.height) {
