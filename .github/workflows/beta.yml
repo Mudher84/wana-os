@@ -12,7 +12,7 @@ on:
       - "v*-beta.*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: beta-${{ github.ref }}
@@ -29,7 +29,7 @@ jobs:
       - name: Toolchains
         run: |
           rustup show active-toolchain
-          rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" --profile minimal
+          rustup toolchain install "$(sed -n 's/^rust-version = "\\(.*\\)"/\\1/p' Cargo.toml)" --profile minimal
 
       - name: Development libraries
         run: |
@@ -54,6 +54,8 @@ jobs:
     needs: source-gate
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -128,9 +130,28 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  publish:
+    name: publish prerelease
+    needs: candidate
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified beta bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: wana-os-${{ needs.candidate.outputs.version }}
+          path: candidate
+
       - name: Publish GitHub prerelease
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh release create "${GITHUB_REF_NAME}"             out/release/wana-os-${{ steps.version.outputs.version }}/*             --verify-tag --prerelease --generate-notes             --title "Wana OS ${{ steps.version.outputs.version }}"
+          set -eu
+          gh release create "${GITHUB_REF_NAME}" candidate/* \
+            --verify-tag \
+            --prerelease \
+            --generate-notes \
+            --title "Wana OS ${{ needs.candidate.outputs.version }}"
