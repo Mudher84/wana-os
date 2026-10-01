@@ -639,7 +639,7 @@ settings-boot-test:
 		--screendump-on 'settings mapped' --screendump-delay-ms 200 --screendump out/test/settings.ppm \
 		--pixel 0.234375,0.225=111827 --pixel 0.25,0.4=1e293b \
 		--expect '\[COMPOSITOR\] info: window mapped: "الإعدادات — وانا" \(org.wana.Settings\) 720x480 at 280,160' \
-		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, sha256 [0-9a-f]{64}' \
+		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, timezone=Asia/Baghdad, sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-settings exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
@@ -770,6 +770,7 @@ production-session-boot-test:
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
+		--expect '\[SHELL\] info: session environment: language=ar locale=ar_IQ.UTF-8 timezone=Asia/Baghdad theme=dark accent=blue' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
 		--expect '\[COMPOSITOR\] info: XDG_RUNTIME_DIR=/run/user/1000' \

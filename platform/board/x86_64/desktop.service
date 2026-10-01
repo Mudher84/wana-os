@@ -3,7 +3,8 @@
 # PID 1 starts wana-services on normal boot. The compositor owns the private
 # shell connection and restarts as a unit if the shell exits.
 name=desktop
-exec=/usr/bin/wana-compositor
+exec=/usr/bin/wana-session
+arg=/usr/bin/wana-compositor
 arg=--exit-with-shell
 arg=--shell
 arg=/usr/bin/wana-shell
