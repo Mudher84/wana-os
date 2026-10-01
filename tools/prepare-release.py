@@ -129,7 +129,8 @@ def main() -> int:
             "sha256": entries[name]["sha256"],
         })
 
-    shutil.copyfile(manifest_path, args.out / manifest_path.name)
+    manifest_target = args.out / manifest_path.name
+    shutil.copyfile(manifest_path, manifest_target)
     metadata = {
         "schema": 1,
         "project": "wana-os",
@@ -138,11 +139,17 @@ def main() -> int:
         "commit": commit,
         "payload": release_entries,
     }
-    (args.out / "release.json").write_text(
+    release_json = args.out / "release.json"
+    release_json.write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )
+    bundle_entries = [
+        *release_entries,
+        {"path": manifest_target.name, "sha256": sha256(manifest_target)},
+        {"path": release_json.name, "sha256": sha256(release_json)},
+    ]
     with (args.out / "RELEASE-SHA256SUMS").open("w") as output:
-        for entry in release_entries:
+        for entry in bundle_entries:
             output.write(f"{entry['sha256']}  {entry['path']}\n")
 
     print(
