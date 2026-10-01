@@ -242,10 +242,7 @@ impl Store {
     ) -> Result<(), String> {
         let mut entries = self.audit()?;
         let seq = match entries.last() {
-            Some(entry) => entry
-                .seq
-                .checked_add(1)
-                .ok_or("audit sequence exhausted")?,
+            Some(entry) => entry.seq.checked_add(1).ok_or("audit sequence exhausted")?,
             None => 1,
         };
         entries.push(Audit {
