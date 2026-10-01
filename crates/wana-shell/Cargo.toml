@@ -11,6 +11,7 @@ rust-version.workspace = true
 # connection). No crates.io dependencies.
 [dependencies]
 wana-log = { path = "../wana-log" }
+wana-motion = { path = "../wana-motion" }
 wana-wayland = { path = "../wana-wayland" }
 wana-client = { path = "../wana-client" }
 wana-text = { path = "../wana-text" }
