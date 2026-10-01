@@ -53,6 +53,15 @@ fn permission_ar(permission: &str) -> &str {
 }
 
 pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas, String> {
+    center_selected(fonts, rules, audit, None)
+}
+
+pub fn center_selected(
+    fonts: &FontSet,
+    rules: &[Rule],
+    audit: &[Audit],
+    selected: Option<usize>,
+) -> Result<Canvas, String> {
     let palette = wana_theme::current();
     let mut canvas = Canvas::new(WIDTH, HEIGHT, palette.bg);
     label(
@@ -78,6 +87,10 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
         label(&mut canvas, fonts, "لا توجد قواعد محفوظة", 166.0, 16.0, palette.dim)?;
     } else {
         for (index, rule) in rules.iter().take(4).enumerate() {
+            let active = selected == Some(index);
+            if active {
+                fill(&mut canvas, 40, 154 + index as u32 * 30, WIDTH - 80, 28, palette.accent);
+            }
             let status = if rule.decision == Decision::Allow {
                 "مسموح"
             } else {
@@ -137,6 +150,14 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
             )?;
         }
     }
+    label(
+        &mut canvas,
+        fonts,
+        "↑↓ اختيار   ← رفض   → سماح   Enter تبديل   Delete مسح التدقيق   Esc خروج",
+        570.0,
+        12.0,
+        palette.dim,
+    )?;
     Ok(canvas)
 }
 

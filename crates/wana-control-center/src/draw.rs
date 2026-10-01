@@ -148,6 +148,15 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
         }
     }
 
+    label(
+        &mut canvas,
+        fonts,
+        "R تحديث   Delete مسح الإشعارات   Esc خروج",
+        (48.0, 570.0),
+        WIDTH as f32 - 96.0,
+        12.0,
+        palette.dim,
+    )?;
     Ok(canvas)
 }
 
