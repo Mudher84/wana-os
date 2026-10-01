@@ -8,10 +8,11 @@ WANA_PLATFORM_VERSION = 0.1.0
 WANA_PLATFORM_SITE = $(BR2_EXTERNAL_WANA_PATH)/package/wana-platform/files
 WANA_PLATFORM_SITE_METHOD = local
 WANA_PLATFORM_LICENSE = GPL-2.0-or-later
-WANA_PLATFORM_DEPENDENCIES = dbus dhcpcd wpa_supplicant alsa-lib alsa-utils pipewire wireplumber bluez5_utils sbc libsndfile lxc wana-waydroid
+WANA_PLATFORM_DEPENDENCIES = dbus embiggen-disk dhcpcd wpa_supplicant alsa-lib alsa-utils pipewire wireplumber bluez5_utils sbc libsndfile lxc wana-waydroid
 
 define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/services/00-system-bus.service $(TARGET_DIR)/etc/wana/services.d/system-bus.service
+	$(INSTALL) -D -m 0644 $(@D)/services/05-grow-root.service $(TARGET_DIR)/etc/wana/services.d/grow-root.service
 	$(INSTALL) -D -m 0644 $(@D)/services/10-user-bus.service $(TARGET_DIR)/etc/wana/services.d/user-bus.service
 	$(INSTALL) -D -m 0644 $(@D)/services/15-wpa-supplicant.service $(TARGET_DIR)/etc/wana/services.d/wpa-supplicant.service
 	$(INSTALL) -D -m 0644 $(@D)/services/16-dhcpcd.service $(TARGET_DIR)/etc/wana/services.d/dhcpcd.service
