@@ -728,7 +728,7 @@ production-session-boot-test:
 		--screendump-on '\[SHELL\] info: ready' --screendump-delay-ms 500 --screendump out/test/production-session.ppm \
 		--pixel 0.5,0.025=0b0f1a \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
-		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
