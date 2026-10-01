@@ -152,14 +152,38 @@ fn line(
 
 /// The launcher: a title, then `names` one per row, `selected` highlighted.
 pub fn launcher(fonts: &FontSet, names: &[&str], selected: usize) -> Result<Canvas, String> {
+    launcher_transition(fonts, names, selected, selected, wana_motion::SCALE)
+}
+
+/// One deterministic frame of the launcher selection transition.
+///
+/// `progress` is fixed-point 0..=1024. The old row fades back to the panel
+/// while the new row moves toward the accent color. At SCALE the pixels are
+/// identical to `launcher(..., to)`, which keeps visual hash tests stable.
+pub fn launcher_transition(
+    fonts: &FontSet,
+    names: &[&str],
+    from: usize,
+    to: usize,
+    progress: u32,
+) -> Result<Canvas, String> {
     let (w, h) = (LAUNCHER_WIDTH, launcher_height(names.len()));
     let mut c = Canvas::new(w, h, LAUNCHER_BORDER);
     fill(&mut c, 1, 1, w - 2, h - 2, LAUNCHER_BG);
     line(&mut c, fonts, APPS_TITLE, 0, LAUNCHER_HEADER, LAUNCHER_DIM)?;
     for (i, name) in names.iter().enumerate() {
         let top = LAUNCHER_HEADER + LAUNCHER_ROW * i as u32;
-        if i == selected {
-            fill(&mut c, 8, top + 2, w - 16, LAUNCHER_ROW - 4, ACCENT);
+        let row_color = if from == to && i == to {
+            Some(ACCENT)
+        } else if i == from {
+            Some(wana_motion::mix_rgb(ACCENT, LAUNCHER_BG, progress))
+        } else if i == to {
+            Some(wana_motion::mix_rgb(LAUNCHER_BG, ACCENT, progress))
+        } else {
+            None
+        };
+        if let Some(rgb) = row_color {
+            fill(&mut c, 8, top + 2, w - 16, LAUNCHER_ROW - 4, rgb);
         }
         line(&mut c, fonts, name, top, LAUNCHER_ROW, BAR_TEXT)?;
     }
@@ -275,6 +299,22 @@ mod tests {
         assert_ne!(
             c,
             dock(DOCK_WIDTH, &fonts(), &["ملفات".to_string()]).unwrap()
+        );
+    }
+
+    #[test]
+    fn launcher_transition_ends_on_the_static_selected_frame() {
+        let names = ["نافذة تجريبية", "نص عربي"];
+        let fonts = fonts();
+        let final_frame =
+            launcher_transition(&fonts, &names, 0, 1, wana_motion::SCALE).unwrap();
+        assert_eq!(final_frame, launcher(&fonts, &names, 1).unwrap());
+
+        let start = launcher_transition(&fonts, &names, 0, 1, 0).unwrap();
+        assert_eq!(start, launcher(&fonts, &names, 0).unwrap());
+        assert_ne!(
+            launcher_transition(&fonts, &names, 0, 1, wana_motion::SCALE / 2).unwrap(),
+            final_frame
         );
     }
 
