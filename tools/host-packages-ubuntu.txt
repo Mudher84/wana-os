@@ -12,3 +12,4 @@ unzip
 wget
 xz-utils
 mtools
+e2fsprogs
