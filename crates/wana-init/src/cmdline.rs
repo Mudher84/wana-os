@@ -7,7 +7,7 @@
 //! |--------|---------|
 //! | `wana.log=error\|warn\|info\|debug` | init log level (default `info`) |
 //! | `wana.test=poweroff\|reboot` | automated test boot: stop the machine once init is ready |
-//! | `wana.shell=0` | do not start the debug shell on the console |
+//! | `wana.shell=1` | explicitly start the debug root shell on the console (default off) |
 //! | `wana.udev=0` | do not start udevd (static `/dev` from devtmpfs only) |
 //! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
 //! | `wana.live=1` | booted from the read-only Live ISO/initramfs path |
@@ -42,7 +42,7 @@ impl Default for Options {
         Options {
             log_level: Level::Info,
             test: None,
-            shell: true,
+            shell: false,
             udev: true,
             run: None,
             live: false,
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn parses_all_options() {
-        let o = parse("console=ttyS0 wana.log=debug wana.test=poweroff wana.shell=0\n");
+        let o = parse("console=ttyS0 wana.log=debug wana.test=poweroff wana.shell=1\n");
         assert_eq!(o.log_level, Level::Debug);
         assert_eq!(o.test, Some(TestAction::PowerOff));
         assert!(!o.shell);
@@ -139,7 +139,7 @@ mod tests {
         let o = parse("wana.log=loud wana.test=explode wana.shell=maybe wana.color=blue");
         assert_eq!(o.log_level, Level::Info);
         assert_eq!(o.test, None);
-        assert!(o.shell);
+        assert!(!o.shell);
         assert_eq!(o.warnings.len(), 4);
     }
 
