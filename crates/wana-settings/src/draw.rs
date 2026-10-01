@@ -87,14 +87,15 @@ pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
                 _ => "أزرق",
             },
         ),
+        ("المنطقة الزمنية", s.timezone.as_str()),
     ]
     .iter()
     .enumerate()
     {
-        let y = 128 + i as u32 * 96;
-        fill(&mut c, 32, y, WIDTH - 64, 76, card);
-        text(&mut c, fonts, name, y as f32 + 12.0, 20.0, fg)?;
-        text(&mut c, fonts, value, y as f32 + 40.0, 16.0, dim)?;
+        let y = 112 + i as u32 * 82;
+        fill(&mut c, 32, y, WIDTH - 64, 70, card);
+        text(&mut c, fonts, name, y as f32 + 10.0, 20.0, fg)?;
+        text(&mut c, fonts, value, y as f32 + 38.0, 16.0, dim)?;
     }
     Ok(c)
 }

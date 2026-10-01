@@ -10,6 +10,7 @@ pub struct Settings {
     pub language: String,
     pub theme: String,
     pub accent: String,
+    pub timezone: String,
 }
 
 impl Default for Settings {
@@ -18,6 +19,7 @@ impl Default for Settings {
             language: "ar".into(),
             theme: "dark".into(),
             accent: "blue".into(),
+            timezone: "Asia/Baghdad".into(),
         }
     }
 }
@@ -94,6 +96,21 @@ fn secure_parent_directory(parent: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn valid_timezone(value: &str) -> bool {
+    if value.is_empty() || value.len() > 64 || value.starts_with('/') || value.contains("..") {
+        return false;
+    }
+    let mut saw_slash = false;
+    for byte in value.bytes() {
+        match byte {
+            b'/' => saw_slash = true,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'+' => {}
+            _ => return false,
+        }
+    }
+    saw_slash
+}
+
 impl Settings {
     pub fn load(path: &Path) -> Result<Self, String> {
         let Some(before) = secure_metadata(path)? else {
@@ -144,7 +161,8 @@ impl Settings {
             "language" if matches!(value, "ar" | "en") => self.language = value.into(),
             "theme" if matches!(value, "dark" | "light") => self.theme = value.into(),
             "accent" if matches!(value, "blue" | "teal" | "violet") => self.accent = value.into(),
-            "language" | "theme" | "accent" => {
+            "timezone" if valid_timezone(value) => self.timezone = value.into(),
+            "language" | "theme" | "accent" | "timezone" => {
                 return Err(format!("{key}: unsupported value {value:?}"));
             }
             _ => return Err(format!("unknown setting {key:?}")),
@@ -154,8 +172,8 @@ impl Settings {
 
     pub fn encode(&self) -> String {
         format!(
-            "language={}\ntheme={}\naccent={}\n",
-            self.language, self.theme, self.accent
+            "language={}\ntheme={}\naccent={}\ntimezone={}\n",
+            self.language, self.theme, self.accent, self.timezone
         )
     }
 
@@ -259,7 +277,7 @@ mod tests {
         assert_eq!(Settings::load(&p).unwrap(), s);
         assert_eq!(
             fs::read_to_string(&p).unwrap(),
-            "language=ar\ntheme=light\naccent=teal\n"
+            "language=ar\ntheme=light\naccent=teal\ntimezone=Asia/Baghdad\n"
         );
         assert_eq!(
             fs::metadata(&p).unwrap().permissions().mode() & 0o777,
@@ -296,6 +314,8 @@ mod tests {
         assert!(Settings::parse("theme=dark\ntheme=light\n").is_err());
         assert!(Settings::parse("theme=neon\n").is_err());
         assert!(Settings::parse("unknown=x\n").is_err());
+        assert!(Settings::parse("timezone=../../etc/passwd\n").is_err());
+        assert!(Settings::parse("timezone=UTC\n").is_err());
         assert!(Settings::parse("broken\n").is_err());
     }
 }

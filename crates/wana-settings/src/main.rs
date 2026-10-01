@@ -1,7 +1,4 @@
-mod config;
-mod draw;
-
-use config::Settings;
+use wana_settings::config::Settings;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -83,7 +80,7 @@ fn run() -> Result<(), String> {
             .map(|n| Font::load(&a.fonts.join(n)))
             .collect::<Result<_, _>>()?,
     };
-    let canvas = draw::settings(&set, &state)?;
+    let canvas = wana_settings::draw::settings(&set, &state)?;
     let hash = sha256::hex(&sha256::digest(&canvas.bytes()));
 
     let app = App::connect()?;
@@ -91,18 +88,19 @@ fn run() -> Result<(), String> {
         &app,
         "الإعدادات — وانا",
         "org.wana.Settings",
-        draw::WIDTH as i32,
-        draw::HEIGHT as i32,
+        wana_settings::draw::WIDTH as i32,
+        wana_settings::draw::HEIGHT as i32,
     )?;
     window.present(&app, &canvas.bytes())?;
     info!(
         LOG,
-        "settings mapped: {}x{}, language={}, theme={}, accent={}, sha256 {hash}",
-        draw::WIDTH,
-        draw::HEIGHT,
+        "settings mapped: {}x{}, language={}, theme={}, accent={}, timezone={}, sha256 {hash}",
+        wana_settings::draw::WIDTH,
+        wana_settings::draw::HEIGHT,
         state.language,
         state.theme,
-        state.accent
+        state.accent,
+        state.timezone
     );
 
     let deadline = a.hold.map(|s| Instant::now() + Duration::from_secs(s));
