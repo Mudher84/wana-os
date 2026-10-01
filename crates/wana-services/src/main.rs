@@ -457,7 +457,9 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
             if again {
                 warn!(LOG, "service {name} exited {status}; restarting");
                 sleep(Duration::from_millis(250));
-                children.insert(name.clone(), spawn(&map[name])?);
+                let mut replacement = spawn(&map[name])?;
+                wait_ready(&map[name], &mut replacement)?;
+                children.insert(name.clone(), replacement);
             } else {
                 info!(LOG, "service {name} exited {status}; not restarting");
                 children.remove(name);
