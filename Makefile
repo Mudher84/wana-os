@@ -220,7 +220,7 @@ hardware-nvme-boot-test:
 		--log out/logs/hardware-nvme-boot.log --timeout 240 \
 		--expect 'BdsDxe: starting Boot' \
 		--expect '\[BOOT\] info: loading Wana OS kernel' \
-		--expect "root=PARTUUID=$WANA_ROOT_PARTUUID" \
+		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
 		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
