@@ -125,6 +125,8 @@ def main():
     ap.add_argument("--reject", action="append", default=[],
                     help="regex that must NOT appear in the log (repeatable)")
     ap.add_argument("--screendump-on", help="regex; take the screenshot when a log line matches")
+    ap.add_argument("--screendump-delay-ms", type=int, default=0,
+                    help="delay screenshot after trigger so QEMU scanout can settle")
     ap.add_argument("--screendump", help="output .ppm path (a .png is written next to it)")
     ap.add_argument("--pixel", action="append", default=[], help="fx,fy=RRGGBB (repeatable)")
     ap.add_argument("--tolerance", type=int, default=8)
@@ -185,6 +187,7 @@ def main():
     os.set_blocking(proc.stdout.fileno(), False)
     deadline = time.time() + args.timeout
     text, pending, shot_taken, sent = b"", b"", False, False
+    shot_due = None
     queue = None  # --send items still to go, once --send-on matched
 
     def send_until_wait():
@@ -204,6 +207,11 @@ def main():
     send_trigger = re.compile(args.send_on.encode()) if args.send_on else None
     with open(args.log, "wb") as logf:
         while proc.poll() is None and time.time() < deadline:
+            if shot_due is not None and not shot_taken and time.time() >= shot_due:
+                monitor(mon, f"screendump {os.path.abspath(args.screendump)}")
+                shot_taken = True
+                shot_due = None
+                log("info", f"screendump taken -> {args.screendump}")
             chunk = proc.stdout.read() or b""
             if not chunk:
                 time.sleep(0.05)
@@ -215,10 +223,14 @@ def main():
             lines = pending.split(b"\n")
             pending = lines.pop()
             for line in lines:
-                if trigger and not shot_taken and trigger.search(line):
-                    monitor(mon, f"screendump {os.path.abspath(args.screendump)}")
-                    shot_taken = True
-                    log("info", f"screendump taken -> {args.screendump}")
+                if trigger and not shot_taken and shot_due is None and trigger.search(line):
+                    if args.screendump_delay_ms > 0:
+                        shot_due = time.time() + args.screendump_delay_ms / 1000.0
+                        log("info", f"screendump scheduled in {args.screendump_delay_ms} ms")
+                    else:
+                        monitor(mon, f"screendump {os.path.abspath(args.screendump)}")
+                        shot_taken = True
+                        log("info", f"screendump taken -> {args.screendump}")
                 if send_trigger and not sent and send_trigger.search(line):
                     queue, sent = list(args.send), True
                     waiting = send_until_wait()

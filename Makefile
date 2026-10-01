@@ -14,8 +14,8 @@ export BR2_DL_DIR ?= $(CURDIR)/dl
 BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
-	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test control-center-boot-test wayland-host-test fonts br-%
+	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -30,6 +30,7 @@ help:
 	@echo "    make buildroot-src  fetch and verify pinned Buildroot into out/"
 	@echo "    make config         load wana_x86_64_defconfig into $(BR_OUT)"
 	@echo "    make config-check   verify the defconfig loads and round-trips unchanged"
+	@echo "    make security-config-check  verify root-login/PIE/SSP/RELRO/FORTIFY hardening"
 	@echo "    make savedefconfig  write the current config back to platform/configs/"
 	@echo "    make toolchain      build the cross toolchain (needs network, ~30 min)"
 	@echo "    make kernel         build the Linux kernel (bzImage) with the Wana fragment"
@@ -61,6 +62,7 @@ help:
 	@echo "    make installer-gui-boot-test   drive the native installer GUI from the Live ISO into a target disk"
 	@echo "    make installed-disk-boot-test  boot the disk produced by the installer through OVMF + GRUB"
 	@echo "    make permissions-boot-test  boot native permissions + bounded audit center"
+	@echo "    make security-hardening-boot-test  verify runtime mount hardening + debug shell default"
 	@echo "    make control-center-boot-test  boot native notification history + control center"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
@@ -103,6 +105,17 @@ config-check: buildroot-src
 
 # Refuses when the defconfig was edited after the last `make config`:
 # saving would silently overwrite those edits with the stale .config.
+security-config-check: config
+	@grep -qx '# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$(BR_OUT)/.config" || { echo "[SECURITY] root password login must be disabled" >&2; exit 1; }
+	@grep -qx 'BR2_PIC_PIE=y' "$(BR_OUT)/.config" || { echo "[SECURITY] BR2_PIC_PIE missing" >&2; exit 1; }
+	@grep -qx 'BR2_SSP_STRONG=y' "$(BR_OUT)/.config" || { echo "[SECURITY] BR2_SSP_STRONG missing" >&2; exit 1; }
+	@grep -qx 'BR2_RELRO_FULL=y' "$(BR_OUT)/.config" || { echo "[SECURITY] BR2_RELRO_FULL missing" >&2; exit 1; }
+	@{ grep -qx 'BR2_FORTIFY_SOURCE_1=y' "$(BR_OUT)/.config" || \
+	   grep -qx 'BR2_FORTIFY_SOURCE_2=y' "$(BR_OUT)/.config" || \
+	   grep -qx 'BR2_FORTIFY_SOURCE_3=y' "$(BR_OUT)/.config"; } || \
+	   { echo "[SECURITY] FORTIFY_SOURCE missing" >&2; exit 1; }
+	@echo "[SECURITY] Buildroot hardening: root-login-off + PIE + SSP_STRONG + RELRO_FULL + FORTIFY: PASS"
+
 savedefconfig: buildroot-src
 	@if [ ! -f $(BR_OUT)/.config ] || [ $(BR_EXTERNAL)/configs/wana_x86_64_defconfig -nt $(BR_OUT)/.config ]; then \
 		echo "[CHECK] error: defconfig is newer than $(BR_OUT)/.config; run 'make config' first" >&2; exit 1; fi
@@ -157,6 +170,22 @@ system-boot-test:
 		--expect '\[INIT\] info: wana-init [0-9.]+ starting' \
 		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
+
+# Phase 23: security hardening must be visible in the running guest, not
+# only in source-level unit tests. PID 1 verifies mount flags from mountinfo
+# and reports the secure default for the debug root console shell.
+security-hardening-boot-test:
+	mkdir -p out/logs
+	tools/qemu-boot-test.sh --kernel $(BR_OUT)/images/bzImage \
+		--initrd $(BR_OUT)/images/rootfs.cpio.zst \
+		--append "wana.test=poweroff" \
+		--log out/logs/security-hardening-boot.log --timeout 180 \
+		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
+		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: security mounts: 5/5 hardened \(nosuid,nodev,noexec\)' \
+		--expect '\[INIT\] info: debug console shell: disabled' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
@@ -454,7 +483,7 @@ layer-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-layer.img "$(LAYER_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-layer.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/layer-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/layer.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/layer.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.078125,0.5=1b3a5c --pixel 0.5,0.3125=1b3a5c \
 		--pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[COMPOSITOR\] info: client: layer "wana-desktop" configured 1280x800' \
@@ -481,7 +510,7 @@ shell-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-shell.img "$(SHELL_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-shell.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/shell-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/shell.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/shell.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.5,0.3275=ffffff --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[SHELL\] info: desktop mapped: 1280x800, sha256 $(SHELL_SHA_DESKTOP)' \
@@ -512,7 +541,7 @@ launcher-boot-test:
 		--send 'sendkey meta_l' \
 		--send 'wait:launcher shown' --send 'sendkey down' \
 		--send 'wait:launcher: selected 2/2' --send 'sendkey ret' \
-		--screendump-on 'launcher shown' --screendump out/test/launcher.ppm \
+		--screendump-on 'launcher shown' --screendump-delay-ms 200 --screendump out/test/launcher.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.328125,0.525=4f8cff --pixel 0.328125,0.585=1e2638 \
 		--expect '\[SHELL\] info: apps: 2 from /usr/share/wana-shell/apps.test' \
 		--expect '\[SHELL\] info: ready' \
@@ -544,7 +573,7 @@ dock-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-dock.img "$(DOCK_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-dock.img --gpu virtio --timeout 260 --memory 1024 \
 		--log out/logs/dock-boot.log \
-		--screendump-on 'client: holding window' --screendump out/test/dock.ppm \
+		--screendump-on 'client: holding window' --screendump-delay-ms 200 --screendump out/test/dock.ppm \
 		--pixel 0.28125,0.92=3a4560 --pixel 0.5,0.025=0b0f1a --pixel 0.5,0.525=4f8cff \
 		--expect '\[SHELL\] info: dock mapped: 560x64, windows 0, sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: layer surface mapped: "wana-dock" on layer top at 360,736 560x64 \(exclusive zone 0\)' \
@@ -565,7 +594,7 @@ settings-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-settings.img "$(SETTINGS_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-settings.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/settings-boot.log \
-		--screendump-on 'settings mapped' --screendump out/test/settings.ppm \
+		--screendump-on 'settings mapped' --screendump-delay-ms 200 --screendump out/test/settings.ppm \
 		--pixel 0.234375,0.225=111827 --pixel 0.25,0.4=1e293b \
 		--expect '\[COMPOSITOR\] info: window mapped: "الإعدادات — وانا" \(org.wana.Settings\) 720x480 at 280,160' \
 		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, sha256 [0-9a-f]{64}' \
@@ -597,7 +626,7 @@ files-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-files.img "$(FILES_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-files.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/files-boot.log \
-		--screendump-on 'files mapped' --screendump out/test/files.ppm \
+		--screendump-on 'files mapped' --screendump-delay-ms 200 --screendump out/test/files.ppm \
 		--pixel 0.21875,0.2=111827 --pixel 0.25,0.36=1e293b \
 		--expect '\[COMPOSITOR\] info: window mapped: "الملفات — وانا" \(org.wana.Files\) 760x520 at 260,140' \
 		--expect '\[SHELL\] info: files mapped: 760x520, path=/etc, entries=[1-9][0-9]*, sha256 [0-9a-f]{64}' \
@@ -718,7 +747,7 @@ permissions-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-permissions.img "$(PERMISSIONS_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-permissions.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/permissions-boot.log \
-		--screendump-on 'permission center mapped' --screendump out/test/permissions.ppm \
+		--screendump-on 'permission center mapped' --screendump-delay-ms 200 --screendump out/test/permissions.ppm \
 		--pixel 0.5,0.35=1e293b --pixel 0.1953125,0.15=111827 \
 		--expect '\[COMPOSITOR\] info: window mapped: "الأذونات والخصوصية — وانا" \(org.wana.Permissions\) 820x600 at 230,100' \
 		--expect '\[SHELL\] info: permission center mapped: 820x600 rules=4 audit=4 sha256 [0-9a-f]{64}' \
@@ -736,7 +765,7 @@ control-center-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-control-center.img "$(CONTROL_CENTER_ARGS)"
 	tools/qemu-graphics-test.py --disk out/test/disk-control-center.img --gpu virtio --timeout 240 --memory 1024 \
 		--log out/logs/control-center-boot.log \
-		--screendump-on 'control center mapped' --screendump out/test/control-center.ppm \
+		--screendump-on 'control center mapped' --screendump-delay-ms 200 --screendump out/test/control-center.ppm \
 		--pixel 0.5,0.35=1e293b --pixel 0.03,0.10=111827 \
 		--expect '\[COMPOSITOR\] info: window mapped: "مركز التحكم — وانا" \(org.wana.ControlCenter\) 820x600 at 230,100' \
 		--expect '\[SHELL\] info: control center mapped: 820x600 notifications=3 sha256 [0-9a-f]{64}' \
