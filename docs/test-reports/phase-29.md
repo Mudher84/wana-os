@@ -29,6 +29,9 @@ checksums are validated before packaging.
 - `.github/workflows/beta.yml` supports manual candidates and beta tags.
   Manual runs upload a 30-day workflow artifact; a matching Git tag publishes
   a GitHub prerelease using the exact verified bundle.
+- The workflow is read-only while source checks, image construction, runtime
+  gates and bundle preparation run. The verified bundle is handed to a
+  separate tag-only publish job; only that job receives `contents: write`.
 
 ## Exit gate
 
