@@ -163,7 +163,7 @@ struct Args {
 
 fn parse_args() -> Result<Args, String> {
     let mut a = Args {
-        source: PathBuf::from("/live/Wana-OS.img"),
+        source: PathBuf::from("/run/wana-live/live/Wana-OS.img"),
         fonts: PathBuf::from("/usr/share/fonts/wana"),
         target: None,
         exit_after_install: false,
