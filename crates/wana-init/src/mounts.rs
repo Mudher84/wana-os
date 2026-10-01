@@ -50,21 +50,21 @@ pub const EARLY: &[Mount] = &[
         source: "tmpfs",
         target: "/dev/shm",
         fstype: "tmpfs",
-        flags: MS_NOSUID | MS_NODEV,
+        flags: MS_NOSUID | MS_NODEV | MS_NOEXEC,
         data: "mode=1777",
     },
     Mount {
         source: "tmpfs",
         target: "/run",
         fstype: "tmpfs",
-        flags: MS_NOSUID | MS_NODEV,
+        flags: MS_NOSUID | MS_NODEV | MS_NOEXEC,
         data: "mode=0755",
     },
     Mount {
         source: "tmpfs",
         target: "/tmp",
         fstype: "tmpfs",
-        flags: MS_NOSUID | MS_NODEV,
+        flags: MS_NOSUID | MS_NODEV | MS_NOEXEC,
         data: "mode=1777",
     },
 ];
@@ -129,6 +129,15 @@ mod tests {
         {
             assert_ne!(m.flags & MS_NOEXEC, 0, "{} must be noexec", m.target);
             assert_ne!(m.flags & MS_NOSUID, 0, "{} must be nosuid", m.target);
+        }
+    }
+
+    #[test]
+    fn volatile_tmpfs_mounts_are_noexec() {
+        for m in EARLY.iter().filter(|m| m.fstype == "tmpfs") {
+            assert_ne!(m.flags & MS_NOEXEC, 0, "{} must be noexec", m.target);
+            assert_ne!(m.flags & MS_NOSUID, 0, "{} must be nosuid", m.target);
+            assert_ne!(m.flags & MS_NODEV, 0, "{} must be nodev", m.target);
         }
     }
 }
