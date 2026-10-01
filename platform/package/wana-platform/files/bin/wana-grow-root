@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+fstype=$(awk '$2 == "/" { print $3; exit }' /proc/mounts)
+case "$fstype" in
+    ext4)
+        echo "WANA_ROOT_GROW_CHECK fstype=ext4"
+        exec /usr/bin/embiggen-disk /
+        ;;
+    *)
+        echo "WANA_ROOT_GROW_SKIP fstype=${fstype:-unknown}"
+        exit 0
+        ;;
+esac
