@@ -9,7 +9,9 @@ without using ccache.
 
 ## Implemented
 
-- `make stable-release-test` inherits the complete Beta runtime gate.
+- `make stable-release-test` inherits the Beta runtime gate and then adds the
+  graphical gates Beta intentionally omits: GL rendering, seat/focus, text,
+  text-on-screen, layer-shell, shell, Dock, and window-management.
 - `make stable-bundle VERSION=X.Y.Z` accepts only a stable version without a
   prerelease suffix and reuses the already-tested image.
 - Release versions are bound to `[workspace.package].version`.
