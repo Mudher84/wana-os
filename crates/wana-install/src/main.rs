@@ -83,10 +83,13 @@ fn validate(a: &Args) -> Result<(), String> {
     if a.confirm != expected {
         return Err(format!("confirmation mismatch; expected {expected:?}"));
     }
-    let meta =
-        fs::symlink_metadata(&a.target).map_err(|e| format!("target {}: {e}", a.target.display()))?;
+    let meta = fs::symlink_metadata(&a.target)
+        .map_err(|e| format!("target {}: {e}", a.target.display()))?;
     if meta.file_type().is_symlink() {
-        return Err(format!("installer target must not be a symlink: {}", a.target.display()));
+        return Err(format!(
+            "installer target must not be a symlink: {}",
+            a.target.display()
+        ));
     }
     let ty = meta.file_type();
     if !(ty.is_block_device() || a.allow_regular && ty.is_file()) {
