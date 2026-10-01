@@ -27,6 +27,7 @@ define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-wifi $(TARGET_DIR)/usr/bin/wana-wifi
 	$(INSTALL) -D -m 0600 $(@D)/wifi.conf $(TARGET_DIR)/var/lib/wana/wifi.conf
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-android $(TARGET_DIR)/usr/bin/wana-android
+	$(INSTALL) -D -m 0755 $(@D)/bin/wana-waydroid-container $(TARGET_DIR)/usr/bin/wana-waydroid-container
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-winrun $(TARGET_DIR)/usr/bin/wana-winrun
 	$(INSTALL) -D -m 0644 $(@D)/android/lxc.conf $(TARGET_DIR)/etc/wana/android/lxc.conf
 endef
