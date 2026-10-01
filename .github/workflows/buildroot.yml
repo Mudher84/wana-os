@@ -38,6 +38,8 @@ jobs:
         run: make buildroot-src
       - name: Check defconfig
         run: make config-check
+      - name: Check Buildroot security hardening
+        run: make security-config-check
 
   toolchain:
     name: toolchain, image, UEFI boot
