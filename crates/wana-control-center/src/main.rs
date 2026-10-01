@@ -171,7 +171,6 @@ fn run() -> Result<(), String> {
     match &args.command {
         Command::Ui => ui(&args, &store),
         Command::Notify { app, title, body } => {
-            require_root()?;
             let seq = store.push(app, title, body)?;
             info!(LOG, "notification stored: seq={seq} app={app}");
             Ok(())
@@ -186,7 +185,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::Clear => {
-            require_root()?;
             store.clear()?;
             info!(LOG, "notification history cleared");
             Ok(())
