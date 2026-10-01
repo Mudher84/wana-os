@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -64,6 +64,7 @@ help:
 	@echo "    make permissions-boot-test  boot native permissions + bounded audit center"
 	@echo "    make security-hardening-boot-test  verify runtime mount hardening + debug shell default"
 	@echo "    make control-center-boot-test  boot native notification history + control center"
+	@echo "    make hardware-compatibility-test  e1000 + rtl8139 + PS/2 + NVMe hardware matrix"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -206,6 +207,23 @@ disk-boot-test:
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
+# Phase 28: the same installed image must be bus-independent. OVMF sees an
+# emulated NVMe controller, GRUB loads from it, and PARTUUID keeps the root
+# filesystem stable even though the Linux block-device name changes.
+hardware-nvme-boot-test:
+	mkdir -p out/logs out/test
+	. $(BR_EXTERNAL)/board/x86_64/disk.env; \
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-nvme.img "wana.test=poweroff" && \
+	tools/qemu-boot-test.sh --disk out/test/disk-nvme.img --disk-bus nvme \
+		--log out/logs/hardware-nvme-boot.log --timeout 240 \
+		--expect 'BdsDxe: starting Boot' \
+		--expect '\[BOOT\] info: loading Wana OS kernel' \
+		--expect "root=PARTUUID=$WANA_ROOT_PARTUUID" \
+		--expect 'Run /sbin/init as init process' \
+		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
+
 # Phase 7: native graphical output. Boots the disk image with a virtio-gpu
 # display, runs wana-kms (DRM/KMS modeset + page flips), screenshots the
 # virtual screen while the frame is held and checks the test-pattern pixels.
@@ -270,6 +288,24 @@ input-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-input exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject 'Unknown (group|user)' --reject '\[(INIT|INPUT)\] error'
+
+# Phase 28: legacy PC input path without virtio-input. QEMU's q35 PS/2
+# keyboard and mouse must traverse i8042 -> evdev -> libinput -> xkbcommon.
+hardware-input-ps2-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-input-ps2.img "$(INPUT_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-input-ps2.img --gpu std --input ps2 --timeout 180 --memory 768 \
+		--log out/logs/hardware-input-ps2.log \
+		--send-on '\[INPUT\] info: waiting for input' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'mouse_move 40 30' --send 'mouse_button 1' --send 'mouse_button 0' \
+		--expect '\[INPUT\] info: device added: AT Translated Set 2 keyboard .*\[keyboard\]' \
+		--expect '\[INPUT\] info: device added: ImExPS/2 Generic Explorer Mouse .*\[pointer\]' \
+		--expect '\[INPUT\] info: typed text "wana" matches' \
+		--expect '\[INPUT\] info: done: 4 key presses, [1-9][0-9]* pointer events, 1 left clicks' \
+		--expect '\[INIT\] info: /usr/bin/wana-input exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|INPUT)\] error'
 
 # Phase 10 steps 1-2: the Wayland protocol layer and its globals.
 # wana-compositor opens its socket (libwayland-server, generated tables),
@@ -619,6 +655,30 @@ network-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT)\] error'
 
+# Phase 28: common PCI Ethernet controllers, using the same userspace
+# discovery path as the virtio-net Phase 15 gate.
+hardware-network-e1000-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-network-e1000.img "$(NETWORK_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-network-e1000.img --gpu std --network e1000 --timeout 180 --memory 768 \
+		--log out/logs/hardware-network-e1000.log \
+		--expect '\[INIT\] info: network interface eth0: state=(up|down|unknown), carrier=(up|down|unknown), wireless=false, mac=[0-9a-f:]{17}' \
+		--expect '\[INIT\] info: network expected interface eth0: PASS' \
+		--expect '\[INIT\] info: /usr/bin/wana-network exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+hardware-network-rtl8139-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-network-rtl8139.img "$(NETWORK_ARGS)"
+	tools/qemu-graphics-test.py --disk out/test/disk-network-rtl8139.img --gpu std --network rtl8139 --timeout 180 --memory 768 \
+		--log out/logs/hardware-network-rtl8139.log \
+		--expect '\[INIT\] info: network interface eth0: state=(up|down|unknown), carrier=(up|down|unknown), wireless=false, mac=[0-9a-f:]{17}' \
+		--expect '\[INIT\] info: network expected interface eth0: PASS' \
+		--expect '\[INIT\] info: /usr/bin/wana-network exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
 # Phase 16: native Files app reads the guest filesystem and renders
 # a real directory listing as an ordinary xdg_toplevel.
 FILES_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,120,--run,/usr/bin/wana-files,--path,/etc,--hold,3 wana.test=poweroff wana.shell=0
@@ -774,6 +834,14 @@ control-center-boot-test:
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+# Phase 28 exit matrix. Keep the sub-tests separate so a failing hardware
+# class has its own log and can be re-run independently.
+hardware-compatibility-test:
+	$(MAKE) hardware-network-e1000-test
+	$(MAKE) hardware-network-rtl8139-test
+	$(MAKE) hardware-input-ps2-test
+	$(MAKE) hardware-nvme-boot-test
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
