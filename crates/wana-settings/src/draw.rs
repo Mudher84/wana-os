@@ -7,14 +7,14 @@ use wana_text::raster::{draw, Canvas};
 
 pub const WIDTH: u32 = 720;
 pub const HEIGHT: u32 = 480;
-const BG_DARK: u32 = 0x111827;
-const BG_LIGHT: u32 = 0xF4F6FA;
-const CARD_DARK: u32 = 0x1E293B;
-const CARD_LIGHT: u32 = 0xFFFFFF;
-const TEXT_DARK: u32 = 0xF1F5F9;
-const TEXT_LIGHT: u32 = 0x172033;
-const DIM_DARK: u32 = 0xA8B3C7;
-const DIM_LIGHT: u32 = 0x5C667A;
+const BG_DARK: u32 = wana_theme::color::BG_DARK;
+const BG_LIGHT: u32 = wana_theme::color::BG_LIGHT;
+const CARD_DARK: u32 = wana_theme::color::CARD_DARK;
+const CARD_LIGHT: u32 = wana_theme::color::CARD_LIGHT;
+const TEXT_DARK: u32 = wana_theme::color::TEXT_DARK;
+const TEXT_LIGHT: u32 = wana_theme::color::TEXT_LIGHT;
+const DIM_DARK: u32 = wana_theme::color::DIM_DARK;
+const DIM_LIGHT: u32 = wana_theme::color::DIM_LIGHT;
 
 fn fill(c: &mut Canvas, x: u32, y: u32, w: u32, h: u32, rgb: u32) {
     for row in y..(y + h).min(c.height) {
