@@ -1,0 +1,9 @@
+# Root local credential broker for the Wana desktop session.
+# The credential hash is stored on persistent Data under /var/lib/wana/auth.
+name=auth
+exec=/usr/sbin/wana-authd
+after=system-bus
+ready_path=/run/wana/auth.sock
+restart=always
+uid=0
+gid=0
