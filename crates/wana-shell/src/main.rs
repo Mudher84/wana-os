@@ -47,6 +47,7 @@ use wana_client::client::{Connection, Event, Proxy, Req, Val};
 use wana_client::layer::{self, LayerSurface, Spec};
 use wana_client::shm::Buffer;
 use wana_log::{debug, error, info, warn, Subsystem};
+use wana_motion::{duration, Curve, Motion};
 use wana_text::font::Font;
 use wana_text::layout::FontSet;
 use wana_text::raster::Canvas;
@@ -62,6 +63,8 @@ const FD_CLOEXEC: i32 = 1;
 const BTN_LEFT: u32 = 0x110;
 const CAP_POINTER: u32 = 1;
 const CAP_KEYBOARD: u32 = 2;
+const LAUNCHER_SELECTION_MOTION: Motion =
+    Motion::new(duration::QUICK_MS, 6, Curve::EaseOutCubic);
 
 extern "C" {
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
@@ -197,6 +200,8 @@ fn show(
 struct Launcher {
     ls: LayerSurface,
     menu: Menu,
+    /// Selection before the latest navigation event, for the motion frame.
+    previous_selected: usize,
     /// Frame callback of the first buffer (logged when presented).
     first_frame: Option<Proxy>,
     first_hash: String,
@@ -654,7 +659,11 @@ fn run(args: &Args) -> Result<(), String> {
                 }
                 Some(Input::Key(s, key)) => {
                     if let Some(l) = launcher.as_mut().filter(|l| l.ls.surface == s) {
+                        let before = l.menu.selected;
                         action = l.menu.key(key);
+                        if action == Action::Moved {
+                            l.previous_selected = before;
+                        }
                     }
                 }
                 _ => {}
@@ -663,14 +672,7 @@ fn run(args: &Args) -> Result<(), String> {
                 Action::None => {}
                 Action::Moved => {
                     if let Some(l) = &launcher {
-                        let names: Vec<&str> = apps.iter().map(|a| a.name.as_str()).collect();
-                        show(
-                            &conn,
-                            shm,
-                            l.ls.surface,
-                            &draw::launcher(&set, &names, l.menu.selected)?,
-                            false,
-                        )?;
+                        animate_launcher_selection(&conn, shm, &set, &apps, l)?;
                         info!(SHELL, "launcher: {}", selection(&apps, &l.menu));
                     }
                 }
@@ -773,9 +775,49 @@ fn open_launcher(
     Ok(Launcher {
         ls,
         menu,
+        previous_selected: 0,
         first_frame,
         first_hash,
     })
+}
+
+fn animate_launcher_selection(
+    conn: &Connection,
+    shm: Proxy,
+    set: &FontSet,
+    apps: &[App],
+    launcher: &Launcher,
+) -> Result<(), String> {
+    let names: Vec<&str> = apps.iter().map(|app| app.name.as_str()).collect();
+    let motion = LAUNCHER_SELECTION_MOTION;
+    for frame in 1..=motion.frames {
+        let progress = motion.progress(frame);
+        show(
+            conn,
+            shm,
+            launcher.ls.surface,
+            &draw::launcher_transition(
+                set,
+                &names,
+                launcher.previous_selected,
+                launcher.menu.selected,
+                progress,
+            )?,
+            false,
+        )?;
+        // wait() flushes the committed frame and keeps input/protocol events
+        // queued for the main loop instead of dropping them during motion.
+        conn.wait(motion.frame_ms() as i32)?;
+    }
+    info!(
+        SHELL,
+        "motion launcher-selection: {} -> {}, {} frames, {}ms, ease-out-cubic",
+        launcher.previous_selected + 1,
+        launcher.menu.selected + 1,
+        motion.frames,
+        motion.duration_ms
+    );
+    Ok(())
 }
 
 fn close_launcher(conn: &Connection, launcher: &mut Option<Launcher>) {
