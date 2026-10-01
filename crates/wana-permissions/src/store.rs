@@ -241,9 +241,13 @@ impl Store {
         decision: Decision,
     ) -> Result<(), String> {
         let mut entries = self.audit()?;
-        let seq = entries
-            .last()
-            .map_or(1, |entry| entry.seq.saturating_add(1));
+        let seq = match entries.last() {
+            Some(entry) => entry
+                .seq
+                .checked_add(1)
+                .ok_or("audit sequence exhausted")?,
+            None => 1,
+        };
         entries.push(Audit {
             seq,
             action: action.into(),
@@ -498,6 +502,32 @@ mod tests {
         assert_eq!(audit.len(), MAX_AUDIT);
         assert_eq!(audit.first().unwrap().seq, 18);
         assert_eq!(audit.last().unwrap().seq, (MAX_AUDIT + 17) as u64);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn audit_sequence_exhaustion_is_rejected_without_rewrite() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let audit = root.join("audit.tsv");
+        fs::write(
+            &audit,
+            format!(
+                "{}\tset\ttester\torg.wana.Test\tfiles.read\tallow\n",
+                u64::MAX
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&audit, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&audit).unwrap();
+
+        let store = Store::new(&root);
+        assert!(store
+            .set("tester", "org.wana.Test", "files.read", Decision::Allow)
+            .unwrap_err()
+            .contains("audit sequence exhausted"));
+        assert_eq!(fs::read(&audit).unwrap(), before);
+
         let _ = fs::remove_dir_all(root);
     }
 
