@@ -239,10 +239,7 @@ mod tests {
         let parent = p.parent().unwrap();
         fs::create_dir_all(parent).unwrap();
         let file_name = p.file_name().unwrap().to_str().unwrap();
-        let stale = parent.join(format!(
-            ".{file_name}.tmp-{}-0",
-            std::process::id()
-        ));
+        let stale = parent.join(format!(".{file_name}.tmp-{}-0", std::process::id()));
         fs::write(&stale, "stale").unwrap();
 
         Settings::default().save_atomic(&p).unwrap();
