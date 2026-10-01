@@ -66,7 +66,7 @@ fn validate(a: &Args) -> Result<(), String> {
     let meta =
         fs::metadata(&a.target).map_err(|e| format!("target {}: {e}", a.target.display()))?;
     let ty = meta.file_type();
-    if !ty.is_block_device() && !(a.allow_regular && ty.is_file()) {
+    if !(ty.is_block_device() || a.allow_regular && ty.is_file()) {
         return Err(format!(
             "target {} is not a block device (regular targets require --allow-regular for tests)",
             a.target.display()
