@@ -988,16 +988,16 @@ android-session-boot-test:
 		--log out/logs/android-session-boot.log \
 		--send-on '\[SHELL\] info: ready' \
 		--send 'sendkey meta_l' \
-		--send 'wait:launcher shown: .*selected 1/7' \
-		--send 'sendkey down' --send 'wait:launcher: selected 2/7' \
-		--send 'sendkey down' --send 'wait:launcher: selected 3/7' \
-		--send 'sendkey down' --send 'wait:launcher: selected 4/7' \
-		--send 'sendkey down' --send 'wait:launcher: selected 5/7' \
-		--send 'sendkey down' --send 'wait:launcher: selected 6/7' \
-		--send 'sendkey down' --send 'wait:launcher: selected 7/7 "أندرويد"' \
+		--send 'wait:launcher shown: .*selected 1/8' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/8' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/8' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/8' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/8' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/8' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/8 "أندرويد"' \
 		--send 'sendkey ret' \
 		--send 'wait:WANA_ANDROID_SESSION_READY display=wayland-0' --send 'quit' \
-		--expect '\[SHELL\] info: apps: 7 from /usr/share/wana-shell/apps' \
+		--expect '\[SHELL\] info: apps: 8 from /usr/share/wana-shell/apps' \
 		--expect '\[SHELL\] info: app "أندرويد": /usr/bin/wana-android ui \(pid [0-9]+\)' \
 		--expect 'WANA_ANDROID_SESSION_READY display=wayland-0' \
 		--expect 'WANA_ANDROID_APK_LAUNCH package=$(ANDROID_TEST_PACKAGE)' \

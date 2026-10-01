@@ -111,6 +111,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-power-ui"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-text",
+ "wana-theme",
+]
+
+[[package]]
 name = "wana-render"
 version = "0.1.0"
 dependencies = [
