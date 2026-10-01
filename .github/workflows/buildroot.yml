@@ -165,6 +165,15 @@ jobs:
       - name: Live ISO (OVMF -> GRUB -> kernel + initramfs, explicit Live mode)
         run: make live-iso-boot-test
 
+      - name: Installer core (Live ISO -> target disk, destructive confirmation + full readback)
+        run: make installer-core-boot-test
+
+      - name: Installer GUI (native Arabic UI drives the real installer core)
+        run: make installer-gui-boot-test
+
+      - name: Installed disk boot (OVMF -> GRUB -> installed kernel + rootfs)
+        run: make installed-disk-boot-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
