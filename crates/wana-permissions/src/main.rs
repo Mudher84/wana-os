@@ -199,7 +199,6 @@ fn run() -> Result<(), String> {
             permission,
             decision,
         } => {
-            require_root()?;
             store.set("settings", app, permission, *decision)?;
             info!(
                 LOG,
@@ -209,7 +208,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::Check { app, permission } => {
-            require_root()?;
             let decision = store.decision(app, permission)?;
             store.record_check("broker", app, permission, decision)?;
             println!("{}", decision.as_str());
@@ -250,7 +248,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::ClearAudit => {
-            require_root()?;
             store.clear_audit()?;
             info!(LOG, "permission audit cleared");
             Ok(())
