@@ -7,6 +7,7 @@ use std::ffi::{CString, NulError};
 use std::io;
 use std::os::raw::{c_char, c_int, c_ulong, c_void};
 
+pub const MS_RDONLY: c_ulong = 1;
 pub const MS_NOSUID: c_ulong = 2;
 pub const MS_NODEV: c_ulong = 4;
 pub const MS_NOEXEC: c_ulong = 8;
