@@ -11,6 +11,12 @@ use wana_log::{error, info, warn, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
 
+extern "C" {
+    fn setgroups(size: usize, list: *const u32) -> i32;
+    fn setgid(gid: u32) -> i32;
+    fn setuid(uid: u32) -> i32;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Restart {
     Never,
@@ -27,6 +33,7 @@ struct Service {
     restart: Restart,
     uid: u32,
     gid: u32,
+    home: Option<PathBuf>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -126,6 +133,7 @@ fn parse(path: &Path) -> Result<Service, String> {
     let mut restart = Restart::Never;
     let mut uid = 0u32;
     let mut gid = 0u32;
+    let mut home = None;
     let mut seen = BTreeSet::new();
 
     for (line_no, raw) in text.lines().enumerate() {
@@ -207,6 +215,17 @@ fn parse(path: &Path) -> Result<Service, String> {
                     .parse()
                     .map_err(|_| format!("{}:{}: invalid gid", path.display(), line_no + 1))?
             }
+            "home" => {
+                let p = PathBuf::from(value);
+                if !p.is_absolute() || value.split('/').any(|part| part == "..") {
+                    return Err(format!(
+                        "{}:{}: home must be an absolute safe path",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                home = Some(p);
+            }
             _ => {
                 return Err(format!(
                     "{}:{}: unknown field {key}",
@@ -225,6 +244,7 @@ fn parse(path: &Path) -> Result<Service, String> {
         restart,
         uid,
         gid,
+        home,
     })
 }
 
@@ -289,9 +309,28 @@ fn spawn(s: &Service) -> Result<Child, String> {
     cmd.args(&s.args)
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
-        .uid(s.uid)
-        .gid(s.gid)
         .current_dir("/");
+    if let Some(home) = &s.home {
+        cmd.env("HOME", home);
+    }
+    let (uid, gid) = (s.uid, s.gid);
+    // SAFETY: this runs in the child after fork and before exec. Drop all
+    // inherited supplementary groups before changing gid/uid so a non-root
+    // service cannot retain root group access accidentally.
+    unsafe {
+        cmd.pre_exec(move || {
+            if setgroups(0, std::ptr::null()) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if setgid(gid) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if setuid(uid) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let child = cmd
         .spawn()
         .map_err(|e| format!("{}: {}: {e}", s.name, s.exec.display()))?;
@@ -414,6 +453,7 @@ mod tests {
         assert_eq!(order(&map).unwrap(), ["a", "b"]);
         assert_eq!(map["b"].uid, 10);
         assert_eq!(map["b"].gid, 20);
+        assert_eq!(map["b"].home, None);
         let _ = fs::remove_dir_all(d);
     }
 
