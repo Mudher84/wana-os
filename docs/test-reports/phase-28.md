@@ -27,12 +27,18 @@ userspace stack.
   the existing udev -> libinput -> xkbcommon path without virtio-input.
 
 ### Graphics
-- Kernel DRM drivers: i915, Nouveau and Radeon.
-- Mesa Gallium: i915, Nouveau and R600 in addition to the existing softpipe
-  and VirGL paths.
-- Modern Intel Iris and AMD RadeonSI are intentionally not claimed complete:
-  Buildroot 2026.02.3 requires LLVM for those drivers, which materially changes
-  build size/time and needs its own measured integration and firmware policy.
+- Kernel DRM drivers for i915, Nouveau and Radeon are enabled and checked by
+  the final kernel-config gate.
+- Mesa Gallium includes i915, Nouveau and R600 in addition to the existing
+  softpipe and VirGL paths.
+- These physical-GPU paths are **configuration coverage, not runtime hardware
+  evidence**. Phase 28 does not claim validated Intel/NVIDIA/AMD desktop
+  graphics until representative hardware or an appropriate passthrough test
+  completes the DRM/KMS + GBM/EGL/GLES path.
+- Modern Intel Iris and AMD RadeonSI are also intentionally not claimed
+  complete: Buildroot 2026.02.3 requires LLVM for those drivers, which
+  materially changes build size/time and needs its own measured integration
+  and firmware policy.
 
 ## Exit gate
 
@@ -44,9 +50,11 @@ tests:
 3. PS/2 keyboard + pointer input;
 4. NVMe installed-disk boot.
 
-The standard Buildroot kernel-config check also verifies every driver requested
-by the kernel fragment. The Buildroot workflow runs the matrix after the native
-desktop/application gates.
+The standard Buildroot kernel-config check also verifies every kernel driver
+requested by the fragment, while the defconfig round-trip protects the selected
+Mesa driver set. The Buildroot workflow runs the runtime matrix after the native
+desktop/application gates. Passing this matrix does not by itself certify the
+unexercised physical-GPU paths above.
 
 ## Evidence
 
