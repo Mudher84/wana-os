@@ -374,8 +374,15 @@ impl Canvas {
     }
 
     /// Little-endian bytes, as in a wl_shm XRGB8888 buffer.
+    ///
+    /// Reserve the exact output size up front. This is a hot path for shell
+    /// motion frames and avoids growth/reallocation while serializing pixels.
     pub fn bytes(&self) -> Vec<u8> {
-        self.pixels.iter().flat_map(|p| p.to_le_bytes()).collect()
+        let mut bytes = Vec::with_capacity(self.pixels.len() * 4);
+        for pixel in &self.pixels {
+            bytes.extend_from_slice(&pixel.to_le_bytes());
+        }
+        bytes
     }
 }
 
