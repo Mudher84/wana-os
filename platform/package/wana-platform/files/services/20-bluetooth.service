@@ -1,0 +1,8 @@
+# Bluetooth Classic + LE daemon.
+name=bluetooth
+exec=/usr/libexec/bluetooth/bluetoothd
+arg=-n
+after=system-bus
+restart=always
+uid=0
+gid=0
