@@ -80,19 +80,7 @@ fn parse_args() -> Result<Args, String> {
     })
 }
 
-fn require_root() -> Result<(), String> {
-    let uid = store::effective_uid()?;
-    if uid == 0 {
-        Ok(())
-    } else {
-        Err(format!(
-            "notification mutation requires uid 0; current effective uid is {uid}"
-        ))
-    }
-}
-
 fn seed(store: &Store) -> Result<(), String> {
-    require_root()?;
     store.clear()?;
     store.push(
         "org.wana.Network",
@@ -171,7 +159,6 @@ fn run() -> Result<(), String> {
     match &args.command {
         Command::Ui => ui(&args, &store),
         Command::Notify { app, title, body } => {
-            require_root()?;
             let seq = store.push(app, title, body)?;
             info!(LOG, "notification stored: seq={seq} app={app}");
             Ok(())
@@ -186,7 +173,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::Clear => {
-            require_root()?;
             store.clear()?;
             info!(LOG, "notification history cleared");
             Ok(())
