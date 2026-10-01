@@ -174,13 +174,7 @@ fn present(
     frame: bool,
 ) -> Result<(Vec<u8>, Option<Proxy>), String> {
     let bytes = canvas.bytes();
-    let b = Buffer::new(
-        conn,
-        shm,
-        canvas.width as i32,
-        canvas.height as i32,
-        &bytes,
-    )?;
+    let b = Buffer::new(conn, shm, canvas.width as i32, canvas.height as i32, &bytes)?;
     let cb = if frame {
         conn.request(
             surface,
