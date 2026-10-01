@@ -7,7 +7,10 @@ exec=/usr/bin/wana-compositor
 arg=--exit-with-shell
 arg=--shell
 arg=/usr/bin/wana-shell
+after=user-bus
 restart=always
 uid=1000
 gid=1000
 home=/home/wana
+env=XDG_RUNTIME_DIR=/run/user/1000
+env=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
