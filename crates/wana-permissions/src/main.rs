@@ -108,19 +108,7 @@ fn parse_args() -> Result<Args, String> {
     })
 }
 
-fn require_root() -> Result<(), String> {
-    let uid = store::effective_uid()?;
-    if uid == 0 {
-        Ok(())
-    } else {
-        Err(format!(
-            "permission mutation requires uid 0; current effective uid is {uid}"
-        ))
-    }
-}
-
 fn seed(store: &Store) -> Result<(), String> {
-    require_root()?;
     store.set("settings", "org.wana.Files", "files.read", Decision::Allow)?;
     store.set("settings", "org.wana.Files", "files.write", Decision::Deny)?;
     store.set("settings", "org.wana.Network", "network", Decision::Allow)?;
@@ -199,7 +187,6 @@ fn run() -> Result<(), String> {
             permission,
             decision,
         } => {
-            require_root()?;
             store.set("settings", app, permission, *decision)?;
             info!(
                 LOG,
@@ -209,7 +196,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::Check { app, permission } => {
-            require_root()?;
             let decision = store.decision(app, permission)?;
             store.record_check("broker", app, permission, decision)?;
             println!("{}", decision.as_str());
@@ -250,7 +236,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::ClearAudit => {
-            require_root()?;
             store.clear_audit()?;
             info!(LOG, "permission audit cleared");
             Ok(())
