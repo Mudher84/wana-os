@@ -13,8 +13,8 @@ without using ccache.
   graphical gates Beta intentionally omits: GL rendering, seat/focus, text,
   text-on-screen, layer-shell, shell, Dock, and window-management.
 - Normal installed boot has a dedicated production-session gate: without
-  `wana.run`, PID 1 starts `wana-services`, which launches the persistent
-  compositor + shell session and must render the desktop successfully.
+  `wana.run`, PID 1 prepares `/run/user/1000`, starts `wana-services`, and
+  launches the persistent compositor + shell session as uid/gid 1000.
 - `make stable-bundle VERSION=X.Y.Z` accepts only a stable version without a
   prerelease suffix and reuses the already-tested image.
 - Release versions are bound to `[workspace.package].version`.
@@ -44,14 +44,14 @@ Phase 30 is PASS only when an actual stable candidate has:
 7. a release verifier PASS for the clean candidate commit;
 8. a published GitHub release bundle whose version equals the workspace
    version.
-9. the production desktop no longer runs the whole graphical session as UID 0;
-   a user-session/broker privilege boundary must be validated before Stable
-   publication.
+9. the production desktop gate proves the compositor/shell session runs as
+   uid/gid 1000 with its own XDG runtime directory and no inherited root
+   supplementary groups.
 
-Until that evidence exists, Wana OS is not labeled Stable. The current
-production-session service fixes the previous blank normal boot, but it still
-runs the graphical session as UID 0; that privilege model is an explicit
-release blocker rather than a hidden limitation.
+Until that evidence exists, Wana OS is not labeled Stable. The implementation
+now contains the uid/gid 1000 production-session path, but Stable publication
+remains blocked until CI/Buildroot prove the privilege drop and normal desktop
+boot on the built image.
 
 ## Evidence
 
