@@ -12,6 +12,7 @@ from pathlib import Path
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|rc)\.[0-9]+)?$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 PAYLOAD = ("Wana-OS-Live.iso", "disk.img", "bzImage", "rootfs.cpio.zst")
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def sha256(path: Path) -> str:
@@ -58,6 +59,19 @@ def main() -> int:
         fail("beta channel version must contain '-beta.N'")
     if args.channel == "stable" and "-" in args.version:
         fail("stable channel version must not contain a prerelease suffix")
+
+    cargo_text = (ROOT / "Cargo.toml").read_text()
+    workspace = re.search(
+        r'(?ms)^\[workspace\.package\]\s*.*?^version\s*=\s*"([^"]+)"',
+        cargo_text,
+    )
+    if not workspace:
+        fail("workspace package version is missing")
+    base_version = args.version.split("-", 1)[0]
+    if base_version != workspace.group(1):
+        fail(
+            f"release base version {base_version} != workspace version {workspace.group(1)}"
+        )
 
     manifest_path = args.images / "build-manifest.json"
     sums_path = args.images / "SHA256SUMS"
