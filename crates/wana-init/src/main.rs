@@ -316,11 +316,7 @@ fn stop(action: TestAction) {
 }
 
 /// Reaps children forever and keeps udevd and the console shell alive.
-fn supervise(
-    want_shell: bool,
-    mut udevd: Option<Child>,
-    mut services: Option<Child>,
-) -> ! {
+fn supervise(want_shell: bool, mut udevd: Option<Child>, mut services: Option<Child>) -> ! {
     let mut shell = if want_shell { spawn_shell() } else { None };
     loop {
         match sys::reap_any(true) {

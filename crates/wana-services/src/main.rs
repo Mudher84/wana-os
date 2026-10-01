@@ -55,15 +55,29 @@ fn parse(path: &Path) -> Result<Service, String> {
             .ok_or_else(|| format!("{}:{}: expected key=value", path.display(), line_no + 1))?;
         let (key, value) = (key.trim(), value.trim());
         if key != "arg" && !seen.insert(key.to_string()) {
-            return Err(format!("{}:{}: duplicate {key}", path.display(), line_no + 1));
+            return Err(format!(
+                "{}:{}: duplicate {key}",
+                path.display(),
+                line_no + 1
+            ));
         }
         match key {
             "name" if valid_name(value) => name = Some(value.to_string()),
-            "name" => return Err(format!("{}:{}: invalid service name", path.display(), line_no + 1)),
+            "name" => {
+                return Err(format!(
+                    "{}:{}: invalid service name",
+                    path.display(),
+                    line_no + 1
+                ))
+            }
             "exec" => {
                 let p = PathBuf::from(value);
                 if !p.is_absolute() || value.split('/').any(|p| p == "..") {
-                    return Err(format!("{}:{}: exec must be an absolute safe path", path.display(), line_no + 1));
+                    return Err(format!(
+                        "{}:{}: exec must be an absolute safe path",
+                        path.display(),
+                        line_no + 1
+                    ));
                 }
                 exec = Some(p);
             }
@@ -77,7 +91,11 @@ fn parse(path: &Path) -> Result<Service, String> {
                         if valid_name(v) {
                             Ok(v.to_string())
                         } else {
-                            Err(format!("{}:{}: invalid dependency {v:?}", path.display(), line_no + 1))
+                            Err(format!(
+                                "{}:{}: invalid dependency {v:?}",
+                                path.display(),
+                                line_no + 1
+                            ))
                         }
                     })
                     .collect::<Result<_, _>>()?;
@@ -87,12 +105,32 @@ fn parse(path: &Path) -> Result<Service, String> {
                     "never" => Restart::Never,
                     "on-failure" => Restart::OnFailure,
                     "always" => Restart::Always,
-                    _ => return Err(format!("{}:{}: invalid restart policy", path.display(), line_no + 1)),
+                    _ => {
+                        return Err(format!(
+                            "{}:{}: invalid restart policy",
+                            path.display(),
+                            line_no + 1
+                        ))
+                    }
                 }
             }
-            "uid" => uid = value.parse().map_err(|_| format!("{}:{}: invalid uid", path.display(), line_no + 1))?,
-            "gid" => gid = value.parse().map_err(|_| format!("{}:{}: invalid gid", path.display(), line_no + 1))?,
-            _ => return Err(format!("{}:{}: unknown field {key}", path.display(), line_no + 1)),
+            "uid" => {
+                uid = value
+                    .parse()
+                    .map_err(|_| format!("{}:{}: invalid uid", path.display(), line_no + 1))?
+            }
+            "gid" => {
+                gid = value
+                    .parse()
+                    .map_err(|_| format!("{}:{}: invalid gid", path.display(), line_no + 1))?
+            }
+            _ => {
+                return Err(format!(
+                    "{}:{}: unknown field {key}",
+                    path.display(),
+                    line_no + 1
+                ))
+            }
         }
     }
 
@@ -129,8 +167,7 @@ fn load(dir: &Path) -> Result<BTreeMap<String, Service>, String> {
 }
 
 fn order(map: &BTreeMap<String, Service>) -> Result<Vec<String>, String> {
-    let mut indegree: BTreeMap<String, usize> =
-        map.keys().map(|k| (k.clone(), 0usize)).collect();
+    let mut indegree: BTreeMap<String, usize> = map.keys().map(|k| (k.clone(), 0usize)).collect();
     let mut edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (name, s) in map {
         for dep in &s.after {
@@ -207,7 +244,8 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
                 continue;
             };
             let policy = map[name].restart;
-            let again = policy == Restart::Always || (policy == Restart::OnFailure && !status.success());
+            let again =
+                policy == Restart::Always || (policy == Restart::OnFailure && !status.success());
             if again {
                 warn!(LOG, "service {name} exited {status}; restarting");
                 sleep(Duration::from_millis(250));
@@ -277,8 +315,16 @@ mod tests {
     #[test]
     fn dependencies_are_topologically_ordered() {
         let d = dir();
-        fs::write(d.join("a.service"), "name=a\nexec=/bin/true\nrestart=never\n").unwrap();
-        fs::write(d.join("b.service"), "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\n").unwrap();
+        fs::write(
+            d.join("a.service"),
+            "name=a\nexec=/bin/true\nrestart=never\n",
+        )
+        .unwrap();
+        fs::write(
+            d.join("b.service"),
+            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\n",
+        )
+        .unwrap();
         let map = load(&d).unwrap();
         assert_eq!(order(&map).unwrap(), ["a", "b"]);
         assert_eq!(map["b"].uid, 10);

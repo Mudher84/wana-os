@@ -63,8 +63,22 @@ pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
     )?;
 
     for (i, (name, value)) in [
-        ("اللغة", if s.language == "ar" { "العربية" } else { "English" }),
-        ("المظهر", if s.theme == "dark" { "داكن" } else { "فاتح" }),
+        (
+            "اللغة",
+            if s.language == "ar" {
+                "العربية"
+            } else {
+                "English"
+            },
+        ),
+        (
+            "المظهر",
+            if s.theme == "dark" {
+                "داكن"
+            } else {
+                "فاتح"
+            },
+        ),
         (
             "لون التمييز",
             match s.accent.as_str() {

@@ -63,8 +63,8 @@ fn validate(a: &Args) -> Result<(), String> {
     if a.confirm != expected {
         return Err(format!("confirmation mismatch; expected {expected:?}"));
     }
-    let meta = fs::metadata(&a.target)
-        .map_err(|e| format!("target {}: {e}", a.target.display()))?;
+    let meta =
+        fs::metadata(&a.target).map_err(|e| format!("target {}: {e}", a.target.display()))?;
     let ty = meta.file_type();
     if !ty.is_block_device() && !(a.allow_regular && ty.is_file()) {
         return Err(format!(
@@ -110,17 +110,23 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
         written += n as u64;
     }
     if written != source_len {
-        return Err(format!("short installer write: {written}/{source_len} bytes"));
+        return Err(format!(
+            "short installer write: {written}/{source_len} bytes"
+        ));
     }
     dst.sync_all().map_err(|e| format!("sync target: {e}"))?;
 
-    src.seek(SeekFrom::Start(0)).map_err(|e| format!("rewind image: {e}"))?;
-    dst.seek(SeekFrom::Start(0)).map_err(|e| format!("rewind target: {e}"))?;
+    src.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("rewind image: {e}"))?;
+    dst.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("rewind target: {e}"))?;
     let mut a = vec![0u8; CHUNK];
     let mut b = vec![0u8; CHUNK];
     let mut checked = 0u64;
     loop {
-        let na = src.read(&mut a).map_err(|e| format!("verify image read: {e}"))?;
+        let na = src
+            .read(&mut a)
+            .map_err(|e| format!("verify image read: {e}"))?;
         if na == 0 {
             break;
         }
@@ -130,7 +136,10 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
                 .read(&mut b[got..na])
                 .map_err(|e| format!("verify target read at byte {}: {e}", checked + got as u64))?;
             if n == 0 {
-                return Err(format!("verify target ended early at byte {}", checked + got as u64));
+                return Err(format!(
+                    "verify target ended early at byte {}",
+                    checked + got as u64
+                ));
             }
             got += n;
         }
@@ -140,7 +149,10 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
                 .zip(&b[..na])
                 .position(|(x, y)| x != y)
                 .unwrap_or(0);
-            return Err(format!("readback mismatch at byte {}", checked + first as u64));
+            return Err(format!(
+                "readback mismatch at byte {}",
+                checked + first as u64
+            ));
         }
         checked += na as u64;
     }

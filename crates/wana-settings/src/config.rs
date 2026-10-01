@@ -80,8 +80,7 @@ impl Settings {
 
     pub fn save_atomic(&self, path: &Path) -> Result<(), String> {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("create {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
 
         let file_name = path
             .file_name()

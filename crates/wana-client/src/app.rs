@@ -193,8 +193,7 @@ impl Window {
             let mut found = None;
             while let Some(ev) = app.conn.next_event() {
                 app.protocol_event(&ev)?;
-                if ev.target == xdg_surface
-                    && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE
+                if ev.target == xdg_surface && ev.opcode == xdg_shell::xdg_surface::event::CONFIGURE
                 {
                     if let Some(Val::Uint(serial)) = ev.args.first() {
                         found = Some(*serial);
@@ -235,10 +234,8 @@ impl Window {
     pub fn destroy(self, app: &App) {
         app.conn
             .destroy(self.toplevel, xdg_shell::xdg_toplevel::request::DESTROY);
-        app.conn.destroy(
-            self.xdg_surface,
-            xdg_shell::xdg_surface::request::DESTROY,
-        );
+        app.conn
+            .destroy(self.xdg_surface, xdg_shell::xdg_surface::request::DESTROY);
         app.conn
             .destroy(self.surface, wayland::wl_surface::request::DESTROY);
     }

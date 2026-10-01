@@ -169,7 +169,13 @@ fn run() -> Result<(), String> {
         for e in &entries {
             println!(
                 "{}\t{}",
-                if e.symlink { "link" } else if e.dir { "dir" } else { "file" },
+                if e.symlink {
+                    "link"
+                } else if e.dir {
+                    "dir"
+                } else {
+                    "file"
+                },
                 e.name
             );
         }

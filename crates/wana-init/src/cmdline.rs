@@ -74,7 +74,9 @@ pub fn parse(cmdline: &str) -> Options {
             },
             "live" => match parse_bool(value) {
                 Some(on) => opts.live = on,
-                None => opts.warnings.push(format!("wana.live: unknown value {value:?}")),
+                None => opts
+                    .warnings
+                    .push(format!("wana.live: unknown value {value:?}")),
             },
             "shell" | "udev" => match parse_bool(value) {
                 Some(on) if key == "shell" => opts.shell = on,
