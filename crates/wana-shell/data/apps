@@ -6,3 +6,4 @@
 الملفات	/usr/bin/wana-files	--path	/
 الأذونات والخصوصية	/usr/bin/wana-permissions
 مركز التحكم	/usr/bin/wana-control-center
+أندرويد	/usr/bin/wana-android	ui
