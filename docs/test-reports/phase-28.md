@@ -28,11 +28,13 @@ userspace stack.
 
 ### Graphics
 - Kernel DRM drivers: i915, Nouveau and Radeon.
-- Mesa Gallium: i915, Nouveau and R600 in addition to the existing softpipe
-  and VirGL paths.
-- Modern Intel Iris and AMD RadeonSI are intentionally not claimed complete:
-  Buildroot 2026.02.3 requires LLVM for those drivers, which materially changes
-  build size/time and needs its own measured integration and firmware policy.
+- Mesa Gallium: Nouveau and R600 in addition to the existing softpipe and
+  VirGL paths.
+- Kernel i915 remains enabled for Intel DRM/KMS discovery, but Mesa 26.0.1's
+  Gallium i915 driver requires LLVM. Wana OS therefore does not claim Intel
+  accelerated userspace support in Phase 28; enabling LLVM-backed Intel/AMD
+  drivers is deferred to a measured integration with an explicit firmware and
+  image-size policy.
 
 ## Exit gate
 
