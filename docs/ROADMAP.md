@@ -58,7 +58,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 27 | Performance ([phase 27 report](test-reports/phase-27.md)) | IN PROGRESS |
 | 28 | Hardware compatibility ([phase 28 report](test-reports/phase-28.md)) | IN PROGRESS |
 | 29 | Beta release ([phase 29 report](test-reports/phase-29.md)) | IN PROGRESS |
-| 30 | Stable release | NOT STARTED |
+| 30 | Stable release ([phase 30 report](test-reports/phase-30.md)) | IN PROGRESS |
 
 Audio (PipeWire), Bluetooth, Wine, and Android compatibility come after
 Milestone 4 and are not scheduled yet.
