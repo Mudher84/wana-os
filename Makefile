@@ -709,6 +709,7 @@ services-boot-test:
 	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
 		--log out/logs/services-boot.log --timeout 180 \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
@@ -719,8 +720,9 @@ services-boot-test:
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=OnFailure' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 10 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 10 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 11 service\(s\)' \
+		--expect '\[INIT\] info: service order: grow-root' \
 		--expect '\[INIT\] info: service order: system-bus' \
 		--expect '\[INIT\] info: service order: bluetooth' \
 		--expect '\[INIT\] info: service order: user-bus' \
@@ -746,6 +748,7 @@ production-session-boot-test:
 		--screendump-on '\[SHELL\] info: ready' --screendump-delay-ms 500 --screendump out/test/production-session.ppm \
 		--pixel 0.5,0.025=0b0f1a \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
@@ -756,7 +759,7 @@ production-session-boot-test:
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=OnFailure' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 10 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
