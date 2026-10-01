@@ -66,7 +66,7 @@ fn quote_wpa(s: &str) -> Result<String, String> {
     if s.bytes().any(|b| b < 0x20 || b == 0x7f) {
         return Err("wireless value contains control characters".into());
     }
-    Ok(s.replace('\\', "\\\\").replace('"', "\\""))
+    Ok(s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn wifi_config(ssid: &str, psk: &str) -> Result<String, String> {
