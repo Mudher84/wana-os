@@ -895,6 +895,9 @@ fn spawn(argv: &[String], what: &str) -> Result<Child, String> {
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
         .env("WAYLAND_DISPLAY", display);
+    if let Some(home) = std::env::var_os("HOME") {
+        c.env("HOME", home);
+    }
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         c.env("XDG_RUNTIME_DIR", dir);
     }
