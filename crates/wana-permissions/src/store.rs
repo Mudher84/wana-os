@@ -514,9 +514,9 @@ mod tests {
 
         let store = Store::new(&root);
         store
-            .set("org.wana.Test", "files.read", Decision::Allow, "tester")
+            .set("tester", "org.wana.Test", "files.read", Decision::Allow)
             .expect("a second temp slot must be used");
-        assert_eq!(store.policy().unwrap().len(), 1);
+        assert_eq!(store.rules().unwrap().len(), 1);
         assert!(stale.exists(), "unrelated stale temp is left untouched");
         let _ = fs::remove_dir_all(root);
     }
@@ -539,7 +539,7 @@ mod tests {
 
         let store = Store::new(&root);
         assert!(store
-            .set("org.wana.Test", "files.read", Decision::Allow, "tester")
+            .set("tester", "org.wana.Test", "files.read", Decision::Allow)
             .unwrap_err()
             .contains("audit sequence exhausted"));
         assert_eq!(fs::read(&audit).unwrap(), before);
