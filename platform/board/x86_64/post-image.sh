@@ -17,10 +17,24 @@ mkdir -p "$out/efi-part/wana"
 cp "$out/bzImage" "$out/efi-part/wana/bzImage"
 sed "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" "$board/grub.cfg" > "$out/efi-part/EFI/BOOT/grub.cfg"
 sed -e "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" \
+    -e "s/__DATA_PARTUUID__/$WANA_DATA_PARTUUID/g" \
     -e "s/__ESP_PARTUUID__/$WANA_ESP_PARTUUID/g" \
     -e "s/__DISK_GUID__/$WANA_DISK_GUID/g" \
     -e "s/__ESP_VOLID__/$WANA_ESP_VOLID/g" \
     "$board/genimage.cfg" > "$out/genimage.cfg"
+
+# Small reproducible seed for persistent state. It is the final partition and
+# grows to the target disk on first normal boot.
+mkfs="$HOST_DIR/sbin/mkfs.ext4"
+[ -x "$mkfs" ] || mkfs="$HOST_DIR/sbin/mke2fs"
+[ -x "$mkfs" ] || { echo "[BOOT] error: host mke2fs missing" >&2; exit 1; }
+rm -f "$out/data.ext4"
+truncate -s 64M "$out/data.ext4"
+E2FSPROGS_FAKE_TIME="${SOURCE_DATE_EPOCH:-0}" "$mkfs" -q -F \
+    -L WANA-DATA -U "$WANA_DATA_FS_UUID" -O ^64bit \
+    -E "lazy_itable_init=0,lazy_journal_init=0,hash_seed=$WANA_DATA_FS_HASH_SEED" \
+    "$out/data.ext4"
+echo "[BOOT] info: persistent data seed $out/data.ext4"
 
 # Reproducibility: FAT stores file times, so pin every ESP file to
 # SOURCE_DATE_EPOCH (exported by Buildroot; the build's reference time).

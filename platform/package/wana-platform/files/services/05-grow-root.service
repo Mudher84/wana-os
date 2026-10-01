@@ -1,9 +1,8 @@
-# Expand the final root partition and ext4 filesystem to the installed disk.
-# embiggen-disk is idempotent: on the release image or an already-grown disk
-# it simply reports that no changes are needed.
+# Expand the final persistent-data partition and ext4 filesystem to the
+# installed disk. The replaceable system root remains fixed-size.
 name=grow-root
 exec=/usr/bin/wana-grow-root
-arg=/
+arg=/data
 restart=never
 uid=0
 gid=0
