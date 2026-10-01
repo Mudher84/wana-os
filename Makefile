@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test extended-compatibility-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -893,6 +893,7 @@ hardware-compatibility-test:
 # so development can finish first and the complete validation can run at the end.
 compatibility-image-check:
 	test -x $(BR_OUT)/target/usr/bin/pipewire
+	test -x $(BR_OUT)/target/usr/bin/pipewire-pulse
 	test -x $(BR_OUT)/target/usr/bin/wireplumber
 	test -x $(BR_OUT)/target/usr/bin/bluetoothctl
 	test -x $(BR_OUT)/target/usr/libexec/bluetooth/bluetoothd
@@ -903,6 +904,9 @@ compatibility-image-check:
 	test -x $(BR_OUT)/target/usr/sbin/wpa_supplicant
 	test -x $(BR_OUT)/target/sbin/dhcpcd
 	test -x $(BR_OUT)/target/usr/bin/wana-android
+	test -x $(BR_OUT)/target/usr/bin/waydroid
+	test -e $(BR_OUT)/target/usr/lib/libgbinder.so.1
+	test -e $(BR_OUT)/target/usr/lib/libglibutil.so.1
 	test -x $(BR_OUT)/target/usr/bin/wana-winrun
 	@test -x $(BR_OUT)/target/usr/bin/wine64 || test -x $(BR_OUT)/target/usr/bin/wine
 	@echo "[COMPAT] image payload: PASS"
@@ -940,16 +944,31 @@ windows-compatibility-boot-test:
 		--expect 'reboot: Power down' \
 		--reject '\[INIT\] error'
 
-ANDROID_COMPAT_ARGS := wana.run=/usr/bin/wana-android,status wana.test=poweroff wana.shell=0
+ANDROID_COMPAT_ARGS := wana.run=/usr/bin/waydroid,--version wana.test=poweroff wana.shell=0
 android-compatibility-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-android-compat.img "$(ANDROID_COMPAT_ARGS)"
 	tools/qemu-boot-test.sh --disk out/test/disk-android-compat.img \
 		--log out/logs/android-compatibility-boot.log --timeout 180 \
-		--expect 'WANA_ANDROID_READY runtime=lxc rootfs=/var/lib/wana/android/rootfs state=STOPPED' \
-		--expect '\[INIT\] info: /usr/bin/wana-android exited successfully' \
+		--expect '^1\.6\.3$' \
+		--expect '\[INIT\] info: /usr/bin/waydroid exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[INIT\] error'
+
+# Full Android UI validation is intentionally separate from the reproducible
+# release image. The operator provisions the official Waydroid image first;
+# this target then proves that Wana's non-root desktop can start a session and
+# request the full Android UI through its native Wayland socket.
+android-session-boot-test:
+	@test -n "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: ANDROID_TEST_DISK is required (pre-provisioned image)" >&2; exit 2; }
+	@test -s "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: missing $(ANDROID_TEST_DISK)" >&2; exit 2; }
+	mkdir -p out/logs
+	tools/qemu-graphics-test.py --disk "$(ANDROID_TEST_DISK)" --gpu virtio --timeout 420 --memory 3072 \
+		--log out/logs/android-session-boot.log \
+		--send-on '\[SHELL\] info: ready' --send 'sendkey meta_l' \
+		--expect '\[SHELL\] info: ready' \
+		--expect 'WANA_ANDROID_SESSION_READY display=wayland-0' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
 extended-compatibility-test:
 	$(MAKE) compatibility-image-check
