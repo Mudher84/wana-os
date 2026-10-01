@@ -164,6 +164,9 @@ jobs:
       - name: System services (PID1 supervisor + dependency graph validation)
         run: make services-boot-test
 
+      - name: Production desktop session (normal boot, no wana.run)
+        run: make production-session-boot-test
+
       - name: Live ISO (OVMF -> GRUB -> kernel + initramfs, explicit Live mode)
         run: make live-iso-boot-test
 
