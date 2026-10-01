@@ -28,6 +28,27 @@ without using ccache.
   comparison passes and only when the operator explicitly requested
   publication.
 
+## Pre-stable hardening
+
+Before the Stable candidate is promoted, the current pre-stable line also
+hardens the destructive and persistent-state paths that the release depends on:
+
+- Settings, Permissions and Notifications atomic writes recover from stale
+  temporary files left by an interrupted process.
+- Notification and permission-audit sequence exhaustion is rejected instead of
+  saturating into duplicate sequence numbers.
+- Settings validates the persistent parent directory ownership and mode.
+- The installer binds validation to the opened source/target inode/device,
+  rejects hard-link and block-device aliases, and refuses final-component
+  symlink swaps with `O_NOFOLLOW` before mutating the target.
+- Release cleanliness includes untracked non-ignored files; only known generated
+  CI logs are ignored.
+- The Stable workflow is read-only by default and grants `contents: write`
+  only to the final reproducibility/publish job.
+
+These changes remain pre-stable until the source CI and the complete
+Buildroot/runtime suite pass on the same final commit.
+
 ## Exit gate
 
 Phase 30 is PASS only when an actual stable candidate has:
