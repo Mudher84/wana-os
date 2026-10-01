@@ -1,10 +1,9 @@
-# Privileged Waydroid container manager. It can run before Android images
-# are initialized; actual Android sessions are requested by the desktop user.
+# Privileged Waydroid container manager. The helper waits without failing
+# until Android system/vendor images have been provisioned, then replaces
+# itself with the real container manager.
 name=waydroid-container
-exec=/usr/bin/waydroid
-arg=container
-arg=start
+exec=/usr/bin/wana-waydroid-container
 after=system-bus,dhcpcd
-restart=on-failure
+restart=always
 uid=0
 gid=0
