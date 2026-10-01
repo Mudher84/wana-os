@@ -1,12 +1,14 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use wana_log::{error, info, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
 const CHUNK: usize = 1024 * 1024;
+// Linux O_NOFOLLOW. Wana OS targets Linux/x86_64; reject a final symlink at open time.
+const O_NOFOLLOW: i32 = 0o400000;
 
 #[derive(Debug)]
 struct Args {
@@ -105,7 +107,35 @@ fn validate(a: &Args) -> Result<(), String> {
 }
 
 fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
-    let mut src = File::open(image).map_err(|e| format!("open {}: {e}", image.display()))?;
+    let mut src = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(image)
+        .map_err(|e| format!("open source {} without symlink following: {e}", image.display()))?;
+    let source_meta = src
+        .metadata()
+        .map_err(|e| format!("metadata source {}: {e}", image.display()))?;
+
+    let mut dst = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(target)
+        .map_err(|e| format!("open target {} without symlink following: {e}", target.display()))?;
+    let target_meta = dst
+        .metadata()
+        .map_err(|e| format!("metadata target {}: {e}", target.display()))?;
+
+    if source_meta.dev() == target_meta.dev() && source_meta.ino() == target_meta.ino() {
+        return Err("installer source and target resolve to the same opened file".into());
+    }
+    if source_meta.file_type().is_block_device()
+        && target_meta.file_type().is_block_device()
+        && source_meta.rdev() == target_meta.rdev()
+    {
+        return Err("installer source and target resolve to the same block device".into());
+    }
+
     let source_len = src
         .seek(SeekFrom::End(0))
         .map_err(|e| format!("size {}: {e}", image.display()))?;
@@ -115,12 +145,7 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
         return Err("installer source is empty".into());
     }
 
-    let mut dst = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(target)
-        .map_err(|e| format!("open target {}: {e}", target.display()))?;
-    if dst.metadata().map(|m| m.is_file()).unwrap_or(false) {
+    if target_meta.is_file() {
         dst.set_len(source_len)
             .map_err(|e| format!("size target {}: {e}", target.display()))?;
     }
@@ -275,6 +300,43 @@ mod tests {
         let _ = fs::remove_file(dst);
         let _ = fs::remove_file(dst_link);
         let _ = fs::remove_file(real_dst);
+    }
+
+    #[test]
+    fn copy_rejects_hard_link_alias_before_truncation() {
+        let src = temp("hardlink-src");
+        let alias = temp("hardlink-alias");
+        let original = b"do not truncate this image";
+        fs::write(&src, original).unwrap();
+        fs::hard_link(&src, &alias).unwrap();
+
+        let error = copy_and_verify(&src, &alias).unwrap_err();
+        assert!(error.contains("same opened file"));
+        assert_eq!(fs::read(&src).unwrap(), original);
+        assert_eq!(fs::read(&alias).unwrap(), original);
+
+        let _ = fs::remove_file(alias);
+        let _ = fs::remove_file(src);
+    }
+
+    #[test]
+    fn copy_rejects_symlink_race_at_open_time() {
+        use std::os::unix::fs::symlink;
+
+        let src = temp("open-src");
+        let real_dst = temp("open-real-dst");
+        let dst_link = temp("open-dst-link");
+        fs::write(&src, b"image").unwrap();
+        fs::write(&real_dst, b"target").unwrap();
+        symlink(&real_dst, &dst_link).unwrap();
+
+        assert!(copy_and_verify(&src, &dst_link)
+            .unwrap_err()
+            .contains("without symlink following"));
+
+        let _ = fs::remove_file(dst_link);
+        let _ = fs::remove_file(real_dst);
+        let _ = fs::remove_file(src);
     }
 
     #[test]
