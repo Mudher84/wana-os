@@ -31,6 +31,8 @@ const UDEVD_RESTART_DELAY: Duration = Duration::from_secs(1);
 const SERVICES: &str = "/usr/sbin/wana-services";
 const SERVICES_DIR: &str = "/etc/wana/services.d";
 const SERVICES_RESTART_DELAY: Duration = Duration::from_secs(1);
+const LIVE_MOUNT: &str = "/run/wana-live";
+const LIVE_IMAGE: &str = "/run/wana-live/live/Wana-OS.img";
 
 fn main() {
     let pid = std::process::id();
@@ -71,6 +73,19 @@ fn main() {
         info!(INIT, "udev: disabled (wana.udev=0)");
         None
     };
+
+    if opts.live {
+        match mount_live_media() {
+            Ok((source, bytes)) => info!(
+                INIT,
+                "live media mounted: {source} -> {LIVE_MOUNT}; installer image {LIVE_IMAGE} ({bytes} bytes)"
+            ),
+            Err(e) => {
+                error!(INIT, "live media: {e}");
+                problems.push("live media unavailable".into());
+            }
+        }
+    }
 
     let services = start_services(&mut problems);
 
@@ -179,6 +194,39 @@ fn start_udev(problems: &mut Vec<String>) -> Option<Child> {
         ),
     }
     Some(child)
+}
+
+fn mount_live_media() -> Result<(&'static str, u64), String> {
+    fs::create_dir_all(LIVE_MOUNT)
+        .map_err(|e| format!("create {LIVE_MOUNT}: {e}"))?;
+
+    let mut last_error = None;
+    for source in ["/dev/sr0", "/dev/sr1", "/dev/cdrom"] {
+        if !Path::new(source).exists() {
+            continue;
+        }
+        match sys::mount_fs(
+            source,
+            LIVE_MOUNT,
+            "iso9660",
+            sys::MS_RDONLY | sys::MS_NOSUID | sys::MS_NODEV | sys::MS_NOEXEC,
+            "",
+        ) {
+            Ok(()) => {
+                let meta = fs::metadata(LIVE_IMAGE)
+                    .map_err(|e| format!("{source} mounted but {LIVE_IMAGE} is unavailable: {e}"))?;
+                if !meta.is_file() || meta.len() == 0 {
+                    return Err(format!(
+                        "{source} mounted but {LIVE_IMAGE} is not a non-empty regular file"
+                    ));
+                }
+                return Ok((source, meta.len()));
+            }
+            Err(e) => last_error = Some(format!("mount {source} on {LIVE_MOUNT}: {e}")),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "no ISO9660 live-media device found".into()))
 }
 
 fn spawn_udevd(daemon: &str) -> Option<Child> {
