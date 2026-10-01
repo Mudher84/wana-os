@@ -709,8 +709,10 @@ services-boot-test:
 	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
 		--log out/logs/services-boot.log --timeout 180 \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
-		--expect '\[INIT\] info: services ready: 0 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 0 service\(s\)' \
+		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: services ready: 1 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 1 service\(s\)' \
+		--expect '\[INIT\] info: service order: desktop' \
 		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down' \
