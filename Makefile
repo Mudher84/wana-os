@@ -709,7 +709,7 @@ services-boot-test:
 	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
 		--log out/logs/services-boot.log --timeout 180 \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
-		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: services ready: 1 service\(s\)' \
 		--expect '\[INIT\] info: service configuration PASS: 1 service\(s\)' \
 		--expect '\[INIT\] info: service order: desktop' \
@@ -731,6 +731,8 @@ production-session-boot-test:
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
+		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
+		--expect '\[COMPOSITOR\] info: XDG_RUNTIME_DIR=/run/user/1000' \
 		--expect '\[SHELL\] info: ready' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
