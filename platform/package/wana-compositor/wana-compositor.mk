@@ -41,6 +41,7 @@ define WANA_COMPOSITOR_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps $(TARGET_DIR)/etc/wana/apps
 	$(INSTALL) -D -m 0644 $(@D)/crates/wana-shell/data/apps.test $(TARGET_DIR)/usr/share/wana-shell/apps.test
 	$(INSTALL) -D -m 0644 $(BR2_EXTERNAL_WANA_PATH)/board/x86_64/desktop.service $(TARGET_DIR)/etc/wana/services.d/desktop.service
+	$(INSTALL) -D -m 0644 $(BR2_EXTERNAL_WANA_PATH)/board/x86_64/70-wana-desktop.rules $(TARGET_DIR)/etc/udev/rules.d/70-wana-desktop.rules
 endef
 
 $(eval $(cargo-package))
