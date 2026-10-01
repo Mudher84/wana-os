@@ -11,6 +11,7 @@ pub const MS_RDONLY: c_ulong = 1;
 pub const MS_NOSUID: c_ulong = 2;
 pub const MS_NODEV: c_ulong = 4;
 pub const MS_NOEXEC: c_ulong = 8;
+const MS_REMOUNT: c_ulong = 32;
 
 const RB_POWER_OFF: c_int = 0x4321_fedc_u32 as c_int;
 const RB_AUTOBOOT: c_int = 0x0123_4567;
@@ -56,6 +57,28 @@ pub fn mount_fs(
             fstype.as_ptr(),
             flags,
             data.as_ptr().cast(),
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Remount an already-mounted filesystem read-write without changing
+/// its source, type or other mount options.
+pub fn remount_rw(target: &str) -> io::Result<()> {
+    let target = cstr(target)?;
+    // SAFETY: source, fstype and data are ignored by MS_REMOUNT and may be
+    // null. target is a live NUL-terminated CString.
+    let rc = unsafe {
+        mount(
+            std::ptr::null(),
+            target.as_ptr(),
+            std::ptr::null(),
+            MS_REMOUNT,
+            std::ptr::null(),
         )
     };
     if rc == 0 {
