@@ -57,7 +57,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 26 | Motion system ([phase 26 report](test-reports/phase-26.md)) | IN PROGRESS |
 | 27 | Performance ([phase 27 report](test-reports/phase-27.md)) | IN PROGRESS |
 | 28 | Hardware compatibility ([phase 28 report](test-reports/phase-28.md)) | IN PROGRESS |
-| 29 | Beta release | NOT STARTED |
+| 29 | Beta release ([phase 29 report](test-reports/phase-29.md)) | IN PROGRESS |
 | 30 | Stable release | NOT STARTED |
 
 Audio (PipeWire), Bluetooth, Wine, and Android compatibility come after
