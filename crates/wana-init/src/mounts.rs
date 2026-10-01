@@ -92,6 +92,40 @@ pub fn apply(m: &Mount) -> Outcome {
     }
 }
 
+pub const HARDENED_RUNTIME_TARGETS: &[&str] = &["/proc", "/sys", "/dev/shm", "/run", "/tmp"];
+
+pub fn verify_runtime_hardening() -> Result<usize, String> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo")
+        .map_err(|e| format!("read /proc/self/mountinfo: {e}"))?;
+    verify_mountinfo(&text)
+}
+
+fn verify_mountinfo(text: &str) -> Result<usize, String> {
+    let required = ["nosuid", "nodev", "noexec"];
+    let mut verified = 0;
+
+    for target in HARDENED_RUNTIME_TARGETS {
+        let options = text
+            .lines()
+            .find_map(|line| {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                (fields.len() > 5 && fields[4] == *target).then_some(fields[5])
+            })
+            .ok_or_else(|| format!("{target}: mount not found"))?;
+
+        for flag in required {
+            if !options.split(',').any(|option| option == flag) {
+                return Err(format!(
+                    "{target}: missing {flag} in mount options {options}"
+                ));
+            }
+        }
+        verified += 1;
+    }
+
+    Ok(verified)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +173,27 @@ mod tests {
             assert_ne!(m.flags & MS_NOSUID, 0, "{} must be nosuid", m.target);
             assert_ne!(m.flags & MS_NODEV, 0, "{} must be nodev", m.target);
         }
+    }
+
+    #[test]
+    fn runtime_mountinfo_requires_all_hardening_flags() {
+        let good = r#"26 1 0:22 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
+27 1 0:23 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+28 1 0:24 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
+29 1 0:25 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
+30 1 0:26 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
+"#;
+        assert_eq!(
+            verify_mountinfo(good).unwrap(),
+            HARDENED_RUNTIME_TARGETS.len()
+        );
+
+        let bad = good.replace(
+            "/ /tmp rw,nosuid,nodev,noexec,relatime",
+            "/ /tmp rw,nosuid,nodev,relatime",
+        );
+        assert!(verify_mountinfo(&bad)
+            .unwrap_err()
+            .contains("/tmp: missing noexec"));
     }
 }
