@@ -1,0 +1,10 @@
+# Privileged Waydroid container manager. It can run before Android images
+# are initialized; actual Android sessions are requested by the desktop user.
+name=waydroid-container
+exec=/usr/bin/waydroid
+arg=container
+arg=start
+after=system-bus,dhcpcd
+restart=on-failure
+uid=0
+gid=0
