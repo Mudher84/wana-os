@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -65,6 +65,8 @@ help:
 	@echo "    make security-hardening-boot-test  verify runtime mount hardening + debug shell default"
 	@echo "    make control-center-boot-test  boot native notification history + control center"
 	@echo "    make hardware-compatibility-test  e1000 + rtl8139 + PS/2 + NVMe hardware matrix"
+	@echo "    make beta-release-test  run the release-candidate boot/install/security gates"
+	@echo "    make beta-bundle VERSION=0.1.0-beta.1  validate and package the release payload"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -842,6 +844,39 @@ hardware-compatibility-test:
 	$(MAKE) hardware-network-rtl8139-test
 	$(MAKE) hardware-input-ps2-test
 	$(MAKE) hardware-nvme-boot-test
+
+# Phase 29: release candidates rerun the critical native, install, security,
+# and hardware gates against one built image before packaging it.
+beta-release-test:
+	$(MAKE) kernel-config-check
+	$(MAKE) security-config-check
+	$(MAKE) system-boot-test
+	$(MAKE) disk-boot-test
+	$(MAKE) graphics-boot-test
+	$(MAKE) input-boot-test
+	$(MAKE) compositor-boot-test
+	$(MAKE) launcher-boot-test
+	$(MAKE) settings-boot-test
+	$(MAKE) network-boot-test
+	$(MAKE) files-boot-test
+	$(MAKE) services-boot-test
+	$(MAKE) live-iso-boot-test
+	$(MAKE) installer-core-boot-test
+	$(MAKE) installer-gui-boot-test
+	$(MAKE) installed-disk-boot-test
+	$(MAKE) permissions-boot-test
+	$(MAKE) security-hardening-boot-test
+	$(MAKE) control-center-boot-test
+	$(MAKE) hardware-compatibility-test
+
+beta-bundle: image
+	@test -n "$(VERSION)" || { echo "[RELEASE] error: VERSION is required" >&2; exit 2; }
+	rm -rf "out/release/wana-os-$(VERSION)"
+	tools/prepare-release.py \
+		--images "$(BR_OUT)/images" \
+		--out "out/release/wana-os-$(VERSION)" \
+		--channel beta --version "$(VERSION)" \
+		--expected-commit "$(git rev-parse HEAD)"
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
