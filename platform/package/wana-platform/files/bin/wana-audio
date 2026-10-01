@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+export XDG_RUNTIME_DIR="$runtime"
+
+case "${1:-status}" in
+    status)
+        if [ -S "$runtime/pipewire-0" ]; then
+            echo "WANA_AUDIO_READY runtime=$runtime"
+            exec pw-cli info 0
+        fi
+        echo "WANA_AUDIO_NOT_READY runtime=$runtime" >&2
+        exit 1
+        ;;
+    devices)
+        exec pw-cli ls Node
+        ;;
+    play)
+        shift
+        [ "$#" -gt 0 ] || { echo "usage: wana-audio play FILE" >&2; exit 2; }
+        exec pw-play "$@"
+        ;;
+    record)
+        shift
+        [ "$#" -gt 0 ] || { echo "usage: wana-audio record FILE" >&2; exit 2; }
+        exec pw-record "$@"
+        ;;
+    *)
+        echo "usage: wana-audio {status|devices|play FILE|record FILE}" >&2
+        exit 2
+        ;;
+esac
