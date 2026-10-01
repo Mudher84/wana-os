@@ -304,10 +304,7 @@ mod tests {
     fn stale_temp_file_does_not_block_notification_write() {
         let root = temp();
         fs::create_dir_all(&root).unwrap();
-        let stale = root.join(format!(
-            ".history.tsv.tmp-{}-0",
-            std::process::id()
-        ));
+        let stale = root.join(format!(".history.tsv.tmp-{}-0", std::process::id()));
         fs::write(&stale, "stale").unwrap();
 
         let store = Store::new(&root);
