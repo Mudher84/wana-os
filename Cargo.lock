@@ -83,6 +83,10 @@ name = "wana-log"
 version = "0.1.0"
 
 [[package]]
+name = "wana-motion"
+version = "0.1.0"
+
+[[package]]
 name = "wana-network"
 version = "0.1.0"
 dependencies = [
@@ -130,6 +134,7 @@ version = "0.1.0"
 dependencies = [
  "wana-client",
  "wana-log",
+ "wana-motion",
  "wana-text",
  "wana-theme",
  "wana-wayland",
