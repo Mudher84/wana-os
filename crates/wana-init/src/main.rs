@@ -49,6 +49,17 @@ fn main() {
     if failed > 0 {
         problems.push(format!("{failed} early mount(s) failed"));
     }
+    match mounts::verify_runtime_hardening() {
+        Ok(verified) => info!(
+            INIT,
+            "security mounts: {verified}/{} hardened (nosuid,nodev,noexec)",
+            mounts::HARDENED_RUNTIME_TARGETS.len()
+        ),
+        Err(e) => {
+            error!(INIT, "security mounts: {e}");
+            problems.push("runtime mount hardening failed".into());
+        }
+    }
 
     let opts = match fs::read_to_string("/proc/cmdline") {
         Ok(line) => cmdline::parse(&line),
@@ -60,6 +71,11 @@ fn main() {
     wana_log::set_max_level(opts.log_level);
     for w in &opts.warnings {
         warn!(INIT, "{w}");
+    }
+    if opts.shell {
+        info!(INIT, "debug console shell: enabled by wana.shell=1");
+    } else {
+        info!(INIT, "debug console shell: disabled");
     }
 
     set_identity();
