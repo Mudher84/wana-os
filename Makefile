@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test power-ui-boot-test update-ab-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -68,6 +68,8 @@ help:
 	@echo "    make beta-release-test  run the release-candidate boot/install/security gates"
 	@echo "    make beta-bundle VERSION=0.1.0-beta.1  validate and package the release payload"
 	@echo "    make stable-release-test  run the stable candidate gates"
+	@echo "    make power-ui-boot-test  launch Power from the real uid-1000 desktop and power off through the broker"
+	@echo "    make update-ab-boot-test  apply a staged A/B update, boot the new slot, and confirm the trial boot"
 	@echo "    make stable-bundle VERSION=0.1.0  validate and package the stable payload"
 	@echo "    make final-validation-test  run the complete source + image + stable runtime gate once, at the end"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
@@ -787,6 +789,65 @@ production-session-boot-test:
 		--expect '\[SHELL\] info: ready' \
 		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
 
+# Phase 35: real desktop power path. Start the production uid-1000 session,
+# launch Power from the launcher, require a second confirmation Enter, and
+# prove that the privileged broker authorizes the desktop peer before shutdown.
+power-ui-boot-test:
+	mkdir -p out/logs out/test
+	tools/qemu-graphics-test.py --disk $(BR_OUT)/images/disk.img --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/power-ui-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/9' \
+		--send 'sendkey down' --send 'wait:launcher: selected 8/9 "الطاقة"' \
+		--send 'sendkey ret' \
+		--send 'wait:power UI mapped: 620x360' \
+		--send 'sendkey ret' \
+		--send 'wait:power UI confirmation requested action=poweroff' \
+		--send 'sendkey ret' \
+		--expect '\[SHELL\] info: app "الطاقة": /usr/bin/wana-power-ui \(pid [0-9]+\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "الطاقة — وانا" \(org.wana.Power\) 620x360' \
+		--expect '\[SHELL\] info: power UI mapped: 620x360' \
+		--expect '\[SHELL\] info: power UI confirmation requested action=poweroff' \
+		--expect '\[SECURITY\] info: power action authorized: poweroff pid=[0-9]+ uid=1000' \
+		--expect 'reboot: Power down' \
+		--reject '\[SECURITY\] warn: power request rejected'
+
+# Phase 36: deterministic A/B system update. The helper injects the exact
+# current build into Data/pending without network access. The first persistent
+# boot must apply it to inactive slot B and arm trial state. The second boot
+# must use slot B, wait for the full service graph, and confirm that trial.
+UPDATE_TEST_VERSION := $(shell sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
+update-ab-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-update-test-disk.sh \
+		$(BR_OUT)/images $(BR_OUT)/host/bin/genimage \
+		out/test/disk-update-ab.img "$(UPDATE_TEST_VERSION)" "$(git rev-parse HEAD)"
+	tools/qemu-boot-test.sh --disk out/test/disk-update-ab.img --persistent-disk \
+		--log out/logs/update-ab-apply.log --timeout 300 \
+		--expect '\[BOOT\] info: loading Wana OS update environment' \
+		--expect '\[INIT\] info: boot mode: isolated A/B update environment; active slot=A' \
+		--expect '\[INIT\] info: update verified: version=$(UPDATE_TEST_VERSION) commit=[0-9a-f]+ active=A target=B' \
+		--expect '\[INIT\] info: update root written: slot=B device=' \
+		--expect '\[INIT\] info: update root verified: slot=B' \
+		--expect '\[INIT\] info: update kernel installed: slot=B' \
+		--expect '\[INIT\] info: update selector committed: slot=B; previous=A trial=armed' \
+		--expect '\[INIT\] info: update applied successfully; next slot=B; rebooting'
+	tools/qemu-boot-test.sh --disk out/test/disk-update-ab.img --persistent-disk \
+		--log out/logs/update-ab-confirm.log --timeout 90 \
+		--expect '\[BOOT\] info: loading Wana OS slot B' \
+		--expect 'root=PARTUUID=' \
+		--expect '\[INIT\] info: persistent data: .*home,wifi,updates,waydroid,bluetooth bound' \
+		--expect '\[INIT\] info: services ready: 13 service\(s\); marker=/run/wana/services.ready' \
+		--expect '\[INIT\] info: trial boot confirmed: slot=B' \
+		--expect '\[INIT\] info: ready'
+
 # Phase 18: boot the generated UEFI Live ISO. Live mode runs entirely
 # from the initramfs, with no installed root partition. The QEMU monitor exits
 # after PID1 reaches ready so the production Live image stays interactive.
@@ -1074,6 +1135,8 @@ beta-bundle:
 stable-release-test:
 	$(MAKE) beta-release-test
 	$(MAKE) production-session-boot-test
+	$(MAKE) power-ui-boot-test
+	$(MAKE) update-ab-boot-test
 	$(MAKE) gl-boot-test
 	$(MAKE) seat-boot-test
 	$(MAKE) text-boot-test
