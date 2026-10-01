@@ -52,7 +52,7 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 |---|-------|--------|
 | 22 | Permissions + audit center | IN PROGRESS |
 | 23 | Security hardening ([phase 23 report](test-reports/phase-23.md)) | IN PROGRESS |
-| 24 | Notifications + control center | IN PROGRESS |
+| 24 | Notifications + control center ([phase 24 report](test-reports/phase-24.md)) | IN PROGRESS |
 | 25 | Visual polish | NOT STARTED |
 | 26 | Motion system | NOT STARTED |
 | 27 | Performance | NOT STARTED |
