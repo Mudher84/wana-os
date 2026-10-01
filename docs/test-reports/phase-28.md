@@ -12,9 +12,16 @@ userspace stack.
 - Kernel: Intel e1000/e1000e, Realtek 8139CP/8139TOO and R8169 enabled.
 - QEMU harness: selectable virtio, e1000 and rtl8139 network devices.
 - Runtime gates use `wana-network` and udev for all three device families.
+- Common laptop Wi-Fi families are enabled too: Intel IWLWIFI, Realtek
+  RTW88/RTW89, MediaTek MT7921, Atheros ath10k and Broadcom brcmfmac.
+- The Buildroot image carries the corresponding pinned linux-firmware payload,
+  plus Intel/Realtek/MediaTek Bluetooth firmware.
 
 ### Storage
 - NVMe remains built into the kernel and now has an explicit boot test.
+- `embiggen-disk /` is integrated as an idempotent installed-system service:
+  the release image remains compact, while a real installation expands the
+  final GPT/ext4 root partition to consume the target disk.
 - The QEMU serial boot harness can attach the installed disk as virtio-blk or
   NVMe.
 - The NVMe gate boots OVMF -> GRUB -> kernel -> ext4 using PARTUUID, proving
@@ -52,6 +59,7 @@ desktop/application gates.
 
 ## Evidence
 
-Pending CI/Buildroot/QEMU evidence for this branch. Phase 28 stays IN PROGRESS
-until the matrix is green; modern Iris/RadeonSI support remains a documented
-follow-up rather than an unsupported PASS claim.
+Pending final CI/Buildroot/QEMU and representative real-hardware evidence for
+this branch. Phase 28 stays IN PROGRESS until the matrix is green; modern
+Iris/RadeonSI acceleration remains a documented follow-up rather than an
+unsupported PASS claim.
