@@ -17,6 +17,9 @@ source. The exit gate must prove the security posture in a booted Wana OS guest.
   boot state if any required runtime mount flag is missing.
 - Existing kernel isolation primitives remain enabled: namespaces, cgroups,
   seccomp/filtering, and Landlock.
+- Buildroot's resolved configuration is gated for PIE, strong stack protector,
+  full RELRO, and FORTIFY_SOURCE so a future default change cannot silently
+  weaken userspace binaries.
 - Permission policy and audit stores reject symlinks, insecure modes, and
   ownership that does not match the effective UID.
 
@@ -32,6 +35,9 @@ initramfs under QEMU + OVMF and requires all of the following:
 5. the guest powers off cleanly.
 
 The Buildroot workflow runs this gate after the Phase 22 permissions boot test.
+
+The workflow's config job also runs `make security-config-check` before the
+full image build.
 
 ## Evidence
 
