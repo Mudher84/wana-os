@@ -511,7 +511,7 @@ launcher-boot-test:
 		--send 'sendkey meta_l' \
 		--send 'wait:launcher shown' --send 'sendkey down' \
 		--send 'wait:launcher: selected 2/2' --send 'sendkey ret' \
-		--screendump-on 'launcher shown' --screendump out/test/launcher.ppm \
+		--screendump-on 'launcher shown' --screendump-delay-ms 200 --screendump out/test/launcher.ppm \
 		--pixel 0.5,0.025=0b0f1a --pixel 0.328125,0.525=4f8cff --pixel 0.328125,0.585=1e2638 \
 		--expect '\[SHELL\] info: apps: 2 from /usr/share/wana-shell/apps.test' \
 		--expect '\[SHELL\] info: ready' \
