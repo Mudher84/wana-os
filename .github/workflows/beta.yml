@@ -73,6 +73,12 @@ jobs:
             echo "invalid beta version: $version" >&2
             exit 2
           }
+          workspace_version="$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          base_version="${version%%-*}"
+          [[ "$base_version" == "$workspace_version" ]] || {
+            echo "beta base version $base_version != workspace version $workspace_version" >&2
+            exit 2
+          }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Host packages
