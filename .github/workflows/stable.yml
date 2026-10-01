@@ -14,7 +14,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: stable-${{ github.ref }}
@@ -172,6 +172,8 @@ jobs:
     name: reproducibility + publish
     needs: [candidate, rebuild]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
