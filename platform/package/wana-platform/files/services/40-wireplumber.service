@@ -1,7 +1,7 @@
 # PipeWire session and policy manager.
 name=wireplumber
 exec=/usr/bin/wireplumber
-after=pipewire,bluetooth
+after=pipewire-pulse,bluetooth
 restart=always
 uid=1000
 gid=1000
