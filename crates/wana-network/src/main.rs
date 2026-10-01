@@ -1,6 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use wana_log::{error, info, Subsystem};
@@ -83,9 +83,74 @@ fn wifi_config(ssid: &str, psk: &str) -> Result<String, String> {
     ))
 }
 
+fn effective_uid() -> Result<u32, String> {
+    let status = fs::read_to_string("/proc/self/status")
+        .map_err(|e| format!("read /proc/self/status: {e}"))?;
+    let line = status
+        .lines()
+        .find(|line| line.starts_with("Uid:"))
+        .ok_or("/proc/self/status: Uid field missing")?;
+    line.split_whitespace()
+        .nth(2)
+        .ok_or("/proc/self/status: effective uid missing")?
+        .parse()
+        .map_err(|e| format!("/proc/self/status: invalid effective uid: {e}"))
+}
+
+fn ensure_secret_dir(parent: &Path) -> Result<(), String> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
+        .map_err(|e| format!("create {}: {e}", parent.display()))?;
+    let meta = fs::symlink_metadata(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!("{}: network secret directory must be a real directory", parent.display()));
+    }
+    let euid = effective_uid()?;
+    if meta.uid() != euid {
+        return Err(format!(
+            "{}: network secret directory owner uid {} does not match effective uid {euid}",
+            parent.display(),
+            meta.uid()
+        ));
+    }
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("chmod {}: {e}", parent.display()))
+}
+
+fn secure_secret(path: &Path) -> Result<Option<fs::Metadata>, String> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || !meta.is_file() {
+                return Err(format!("{}: network secret must be a regular non-symlink file", path.display()));
+            }
+            let euid = effective_uid()?;
+            if meta.uid() != euid {
+                return Err(format!(
+                    "{}: network secret owner uid {} does not match effective uid {euid}",
+                    path.display(),
+                    meta.uid()
+                ));
+            }
+            if meta.mode() & 0o077 != 0 {
+                return Err(format!(
+                    "{}: insecure network secret mode {:o}; expected no group/other access",
+                    path.display(),
+                    meta.mode() & 0o777
+                ));
+            }
+            Ok(Some(meta))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
 fn write_secret(path: &Path, data: &str) -> Result<(), String> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+    ensure_secret_dir(parent)?;
+    secure_secret(path)?;
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -102,6 +167,8 @@ fn write_secret(path: &Path, data: &str) -> Result<(), String> {
             .map_err(|e| format!("write {}: {e}", tmp.display()))?;
         f.sync_all()
             .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("chmod {}: {e}", tmp.display()))?;
         fs::rename(&tmp, path).map_err(|e| format!("rename {}: {e}", path.display()))?;
         File::open(parent)
             .and_then(|d| d.sync_all())
@@ -186,7 +253,8 @@ fn run() -> Result<(), String> {
             let iface = args.next().ok_or("wifi-up needs IFACE")?;
             validate_iface(&iface)?;
             let cfg = format!("/var/lib/wana/network/{iface}.conf");
-            if !Path::new(&cfg).is_file() {
+            let cfg_path = Path::new(&cfg);
+            if secure_secret(cfg_path)?.is_none() {
                 return Err(format!("{cfg} does not exist"));
             }
             run_command(
@@ -248,6 +316,25 @@ mod tests {
             fs::metadata(&p).unwrap().permissions().mode() & 0o777,
             0o600
         );
+        assert_eq!(
+            fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn symlink_secret_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let dir = temp();
+        fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("real.conf");
+        let link = dir.join("wifi.conf");
+        fs::write(&real, "secret").unwrap();
+        symlink(&real, &link).unwrap();
+        assert!(secure_secret(&link).is_err());
+        assert!(write_secret(&link, "new-secret").is_err());
         let _ = fs::remove_dir_all(dir);
     }
 
