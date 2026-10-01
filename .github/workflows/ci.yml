@@ -35,6 +35,8 @@ jobs:
         run: make test
       - name: Repository checks
         run: make repo-check
+      - name: Release verifier self-test
+        run: python3 tools/test-prepare-release.py
       - name: Wayland protocol scenarios (headless compositor + test client)
         run: make wayland-host-test
 
