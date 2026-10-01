@@ -8,7 +8,7 @@ WANA_PLATFORM_VERSION = 0.1.0
 WANA_PLATFORM_SITE = $(BR2_EXTERNAL_WANA_PATH)/package/wana-platform/files
 WANA_PLATFORM_SITE_METHOD = local
 WANA_PLATFORM_LICENSE = GPL-2.0-or-later
-WANA_PLATFORM_DEPENDENCIES = dbus dhcpcd wpa_supplicant alsa-lib alsa-utils pipewire wireplumber bluez5_utils sbc libsndfile lxc
+WANA_PLATFORM_DEPENDENCIES = dbus dhcpcd wpa_supplicant alsa-lib alsa-utils pipewire wireplumber bluez5_utils sbc libsndfile lxc wana-waydroid
 
 define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/services/00-system-bus.service $(TARGET_DIR)/etc/wana/services.d/system-bus.service
@@ -17,7 +17,9 @@ define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/services/16-dhcpcd.service $(TARGET_DIR)/etc/wana/services.d/dhcpcd.service
 	$(INSTALL) -D -m 0644 $(@D)/services/20-bluetooth.service $(TARGET_DIR)/etc/wana/services.d/bluetooth.service
 	$(INSTALL) -D -m 0644 $(@D)/services/30-pipewire.service $(TARGET_DIR)/etc/wana/services.d/pipewire.service
+	$(INSTALL) -D -m 0644 $(@D)/services/35-pipewire-pulse.service $(TARGET_DIR)/etc/wana/services.d/pipewire-pulse.service
 	$(INSTALL) -D -m 0644 $(@D)/services/40-wireplumber.service $(TARGET_DIR)/etc/wana/services.d/wireplumber.service
+	$(INSTALL) -D -m 0644 $(@D)/services/50-waydroid-container.service $(TARGET_DIR)/etc/wana/services.d/waydroid-container.service
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-audio $(TARGET_DIR)/usr/bin/wana-audio
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-bluetooth $(TARGET_DIR)/usr/bin/wana-bluetooth
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-wifi $(TARGET_DIR)/usr/bin/wana-wifi
