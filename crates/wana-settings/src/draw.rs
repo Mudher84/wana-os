@@ -36,6 +36,14 @@ fn text(
 }
 
 pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
+    settings_selected(fonts, s, None)
+}
+
+pub fn settings_selected(
+    fonts: &FontSet,
+    s: &Settings,
+    selected: Option<usize>,
+) -> Result<Canvas, String> {
     let palette = wana_theme::palette(&s.theme, &s.accent);
     let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
     text(&mut c, fonts, "الإعدادات", 28.0, 30.0, palette.text)?;
@@ -79,10 +87,30 @@ pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
     .enumerate()
     {
         let y = 112 + i as u32 * 82;
-        fill(&mut c, 32, y, WIDTH - 64, 70, palette.card);
-        text(&mut c, fonts, name, y as f32 + 10.0, 20.0, palette.text)?;
-        text(&mut c, fonts, value, y as f32 + 38.0, 16.0, palette.dim)?;
+        let active = selected == Some(i);
+        let row_bg = if active { palette.accent } else { palette.card };
+        let row_text = if active {
+            wana_theme::color::TEXT_DARK
+        } else {
+            palette.text
+        };
+        let row_dim = if active {
+            wana_theme::color::TEXT_DARK
+        } else {
+            palette.dim
+        };
+        fill(&mut c, 32, y, WIDTH - 64, 70, row_bg);
+        text(&mut c, fonts, name, y as f32 + 10.0, 20.0, row_text)?;
+        text(&mut c, fonts, value, y as f32 + 38.0, 16.0, row_dim)?;
     }
+    text(
+        &mut c,
+        fonts,
+        "↑↓ اختيار   ←→ تغيير   Enter حفظ   Esc خروج",
+        446.0,
+        13.0,
+        palette.dim,
+    )?;
     Ok(c)
 }
 
