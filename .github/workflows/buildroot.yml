@@ -185,6 +185,9 @@ jobs:
       - name: Notifications + control center (bounded secure history, native Arabic UI)
         run: make control-center-boot-test
 
+      - name: Hardware compatibility matrix (e1000 + rtl8139 + PS/2 + NVMe)
+        run: make hardware-compatibility-test
+
       - name: Upload logs and kernel
         if: always()
         uses: actions/upload-artifact@v7
