@@ -39,6 +39,8 @@ pub const APPS_TITLE: &str = "التطبيقات";
 
 pub const DOCK_WIDTH: u32 = 560;
 pub const DOCK_HEIGHT: u32 = 64;
+pub const AUTH_WIDTH: u32 = 520;
+pub const AUTH_HEIGHT: u32 = 300;
 pub const DOCK_BG: u32 = wana_theme::color::DOCK_BG;
 pub const DOCK_BORDER: u32 = wana_theme::color::SHELL_BORDER;
 const DOCK_PAD: u32 = 8;
@@ -219,6 +221,62 @@ pub fn launcher_transition(
             top,
             LAUNCHER_ROW,
             palette.shell_bar_text,
+        )?;
+    }
+    Ok(c)
+}
+
+/// Authentication/setup overlay. It never renders the password itself:
+/// only a bounded bullet count and generic status/error text.
+pub fn auth(
+    fonts: &FontSet,
+    setup_required: bool,
+    confirming: bool,
+    password_chars: usize,
+    error: Option<&str>,
+) -> Result<Canvas, String> {
+    let palette = wana_theme::current();
+    let mut c = Canvas::new(AUTH_WIDTH, AUTH_HEIGHT, palette.shell_border);
+    fill(&mut c, 1, 1, AUTH_WIDTH - 2, AUTH_HEIGHT - 2, palette.shell_panel);
+
+    let title = if setup_required {
+        "إعداد كلمة مرور الجهاز"
+    } else {
+        "تسجيل الدخول"
+    };
+    line(&mut c, fonts, title, 18, 48, palette.shell_bar_text)?;
+
+    let hint = if setup_required && confirming {
+        "أعد كتابة كلمة المرور للتأكيد"
+    } else if setup_required {
+        "أنشئ كلمة مرور من ٨ أحرف على الأقل"
+    } else {
+        "اكتب كلمة المرور ثم اضغط Enter"
+    };
+    line(&mut c, fonts, hint, 72, 42, palette.shell_dim)?;
+
+    fill(&mut c, 36, 128, AUTH_WIDTH - 72, 54, palette.card);
+    let bullets = "•".repeat(password_chars.min(32));
+    line(
+        &mut c,
+        fonts,
+        if bullets.is_empty() { "••••••••" } else { &bullets },
+        128,
+        54,
+        if password_chars == 0 { palette.shell_dim } else { palette.shell_bar_text },
+    )?;
+
+    if let Some(message) = error {
+        let safe: String = message.chars().take(52).collect();
+        line(&mut c, fonts, &safe, 196, 42, palette.danger)?;
+    } else {
+        line(
+            &mut c,
+            fonts,
+            "Backspace للحذف — Enter للمتابعة",
+            196,
+            42,
+            palette.shell_dim,
         )?;
     }
     Ok(c)
