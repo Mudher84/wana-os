@@ -25,15 +25,20 @@ The target performs, in order:
 ## Android full-session evidence
 
 The reproducible release image intentionally does not contain Android OTA
-images. After the base final validation is green, provision a dedicated test
-disk with the official Waydroid system/vendor images and run:
+images. After the base final validation is green, provision a dedicated test disk
+with the official Waydroid system/vendor images and install one deterministic
+test APK. Write its package id (for example `org.example.test`) as the only
+line of `/var/lib/wana/android-test-package` inside that test disk, then run:
 
 ```
-make android-session-boot-test ANDROID_TEST_DISK=/path/to/provisioned.img
+make android-session-boot-test \
+  ANDROID_TEST_DISK=/path/to/provisioned.img \
+  ANDROID_TEST_PACKAGE=org.example.test
 ```
 
-This is evidence for the full Android UI/session and must not be folded into
-the reproducible release image.
+The gate requires both `WANA_ANDROID_SESSION_READY` and a successful
+`WANA_ANDROID_APK_LAUNCH` marker before accepting the full Android session.
+This evidence must not be folded into the reproducible release image.
 
 ## Stable reproducibility and publication
 
