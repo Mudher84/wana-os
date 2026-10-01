@@ -14,9 +14,14 @@ require systemd for Android support.
   - libgbinder;
   - gbinder-python;
   - Waydroid 1.6.3.
+- The pinned Waydroid commit is the upstream 1.6.3 version update.
 - Waydroid is installed with `USE_SYSTEMD=0` and
   `USE_DBUS_ACTIVATION=0`; the privileged container manager is supervised by
   `wana-services` on the system D-Bus.
+- The container service uses `wana-waydroid-container`: before Android images
+  exist it waits without failing or entering a restart loop; once both
+  `system.img` and `vendor.img` are provisioned it starts the real Waydroid
+  container automatically without requiring a reboot.
 - Waydroid bridge networking includes iproute2, iptables and dnsmasq.
 - Android audio is routed through Wana's PipeWire PulseAudio compatibility
   service.
