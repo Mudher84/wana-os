@@ -39,6 +39,20 @@ fn args() -> Result<Args, String> {
     })
 }
 
+fn effective_uid() -> Result<u32, String> {
+    let status = fs::read_to_string("/proc/self/status")
+        .map_err(|e| format!("read /proc/self/status: {e}"))?;
+    let line = status
+        .lines()
+        .find(|line| line.starts_with("Uid:"))
+        .ok_or("/proc/self/status: Uid field missing")?;
+    line.split_whitespace()
+        .nth(2)
+        .ok_or("/proc/self/status: effective uid missing")?
+        .parse()
+        .map_err(|e| format!("/proc/self/status: invalid effective uid: {e}"))
+}
+
 fn same_file(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
@@ -47,8 +61,14 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 fn validate(a: &Args) -> Result<(), String> {
-    let source_meta = fs::metadata(&a.image)
+    let source_meta = fs::symlink_metadata(&a.image)
         .map_err(|e| format!("installer source {}: {e}", a.image.display()))?;
+    if source_meta.file_type().is_symlink() {
+        return Err(format!(
+            "installer source must not be a symlink: {}",
+            a.image.display()
+        ));
+    }
     let source_type = source_meta.file_type();
     if !source_type.is_file() && !source_type.is_block_device() {
         return Err(format!(
@@ -64,13 +84,19 @@ fn validate(a: &Args) -> Result<(), String> {
         return Err(format!("confirmation mismatch; expected {expected:?}"));
     }
     let meta =
-        fs::metadata(&a.target).map_err(|e| format!("target {}: {e}", a.target.display()))?;
+        fs::symlink_metadata(&a.target).map_err(|e| format!("target {}: {e}", a.target.display()))?;
+    if meta.file_type().is_symlink() {
+        return Err(format!("installer target must not be a symlink: {}", a.target.display()));
+    }
     let ty = meta.file_type();
     if !(ty.is_block_device() || a.allow_regular && ty.is_file()) {
         return Err(format!(
             "target {} is not a block device (regular targets require --allow-regular for tests)",
             a.target.display()
         ));
+    }
+    if ty.is_block_device() && effective_uid()? != 0 {
+        return Err("installing to a block device requires effective uid 0".into());
     }
     Ok(())
 }
@@ -209,6 +235,43 @@ mod tests {
         assert_eq!(fs::read(&dst).unwrap(), data);
         let _ = fs::remove_file(src);
         let _ = fs::remove_file(dst);
+    }
+
+    #[test]
+    fn validation_rejects_symlink_source_and_target() {
+        use std::os::unix::fs::symlink;
+
+        let src = temp("src-link-source");
+        let real_src = temp("real-src");
+        let dst = temp("dst-link-source");
+        fs::write(&real_src, b"image").unwrap();
+        symlink(&real_src, &src).unwrap();
+        fs::write(&dst, b"target").unwrap();
+        let a = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        assert!(validate(&a).is_err());
+
+        let real_dst = temp("real-dst");
+        let dst_link = temp("dst-link");
+        fs::write(&real_dst, b"target").unwrap();
+        symlink(&real_dst, &dst_link).unwrap();
+        let b = Args {
+            image: real_src.clone(),
+            target: dst_link.clone(),
+            confirm: format!("ERASE:{}", dst_link.display()),
+            allow_regular: true,
+        };
+        assert!(validate(&b).is_err());
+
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(real_src);
+        let _ = fs::remove_file(dst);
+        let _ = fs::remove_file(dst_link);
+        let _ = fs::remove_file(real_dst);
     }
 
     #[test]
