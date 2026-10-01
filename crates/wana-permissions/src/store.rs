@@ -436,15 +436,17 @@ mod tests {
     fn stale_temp_file_does_not_block_atomic_write() {
         let root = temp();
         fs::create_dir_all(&root).unwrap();
-        let stale = root.join(format!(
-            ".policy.tsv.tmp-{}-0",
-            std::process::id()
-        ));
+        let stale = root.join(format!(".policy.tsv.tmp-{}-0", std::process::id()));
         fs::write(&stale, "stale").unwrap();
 
         let store = Store::new(&root);
         store
-            .set_rule("org.wana.Files", "files.read", Decision::Allow)
+            .set(
+                "system",
+                "org.wana.Files",
+                "files.read",
+                Decision::Allow,
+            )
             .unwrap();
         assert_eq!(
             store.decision("org.wana.Files", "files.read").unwrap(),
