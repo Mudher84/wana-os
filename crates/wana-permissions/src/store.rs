@@ -242,10 +242,7 @@ impl Store {
     ) -> Result<(), String> {
         let mut entries = self.audit()?;
         let seq = match entries.last() {
-            Some(entry) => entry
-                .seq
-                .checked_add(1)
-                .ok_or("audit sequence exhausted")?,
+            Some(entry) => entry.seq.checked_add(1).ok_or("audit sequence exhausted")?,
             None => 1,
         };
         entries.push(Audit {
@@ -363,10 +360,7 @@ fn ensure_dir(root: &Path) -> Result<(), String> {
 
 fn create_temp(root: &Path, name: &str) -> Result<(PathBuf, File), String> {
     for attempt in 0..64u32 {
-        let path = root.join(format!(
-            ".{name}.tmp-{}-{attempt}",
-            std::process::id()
-        ));
+        let path = root.join(format!(".{name}.tmp-{}-{attempt}", std::process::id()));
         match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -506,10 +500,7 @@ mod tests {
     fn stale_temp_slot_does_not_block_policy_write() {
         let root = temp();
         fs::create_dir_all(&root).unwrap();
-        let stale = root.join(format!(
-            ".policy.tsv.tmp-{}-0",
-            std::process::id()
-        ));
+        let stale = root.join(format!(".policy.tsv.tmp-{}-0", std::process::id()));
         fs::write(&stale, "stale").unwrap();
 
         let store = Store::new(&root);
@@ -545,5 +536,4 @@ mod tests {
         assert_eq!(fs::read(&audit).unwrap(), before);
         let _ = fs::remove_dir_all(root);
     }
-
 }
