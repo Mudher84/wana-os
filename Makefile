@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -57,6 +57,9 @@ help:
 	@echo "    make files-boot-test     boot native Files app and render a real directory listing"
 	@echo "    make services-boot-test  boot PID1 service supervisor and validate service graph"
 	@echo "    make live-iso-boot-test  boot Wana-OS-Live.iso through OVMF + GRUB + initramfs"
+	@echo "    make installer-core-boot-test  install from Live ISO to a writable virtio disk and verify readback"
+	@echo "    make installer-gui-boot-test   drive the native installer GUI from the Live ISO into a target disk"
+	@echo "    make installed-disk-boot-test  boot the disk produced by the installer through OVMF + GRUB"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -633,6 +636,76 @@ live-iso-boot-test:
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
 		--expect '\[INIT\] info: ready' \
 		--reject '\[INIT\] error'
+
+# Phase 19: installer core in the real Live environment. PID1 mounts the
+# read-only ISO9660 media, then wana-install copies the embedded canonical
+# disk image to a writable virtio target and verifies every byte by readback.
+INSTALL_CORE_ARGS := wana.run=/usr/sbin/wana-install,--image,/run/wana-live/live/Wana-OS.img,--target,/dev/vda,--confirm,ERASE:/dev/vda wana.test=poweroff wana.shell=0
+installer-core-boot-test:
+	mkdir -p out/logs out/test
+	test -s $(BR_OUT)/images/Wana-OS-Live.iso
+	test -s $(BR_OUT)/images/disk.img
+	rm -f out/test/installed-core.img out/test/installed-core.tmp.img out/test/live-installer-core.iso
+	@size=$(stat -c%s $(BR_OUT)/images/disk.img); truncate -s $((size + 134217728)) out/test/installed-core.tmp.img
+	XORRISO=$(BR_OUT)/host/bin/xorriso sh tools/mk-test-live-iso.sh $(BR_OUT)/images/Wana-OS-Live.iso out/test/live-installer-core.iso "$(INSTALL_CORE_ARGS)"
+	tools/qemu-graphics-test.py --iso out/test/live-installer-core.iso --gpu std --timeout 420 --memory 1024 \
+		--writable-disk out/test/installed-core.tmp.img \
+		--log out/logs/installer-core-boot.log \
+		--expect '\[INIT\] info: boot mode: Live ISO' \
+		--expect '\[INIT\] info: live media mounted: /dev/sr0 -> /run/wana-live; installer image /run/wana-live/live/Wana-OS.img \([1-9][0-9]* bytes\)' \
+		--expect '\[INIT\] info: installer write authorized: image=/run/wana-live/live/Wana-OS.img target=/dev/vda' \
+		--expect '\[INIT\] info: installer readback PASS: [1-9][0-9]* bytes' \
+		--expect '\[INIT\] info: /usr/sbin/wana-install exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+	mv out/test/installed-core.tmp.img out/test/installed-core.img
+
+# Phase 20: same Live ISO path, but through the native Arabic installer GUI.
+# Enter chooses the only eligible target disk, a second Enter confirms the
+# destructive action, and the GUI exits only after the core readback succeeds.
+INSTALL_GUI_ARGS := wana.run=/usr/bin/wana-compositor,--timeout,300,--run,/usr/bin/wana-installer,--target,/dev/vda,--exit-after-install wana.test=poweroff wana.shell=0
+installer-gui-boot-test:
+	mkdir -p out/logs out/test
+	test -s $(BR_OUT)/images/Wana-OS-Live.iso
+	test -s $(BR_OUT)/images/disk.img
+	rm -f out/test/installed-gui.img out/test/installed-gui.tmp.img out/test/live-installer-gui.iso
+	@size=$(stat -c%s $(BR_OUT)/images/disk.img); truncate -s $((size + 134217728)) out/test/installed-gui.tmp.img
+	XORRISO=$(BR_OUT)/host/bin/xorriso sh tools/mk-test-live-iso.sh $(BR_OUT)/images/Wana-OS-Live.iso out/test/live-installer-gui.iso "$(INSTALL_GUI_ARGS)"
+	tools/qemu-graphics-test.py --iso out/test/live-installer-gui.iso --gpu virtio --input virtio --timeout 480 --memory 1024 \
+		--writable-disk out/test/installed-gui.tmp.img \
+		--log out/logs/installer-gui-boot.log \
+		--send-on '\[SHELL\] info: installer ready: 1 eligible disk\(s\)' \
+		--send 'sendkey ret' --send 'wait:installer confirmation requested for /dev/vda' --send 'sendkey ret' \
+		--expect '\[INIT\] info: live media mounted: /dev/sr0 -> /run/wana-live; installer image /run/wana-live/live/Wana-OS.img \([1-9][0-9]* bytes\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "مثبت وانا" \(org.wana.Installer\) 760x520' \
+		--expect '\[SHELL\] info: installer ready: 1 eligible disk\(s\)' \
+		--expect '\[SHELL\] info: installer confirmation requested for /dev/vda' \
+		--expect '\[INIT\] info: installer readback PASS: [1-9][0-9]* bytes' \
+		--expect '\[SHELL\] info: installer GUI: install PASS target=/dev/vda' \
+		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-installer exited successfully' \
+		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+	mv out/test/installed-gui.tmp.img out/test/installed-gui.img
+
+# Phase 21: boot the exact disk produced by Phase 20. The test copy only adds
+# wana.test=poweroff to the ESP; kernel, rootfs, partition table and bootloader
+# remain the bytes written by the installer.
+installed-disk-boot-test:
+	mkdir -p out/logs out/test
+	@test -s out/test/installed-gui.img || $(MAKE) installer-gui-boot-test
+	tools/mk-test-disk.sh out/test/installed-gui.img out/test/installed-boot.img "wana.test=poweroff wana.shell=0"
+	. $(BR_EXTERNAL)/board/x86_64/disk.env; \
+	tools/qemu-boot-test.sh --disk out/test/installed-boot.img \
+		--log out/logs/installed-disk-boot.log --timeout 240 \
+		--expect 'BdsDxe: starting Boot' \
+		--expect '\[BOOT\] info: loading Wana OS kernel' \
+		--expect "root=PARTUUID=$WANA_ROOT_PARTUUID" \
+		--expect 'Run /sbin/init as init process' \
+		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: hostname: wana' \
+		--expect '\[INIT\] info: ready' \
+		--expect 'reboot: Power down'
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
 # same client in its three scenarios against the real libwayland.
