@@ -299,6 +299,14 @@ fn secure_metadata(path: &Path) -> Result<Option<fs::Metadata>, String> {
                     meta.mode() & 0o777
                 ));
             }
+            let euid = effective_uid()?;
+            if meta.uid() != euid {
+                return Err(format!(
+                    "{}: owner uid {} does not match effective uid {euid}",
+                    path.display(),
+                    meta.uid()
+                ));
+            }
             Ok(Some(meta))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -333,22 +341,21 @@ fn ensure_dir(root: &Path) -> Result<(), String> {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(format!("{}: permission store is not a real directory", root.display()));
     }
+    let euid = effective_uid()?;
+    if meta.uid() != euid {
+        return Err(format!(
+            "{}: owner uid {} does not match effective uid {euid}",
+            root.display(),
+            meta.uid()
+        ));
+    }
     fs::set_permissions(root, fs::Permissions::from_mode(0o700))
         .map_err(|e| format!("chmod {}: {e}", root.display()))
 }
 
 fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
     ensure_dir(root)?;
-    if let Some(meta) = secure_metadata(path)? {
-        let euid = effective_uid()?;
-        if meta.uid() != euid {
-            return Err(format!(
-                "{}: owner uid {} does not match effective uid {euid}",
-                path.display(),
-                meta.uid()
-            ));
-        }
-    }
+    secure_metadata(path)?;
 
     let name = path
         .file_name()
