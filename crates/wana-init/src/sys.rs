@@ -29,6 +29,7 @@ extern "C" {
         flags: c_ulong,
         data: *const c_void,
     ) -> c_int;
+    fn umount2(target: *const c_char, flags: c_int) -> c_int;
     fn sethostname(name: *const c_char, len: usize) -> c_int;
     fn chown(path: *const c_char, owner: u32, group: u32) -> c_int;
     fn reboot(cmd: c_int) -> c_int;
@@ -104,6 +105,18 @@ pub fn remount_rw(target: &str) -> io::Result<()> {
             std::ptr::null(),
         )
     };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// umount2(2) without lazy/force flags.
+pub fn unmount(target: &str) -> io::Result<()> {
+    let target = cstr(target)?;
+    // SAFETY: target is a live C string and flags=0 requests a normal unmount.
+    let rc = unsafe { umount2(target.as_ptr(), 0) };
     if rc == 0 {
         Ok(())
     } else {
