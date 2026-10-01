@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -67,6 +67,8 @@ help:
 	@echo "    make hardware-compatibility-test  e1000 + rtl8139 + PS/2 + NVMe hardware matrix"
 	@echo "    make beta-release-test  run the release-candidate boot/install/security gates"
 	@echo "    make beta-bundle VERSION=0.1.0-beta.1  validate and package the release payload"
+	@echo "    make stable-release-test  run the stable candidate gates"
+	@echo "    make stable-bundle VERSION=0.1.0  validate and package the stable payload"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -877,6 +879,21 @@ beta-bundle:
 		--images "$(BR_OUT)/images" \
 		--out "out/release/wana-os-$(VERSION)" \
 		--channel beta --version "$(VERSION)" \
+		--expected-commit "$(git rev-parse HEAD)"
+
+# Phase 30: a stable candidate inherits the full Beta gate. Reproducibility
+# is enforced by the stable GitHub workflow with an independent no-ccache build.
+stable-release-test:
+	$(MAKE) beta-release-test
+
+stable-bundle:
+	@test -f "$(BR_OUT)/images/build-manifest.json" || { echo "[RELEASE] error: build image first" >&2; exit 2; }
+	@test -n "$(VERSION)" || { echo "[RELEASE] error: VERSION is required" >&2; exit 2; }
+	rm -rf "out/release/wana-os-$(VERSION)"
+	python3 tools/prepare-release.py \
+		--images "$(BR_OUT)/images" \
+		--out "out/release/wana-os-$(VERSION)" \
+		--channel stable --version "$(VERSION)" \
 		--expected-commit "$(git rev-parse HEAD)"
 
 # Phase 10 step 3 on the build host, headless (no display needed): the
