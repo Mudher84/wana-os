@@ -12,6 +12,7 @@ on:
       - "tools/**"
       - "Makefile"
       - ".github/workflows/buildroot.yml"
+      - ".gitignore"
   pull_request:
     paths:
       - "platform/**"
@@ -21,6 +22,7 @@ on:
       - "tools/**"
       - "Makefile"
       - ".github/workflows/buildroot.yml"
+      - ".gitignore"
   workflow_dispatch:
 
 concurrency:
