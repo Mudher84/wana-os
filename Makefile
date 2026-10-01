@@ -872,7 +872,7 @@ beta-release-test:
 beta-bundle: image
 	@test -n "$(VERSION)" || { echo "[RELEASE] error: VERSION is required" >&2; exit 2; }
 	rm -rf "out/release/wana-os-$(VERSION)"
-	tools/prepare-release.py \
+	python3 tools/prepare-release.py \
 		--images "$(BR_OUT)/images" \
 		--out "out/release/wana-os-$(VERSION)" \
 		--channel beta --version "$(VERSION)" \
