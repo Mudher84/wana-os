@@ -37,6 +37,8 @@ const LIVE_IMAGE: &str = "/run/wana-live/live/Wana-OS.img";
 const DESKTOP_UID: u32 = 1000;
 const DESKTOP_GID: u32 = 1000;
 const DESKTOP_RUNTIME: &str = "/run/user/1000";
+const DATA_MOUNT: &str = "/data";
+const DATA_DEVICE: &str = "/dev/disk/by-label/WANA-DATA";
 
 fn main() {
     let pid = std::process::id();
@@ -101,6 +103,10 @@ fn main() {
         info!(INIT, "udev: disabled (wana.udev=0)");
         None
     };
+
+    if !opts.live {
+        prepare_persistent_data(&mut problems);
+    }
 
     if opts.live {
         match mount_live_media() {
@@ -237,6 +243,102 @@ fn start_udev(problems: &mut Vec<String>) -> Option<Child> {
         ),
     }
     Some(child)
+}
+
+fn wait_for_path(path: &Path, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if path.exists() {
+            return true;
+        }
+        sleep(Duration::from_millis(50));
+    }
+    path.exists()
+}
+
+fn ensure_owned_dir(path: &str, mode: u32, uid: u32, gid: u32) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|e| format!("create {path}: {e}"))?;
+    let meta = fs::symlink_metadata(path).map_err(|e| format!("{path}: {e}"))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!("{path}: expected real directory"));
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|e| format!("chmod {path}: {e}"))?;
+    sys::chown_path(path, uid, gid).map_err(|e| format!("chown {path}: {e}"))
+}
+
+fn seed_wifi_config() -> Result<(), String> {
+    let source = Path::new("/var/lib/wana/wifi.conf");
+    let target = Path::new("/data/var/lib/wana/wifi.conf");
+    if target.exists() || !source.is_file() {
+        return Ok(());
+    }
+    fs::copy(source, target)
+        .map_err(|e| format!("seed {} -> {}: {e}", source.display(), target.display()))?;
+    fs::set_permissions(target, fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("chmod {}: {e}", target.display()))
+}
+
+fn prepare_persistent_data(problems: &mut Vec<String>) -> bool {
+    if !wait_for_path(Path::new(DATA_DEVICE), Duration::from_secs(5)) {
+        warn!(INIT, "persistent data: {DATA_DEVICE} not found; using root filesystem fallback");
+        problems.push("persistent data partition unavailable".into());
+        return false;
+    }
+    if let Err(e) = fs::create_dir_all(DATA_MOUNT) {
+        error!(INIT, "persistent data: create {DATA_MOUNT}: {e}");
+        problems.push("persistent data mountpoint unavailable".into());
+        return false;
+    }
+    if let Err(e) = sys::mount_fs(
+        DATA_DEVICE,
+        DATA_MOUNT,
+        "ext4",
+        sys::MS_NOSUID | sys::MS_NODEV,
+        "",
+    ) {
+        error!(INIT, "persistent data: mount {DATA_DEVICE} on {DATA_MOUNT}: {e}");
+        problems.push("persistent data mount failed".into());
+        return false;
+    }
+
+    let setup = (|| -> Result<(), String> {
+        ensure_owned_dir("/data/home", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/home/wana", 0o700, DESKTOP_UID, DESKTOP_GID)?;
+        ensure_owned_dir("/data/var", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/var/lib", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/var/lib/wana", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/var/lib/waydroid", 0o700, 0, 0)?;
+        ensure_owned_dir("/data/var/lib/bluetooth", 0o700, 0, 0)?;
+        seed_wifi_config()?;
+
+        for (source, target) in [
+            ("/data/home/wana", "/home/wana"),
+            ("/data/var/lib/wana", "/var/lib/wana"),
+            ("/data/var/lib/waydroid", "/var/lib/waydroid"),
+            ("/data/var/lib/bluetooth", "/var/lib/bluetooth"),
+        ] {
+            fs::create_dir_all(target).map_err(|e| format!("create {target}: {e}"))?;
+            sys::bind_mount(source, target)
+                .map_err(|e| format!("bind {source} -> {target}: {e}"))?;
+        }
+        Ok(())
+    })();
+
+    match setup {
+        Ok(()) => {
+            info!(
+                INIT,
+                "persistent data: {DATA_DEVICE} -> {DATA_MOUNT}; home,wifi,updates,waydroid,bluetooth bound"
+            );
+            true
+        }
+        Err(e) => {
+            error!(INIT, "persistent data: {e}");
+            problems.push("persistent data setup failed".into());
+            false
+        }
+    }
 }
 
 fn mount_live_media() -> Result<(&'static str, u64), String> {
