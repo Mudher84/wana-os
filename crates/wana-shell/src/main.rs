@@ -164,22 +164,23 @@ fn time_now(args: &Args) -> String {
     format!("{h:02}:{m:02}")
 }
 
-/// Shows `canvas` on `surface` (one buffer per frame: the compositor copies
-/// at commit, so the buffer is destroyed right after). With `frame`, asks
-/// for a frame callback first (returned).
-fn show(
+/// Commits `canvas` to `surface`, converting the XRGB pixels to bytes
+/// exactly once. The compositor copies at commit, so the buffer can be
+/// destroyed immediately.
+fn present(
     conn: &Connection,
     shm: Proxy,
     surface: Proxy,
     canvas: &Canvas,
     frame: bool,
-) -> Result<(String, Option<Proxy>), String> {
+) -> Result<(Vec<u8>, Option<Proxy>), String> {
+    let bytes = canvas.bytes();
     let b = Buffer::new(
         conn,
         shm,
         canvas.width as i32,
         canvas.height as i32,
-        &canvas.bytes(),
+        &bytes,
     )?;
     let cb = if frame {
         conn.request(
@@ -193,7 +194,30 @@ fn show(
     };
     b.commit_to(conn, surface)?;
     b.destroy(conn);
-    Ok((sha256::hex(&sha256::digest(&canvas.bytes())), cb))
+    Ok((bytes, cb))
+}
+
+/// Shows a frame and returns its deterministic pixel hash when callers need
+/// rendering evidence.
+fn show(
+    conn: &Connection,
+    shm: Proxy,
+    surface: Proxy,
+    canvas: &Canvas,
+    frame: bool,
+) -> Result<(String, Option<Proxy>), String> {
+    let (bytes, cb) = present(conn, shm, surface, canvas, frame)?;
+    Ok((sha256::hex(&sha256::digest(&bytes)), cb))
+}
+
+/// Shows a transient frame without paying for a SHA-256 that nobody consumes.
+fn show_unhashed(
+    conn: &Connection,
+    shm: Proxy,
+    surface: Proxy,
+    canvas: &Canvas,
+) -> Result<(), String> {
+    present(conn, shm, surface, canvas, false).map(|_| ())
 }
 
 /// The open launcher.
@@ -792,7 +816,7 @@ fn animate_launcher_selection(
     let motion = LAUNCHER_SELECTION_MOTION;
     for frame in 1..=motion.frames {
         let progress = motion.progress(frame);
-        show(
+        show_unhashed(
             conn,
             shm,
             launcher.ls.surface,
@@ -803,7 +827,6 @@ fn animate_launcher_selection(
                 launcher.menu.selected,
                 progress,
             )?,
-            false,
         )?;
         // wait() flushes the committed frame and keeps input/protocol events
         // queued for the main loop instead of dropping them during motion.
