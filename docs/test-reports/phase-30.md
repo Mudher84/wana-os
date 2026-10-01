@@ -27,6 +27,8 @@ without using ccache.
 - The compare job rejects different commits, Buildroot/kernel/toolchain/config
   inputs, package versions, source-date epoch, artifact sets, symlink targets,
   or SHA-256 values.
+- The reproducibility comparison remains read-only. A separate publish job is
+  created only when `publish=true`; only that job receives `contents: write`.
 - A GitHub stable release is created only after the independent reproducibility
   comparison passes and only when the operator explicitly requested
   publication.
@@ -46,8 +48,8 @@ hardens the destructive and persistent-state paths that the release depends on:
   symlink swaps with `O_NOFOLLOW` before mutating the target.
 - Release cleanliness includes untracked non-ignored files; only known generated
   CI logs are ignored.
-- The Stable workflow is read-only by default and grants `contents: write`
-  only to the final reproducibility/publish job.
+- Stable source/build/compare jobs are read-only; `contents: write` is granted
+  only to the explicit final publish job.
 - The production desktop runs as the dedicated `wana` user (uid/gid 1000),
   with a private `/run/user/1000`, user-owned Settings/Permissions/Notifications
   state, and only DRM/input device access granted through udev.
