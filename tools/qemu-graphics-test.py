@@ -132,10 +132,17 @@ def main():
                     help="input devices: q35 built-in PS/2 only, or also virtio keyboard + tablet")
     ap.add_argument("--network", choices=["none", "virtio"], default="none",
                     help="network device: none, or virtio-net on QEMU user networking")
+    ap.add_argument("--writable-disk", action="append", default=[],
+                    help="extra writable raw virtio disk (repeatable; changes persist)")
     ap.add_argument("--send-on", help="regex; send the --send monitor commands when a log line matches")
     ap.add_argument("--send", action="append", default=[],
                     help="QEMU monitor command, or wait:REGEX to pause until a log line matches (repeatable)")
     args = ap.parse_args()
+
+    for disk in args.writable_disk:
+        if not os.path.isfile(disk):
+            log("error", f"writable disk not found: {disk}", sys.stderr)
+            return 2
 
     ovmf = next((p for p in OVMF_CANDIDATES if os.path.isfile(p)), None)
     if not ovmf:
@@ -169,7 +176,10 @@ def main():
         if args.initrd:
             cmd += ["-initrd", args.initrd]
 
-    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} network={args.network} firmware={ovmf} timeout={args.timeout}s")
+    for disk in args.writable_disk:
+        cmd += ["-drive", f"file={disk},if=virtio,format=raw"]
+
+    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} network={args.network} writable_disks={len(args.writable_disk)} firmware={ovmf} timeout={args.timeout}s")
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
     os.set_blocking(proc.stdout.fileno(), False)
