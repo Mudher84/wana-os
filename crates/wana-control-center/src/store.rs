@@ -230,10 +230,7 @@ fn ensure_dir(root: &Path) -> Result<(), String> {
 
 fn create_temp(root: &Path, name: &str) -> Result<(PathBuf, File), String> {
     for attempt in 0..64u32 {
-        let path = root.join(format!(
-            ".{name}.tmp-{}-{attempt}",
-            std::process::id()
-        ));
+        let path = root.join(format!(".{name}.tmp-{}-{attempt}", std::process::id()));
         match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -354,10 +351,7 @@ mod tests {
     fn stale_temp_slot_does_not_block_atomic_write() {
         let root = temp();
         fs::create_dir_all(&root).unwrap();
-        let stale = root.join(format!(
-            ".history.tsv.tmp-{}-0",
-            std::process::id()
-        ));
+        let stale = root.join(format!(".history.tsv.tmp-{}-0", std::process::id()));
         fs::write(&stale, "stale").unwrap();
 
         let store = Store::new(&root);
