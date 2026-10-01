@@ -1,6 +1,7 @@
 name: buildroot
 
 # Stage 4: Buildroot. Runs only when the platform or build glue changes.
+# Pre-stable evidence reruns may update this comment only to retrigger the full gate.
 on:
   push:
     branches: [main, develop, "feature/**", "work/**", "claude/**"]
