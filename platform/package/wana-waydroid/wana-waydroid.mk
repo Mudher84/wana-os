@@ -10,7 +10,7 @@ WANA_WAYDROID_SITE_METHOD = git
 WANA_WAYDROID_LICENSE = GPL-3.0-or-later
 WANA_WAYDROID_LICENSE_FILES = LICENSE
 WANA_WAYDROID_DEPENDENCIES = \
-	python3 dbus-python python-gobject libgtk3 polkit iptables ca-certificates \
+	python3 dbus-python python-gobject libgtk3 polkit iptables dnsmasq iproute2 ca-certificates \
 	lxc wana-python-gbinder
 
 define WANA_WAYDROID_INSTALL_TARGET_CMDS
