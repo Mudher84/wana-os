@@ -21,6 +21,7 @@ sed -e "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" \
     -e "s/__ROOT_A_PARTUUID__/$WANA_ROOT_A_PARTUUID/g" \
     -e "s/__ROOT_B_PARTUUID__/$WANA_ROOT_B_PARTUUID/g" \
     -e "s/__DATA_PARTUUID__/$WANA_DATA_PARTUUID/g" \
+    -e "s/__DATA_FS_UUID__/$WANA_DATA_FS_UUID/g" \
     "$board/grub.cfg" > "$out/efi-part/EFI/BOOT/grub.cfg"
 sed -e "s/__ROOT_PARTUUID__/$WANA_ROOT_PARTUUID/g" \
     -e "s/__ROOT_A_PARTUUID__/$WANA_ROOT_A_PARTUUID/g" \
