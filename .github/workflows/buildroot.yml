@@ -48,7 +48,7 @@ jobs:
     name: toolchain, image, UEFI boot
     needs: config
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v5
 
@@ -193,6 +193,21 @@ jobs:
 
       - name: Hardware compatibility matrix (e1000 + rtl8139 + PS/2 + NVMe)
         run: make hardware-compatibility-test
+
+      - name: Compatibility payload (PipeWire + BlueZ + Wine64 + LXC)
+        run: make compatibility-image-check
+
+      - name: Audio compatibility (PipeWire user graph)
+        run: make audio-compatibility-boot-test
+
+      - name: Bluetooth compatibility (BlueZ service)
+        run: make bluetooth-compatibility-boot-test
+
+      - name: Windows compatibility (Wine64 on native Wayland stack)
+        run: make windows-compatibility-boot-test
+
+      - name: Android compatibility foundation (Binder + LXC)
+        run: make android-compatibility-boot-test
 
       - name: Upload logs and kernel
         if: always()
