@@ -14,7 +14,7 @@ export BR2_DL_DIR ?= $(CURDIR)/dl
 BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
-	buildroot-src config config-check savedefconfig toolchain kernel \
+	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
 	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test wayland-host-test fonts br-%
 
 help:
@@ -30,6 +30,7 @@ help:
 	@echo "    make buildroot-src  fetch and verify pinned Buildroot into out/"
 	@echo "    make config         load wana_x86_64_defconfig into $(BR_OUT)"
 	@echo "    make config-check   verify the defconfig loads and round-trips unchanged"
+	@echo "    make security-config-check  verify Buildroot PIE/SSP/RELRO/FORTIFY hardening"
 	@echo "    make savedefconfig  write the current config back to platform/configs/"
 	@echo "    make toolchain      build the cross toolchain (needs network, ~30 min)"
 	@echo "    make kernel         build the Linux kernel (bzImage) with the Wana fragment"
@@ -103,6 +104,16 @@ config-check: buildroot-src
 
 # Refuses when the defconfig was edited after the last `make config`:
 # saving would silently overwrite those edits with the stale .config.
+security-config-check: config
+	@cfg="$(BR_OUT)/.config"; \
+	grep -qx 'BR2_PIC_PIE=y' "$cfg" && \
+	grep -qx 'BR2_SSP_STRONG=y' "$cfg" && \
+	grep -qx 'BR2_RELRO_FULL=y' "$cfg" && \
+	grep -Eq '^BR2_FORTIFY_SOURCE_[123]=y$' "$cfg" && \
+	echo "[SECURITY] Buildroot hardening: PIE + SSP_STRONG + RELRO_FULL + FORTIFY: PASS" || \
+	{ echo "[SECURITY] Buildroot hardening: FAIL" >&2; \
+	  grep -E '^BR2_(PIC_PIE|SSP_|RELRO_|FORTIFY_SOURCE_)' "$cfg" >&2 || true; exit 1; }
+
 savedefconfig: buildroot-src
 	@if [ ! -f $(BR_OUT)/.config ] || [ $(BR_EXTERNAL)/configs/wana_x86_64_defconfig -nt $(BR_OUT)/.config ]; then \
 		echo "[CHECK] error: defconfig is newer than $(BR_OUT)/.config; run 'make config' first" >&2; exit 1; fi
