@@ -121,24 +121,9 @@ fn require_root() -> Result<(), String> {
 
 fn seed(store: &Store) -> Result<(), String> {
     require_root()?;
-    store.set(
-        "settings",
-        "org.wana.Files",
-        "files.read",
-        Decision::Allow,
-    )?;
-    store.set(
-        "settings",
-        "org.wana.Files",
-        "files.write",
-        Decision::Deny,
-    )?;
-    store.set(
-        "settings",
-        "org.wana.Network",
-        "network",
-        Decision::Allow,
-    )?;
+    store.set("settings", "org.wana.Files", "files.read", Decision::Allow)?;
+    store.set("settings", "org.wana.Files", "files.write", Decision::Deny)?;
+    store.set("settings", "org.wana.Network", "network", Decision::Allow)?;
     store.set(
         "settings",
         "org.wana.Installer",
