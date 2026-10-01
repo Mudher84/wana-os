@@ -9,6 +9,7 @@ pub const UPDATE_FILE: &str = "update.txt";
 pub const SUMS_FILE: &str = "RELEASE-SHA256SUMS";
 pub const ROOTFS_FILE: &str = "rootfs.ext4.zst";
 pub const KERNEL_FILE: &str = "bzImage";
+pub const INITRD_FILE: &str = "rootfs.cpio.zst";
 pub const STATE_ROOT: &str = "/var/lib/wana/update";
 pub const PENDING_DIR: &str = "/var/lib/wana/update/pending";
 
@@ -171,6 +172,8 @@ pub struct Metadata {
     pub rootfs_sha256: String,
     pub kernel_size: u64,
     pub kernel_sha256: String,
+    pub initrd_size: u64,
+    pub initrd_sha256: String,
 }
 
 fn valid_hash(value: &str) -> bool {
@@ -204,6 +207,7 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
             key,
             "version" | "commit" | "rootfs" | "rootfs_size" | "rootfs_sha256"
                 | "kernel" | "kernel_size" | "kernel_sha256"
+                | "initrd" | "initrd_size" | "initrd_sha256"
         ) {
             return Err(format!("unknown update metadata field {key:?}"));
         }
@@ -211,17 +215,24 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
             return Err(format!("duplicate update metadata field {key:?}"));
         }
     }
-    if values.get("rootfs") != Some(&ROOTFS_FILE) || values.get("kernel") != Some(&KERNEL_FILE) {
-        return Err("update payload paths must be the canonical rootfs/kernel names".into());
+    if values.get("rootfs") != Some(&ROOTFS_FILE)
+        || values.get("kernel") != Some(&KERNEL_FILE)
+        || values.get("initrd") != Some(&INITRD_FILE)
+    {
+        return Err("update payload paths must be the canonical rootfs/kernel/initrd names".into());
     }
     let version = values.get("version").ok_or("missing version")?.to_string();
     let commit = values.get("commit").ok_or("missing commit")?.to_string();
     let rootfs_sha256 = values.get("rootfs_sha256").ok_or("missing rootfs_sha256")?.to_string();
     let kernel_sha256 = values.get("kernel_sha256").ok_or("missing kernel_sha256")?.to_string();
+    let initrd_sha256 = values.get("initrd_sha256").ok_or("missing initrd_sha256")?.to_string();
     if !valid_version(&version) || !valid_commit(&commit) {
         return Err("invalid update version or commit".into());
     }
-    if !valid_hash(&rootfs_sha256) || !valid_hash(&kernel_sha256) {
+    if !valid_hash(&rootfs_sha256)
+        || !valid_hash(&kernel_sha256)
+        || !valid_hash(&initrd_sha256)
+    {
         return Err("invalid update SHA-256".into());
     }
     let rootfs_size = values
@@ -234,7 +245,12 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
         .ok_or("missing kernel_size")?
         .parse::<u64>()
         .map_err(|e| format!("kernel_size: {e}"))?;
-    if rootfs_size == 0 || kernel_size == 0 {
+    let initrd_size = values
+        .get("initrd_size")
+        .ok_or("missing initrd_size")?
+        .parse::<u64>()
+        .map_err(|e| format!("initrd_size: {e}"))?;
+    if rootfs_size == 0 || kernel_size == 0 || initrd_size == 0 {
         return Err("update payload sizes must be non-zero".into());
     }
     Ok(Metadata {
@@ -244,6 +260,8 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
         rootfs_sha256,
         kernel_size,
         kernel_sha256,
+        initrd_size,
+        initrd_sha256,
     })
 }
 
@@ -289,7 +307,7 @@ pub fn verify_bundle(dir: &Path) -> Result<Verified, String> {
     let text = read_text_regular(&update_path, 64 * 1024)?;
     let metadata = parse_update(&text)?;
     let sums = release_sums(&dir.join(SUMS_FILE))?;
-    for required in [UPDATE_FILE, ROOTFS_FILE, KERNEL_FILE] {
+    for required in [UPDATE_FILE, ROOTFS_FILE, KERNEL_FILE, INITRD_FILE] {
         if !sums.contains_key(required) {
             return Err(format!("{SUMS_FILE}: missing {required}"));
         }
@@ -311,6 +329,13 @@ pub fn verify_bundle(dir: &Path) -> Result<Verified, String> {
         || sums[KERNEL_FILE] != kernel_sha
     {
         return Err("kernel update payload mismatch".into());
+    }
+    let (initrd_size, initrd_sha) = sha256_file(&dir.join(INITRD_FILE))?;
+    if initrd_size != metadata.initrd_size
+        || initrd_sha != metadata.initrd_sha256
+        || sums[INITRD_FILE] != initrd_sha
+    {
+        return Err("initrd update payload mismatch".into());
     }
     Ok(Verified {
         metadata,
@@ -422,6 +447,12 @@ pub fn stage_bundle(dir: &Path) -> Result<Metadata, String> {
             verified.metadata.kernel_size,
             &verified.metadata.kernel_sha256,
         )?;
+        copy_verified(
+            &dir.join(INITRD_FILE),
+            &temp.join(INITRD_FILE),
+            verified.metadata.initrd_size,
+            &verified.metadata.initrd_sha256,
+        )?;
         let update_size = fs::metadata(dir.join(UPDATE_FILE))
             .map_err(|e| format!("metadata update.txt: {e}"))?
             .len();
@@ -500,6 +531,9 @@ mod tests {
             "kernel=bzImage\n",
             "kernel_size=456\n",
             "kernel_sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+            "initrd=rootfs.cpio.zst\n",
+            "initrd_size=789\n",
+            "initrd_sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n",
         );
         let meta = parse_update(text).unwrap();
         assert_eq!(meta.version, "0.1.0");
