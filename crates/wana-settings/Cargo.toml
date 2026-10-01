@@ -11,6 +11,7 @@ rust-version.workspace = true
 wana-client = { path = "../wana-client" }
 wana-log = { path = "../wana-log" }
 wana-text = { path = "../wana-text" }
+wana-theme = { path = "../wana-theme" }
 
 [lints]
 workspace = true
