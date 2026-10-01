@@ -17,7 +17,6 @@ config BR2_PACKAGE_WANA_PLATFORM
 	select BR2_PACKAGE_ALSA_UTILS
 	select BR2_PACKAGE_PIPEWIRE
 	select BR2_PACKAGE_LUA
-	select BR2_PACKAGE_LUA_5_4
 	select BR2_PACKAGE_WIREPLUMBER
 	select BR2_PACKAGE_BLUEZ5_UTILS
 	select BR2_PACKAGE_BLUEZ5_UTILS_CLIENT
@@ -27,7 +26,7 @@ config BR2_PACKAGE_WANA_PLATFORM
 	select BR2_PACKAGE_SBC
 	select BR2_PACKAGE_LIBSNDFILE
 	select BR2_PACKAGE_LXC
-	select BR2_PACKAGE_WANA_WAYDROID
+	depends on BR2_PACKAGE_WANA_WAYDROID
 	help
 	  Wana OS host integration for audio, Bluetooth and compatibility
 	  services. Installs Wana service definitions and management helpers
