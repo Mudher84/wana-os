@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check windows-compatibility-boot-test android-compatibility-boot-test extended-compatibility-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -173,7 +173,7 @@ system-boot-test:
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
 		--expect 'Run /init as init process' \
 		--expect '\[INIT\] info: wana-init [0-9.]+ starting' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
@@ -188,7 +188,7 @@ security-hardening-boot-test:
 		--append "wana.test=poweroff" \
 		--log out/logs/security-hardening-boot.log --timeout 180 \
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: security mounts: 5/5 hardened \(nosuid,nodev,noexec\)' \
 		--expect '\[INIT\] info: debug console shell: disabled' \
 		--expect '\[INIT\] info: ready' \
@@ -207,7 +207,7 @@ disk-boot-test:
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
 		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
@@ -224,7 +224,7 @@ hardware-nvme-boot-test:
 		--expect '\[BOOT\] info: loading Wana OS kernel' \
 		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
@@ -709,9 +709,19 @@ services-boot-test:
 	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
 		--log out/logs/services-boot.log --timeout 180 \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 1 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 1 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 6 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 6 service\(s\)' \
+		--expect '\[INIT\] info: service order: system-bus' \
+		--expect '\[INIT\] info: service order: bluetooth' \
+		--expect '\[INIT\] info: service order: user-bus' \
+		--expect '\[INIT\] info: service order: pipewire' \
+		--expect '\[INIT\] info: service order: wireplumber' \
 		--expect '\[INIT\] info: service order: desktop' \
 		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
 		--expect '\[INIT\] info: ready' \
@@ -728,7 +738,13 @@ production-session-boot-test:
 		--screendump-on '\[SHELL\] info: ready' --screendump-delay-ms 500 --screendump out/test/production-session.ppm \
 		--pixel 0.5,0.025=0b0f1a \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: services ready: 6 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
@@ -818,7 +834,7 @@ installed-disk-boot-test:
 		--expect '\[BOOT\] info: loading Wana OS kernel' \
 		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
@@ -867,6 +883,49 @@ hardware-compatibility-test:
 	$(MAKE) hardware-input-ps2-test
 	$(MAKE) hardware-nvme-boot-test
 
+# Post-stable compatibility foundation. These gates are intentionally grouped
+# so development can finish first and the complete validation can run at the end.
+compatibility-image-check:
+	test -x $(BR_OUT)/target/usr/bin/pipewire
+	test -x $(BR_OUT)/target/usr/bin/wireplumber
+	test -x $(BR_OUT)/target/usr/bin/bluetoothctl
+	test -x $(BR_OUT)/target/usr/libexec/bluetooth/bluetoothd
+	test -x $(BR_OUT)/target/usr/bin/lxc-start
+	test -x $(BR_OUT)/target/usr/bin/wana-audio
+	test -x $(BR_OUT)/target/usr/bin/wana-bluetooth
+	test -x $(BR_OUT)/target/usr/bin/wana-android
+	test -x $(BR_OUT)/target/usr/bin/wana-winrun
+	@test -x $(BR_OUT)/target/usr/bin/wine64 || test -x $(BR_OUT)/target/usr/bin/wine
+	@echo "[COMPAT] image payload: PASS"
+
+WINDOWS_COMPAT_ARGS := wana.run=/usr/bin/wana-winrun,--version wana.test=poweroff wana.shell=0
+windows-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-windows-compat.img "$(WINDOWS_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-windows-compat.img \
+		--log out/logs/windows-compatibility-boot.log --timeout 180 \
+		--expect 'wine-11\.0' \
+		--expect '\[INIT\] info: /usr/bin/wana-winrun exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+ANDROID_COMPAT_ARGS := wana.run=/usr/bin/wana-android,status wana.test=poweroff wana.shell=0
+android-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-android-compat.img "$(ANDROID_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-android-compat.img \
+		--log out/logs/android-compatibility-boot.log --timeout 180 \
+		--expect 'WANA_ANDROID_READY runtime=lxc rootfs=/var/lib/wana/android/rootfs state=STOPPED' \
+		--expect '\[INIT\] info: /usr/bin/wana-android exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+extended-compatibility-test:
+	$(MAKE) compatibility-image-check
+	$(MAKE) production-session-boot-test
+	$(MAKE) windows-compatibility-boot-test
+	$(MAKE) android-compatibility-boot-test
+
 # Phase 29: release candidates rerun the critical native, install, security,
 # and hardware gates against one built image before packaging it.
 beta-release-test:
@@ -890,6 +949,7 @@ beta-release-test:
 	$(MAKE) security-hardening-boot-test
 	$(MAKE) control-center-boot-test
 	$(MAKE) hardware-compatibility-test
+	$(MAKE) extended-compatibility-test
 
 beta-bundle:
 	@test -f "$(BR_OUT)/images/build-manifest.json" || { echo "[RELEASE] error: build image first" >&2; exit 2; }
