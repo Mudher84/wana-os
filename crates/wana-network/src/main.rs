@@ -102,8 +102,7 @@ fn write_secret(path: &Path, data: &str) -> Result<(), String> {
             .map_err(|e| format!("write {}: {e}", tmp.display()))?;
         f.sync_all()
             .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, path)
-            .map_err(|e| format!("rename {}: {e}", path.display()))?;
+        fs::rename(&tmp, path).map_err(|e| format!("rename {}: {e}", path.display()))?;
         File::open(parent)
             .and_then(|d| d.sync_all())
             .map_err(|e| format!("sync {}: {e}", parent.display()))?;
@@ -177,7 +176,10 @@ fn run() -> Result<(), String> {
             let cfg = wifi_config(&ssid, &psk)?;
             let path = PathBuf::from(format!("/var/lib/wana/network/{iface}.conf"));
             write_secret(&path, &cfg)?;
-            info!(LOG, "Wi-Fi configuration saved for {iface} (credentials hidden)");
+            info!(
+                LOG,
+                "Wi-Fi configuration saved for {iface} (credentials hidden)"
+            );
             Ok(())
         }
         "wifi-up" => {
@@ -187,7 +189,10 @@ fn run() -> Result<(), String> {
             if !Path::new(&cfg).is_file() {
                 return Err(format!("{cfg} does not exist"));
             }
-            run_command("/usr/sbin/wpa_supplicant", &["-B", "-i", &iface, "-c", &cfg])?;
+            run_command(
+                "/usr/sbin/wpa_supplicant",
+                &["-B", "-i", &iface, "-c", &cfg],
+            )?;
             run_command("/sbin/dhcpcd", &["-4", "-q", &iface])?;
             info!(LOG, "Wi-Fi connection started on {iface}");
             Ok(())
@@ -239,7 +244,10 @@ mod tests {
         let p = dir.join("wifi.conf");
         write_secret(&p, "secret").unwrap();
         assert_eq!(fs::read_to_string(&p).unwrap(), "secret");
-        assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
