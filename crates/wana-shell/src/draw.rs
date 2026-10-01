@@ -12,10 +12,10 @@ use wana_text::bidi::Base;
 use wana_text::layout::{layout, Align, FontSet, Style};
 use wana_text::raster::{draw, Canvas};
 
-pub const DESKTOP_TOP: u32 = 0x16213E;
-pub const DESKTOP_BOTTOM: u32 = 0x1B3A5C;
-pub const BAR: u32 = 0x0B0F1A;
-pub const BAR_TEXT: u32 = 0xE8ECF4;
+pub const DESKTOP_TOP: u32 = wana_theme::color::DESKTOP_TOP;
+pub const DESKTOP_BOTTOM: u32 = wana_theme::color::DESKTOP_BOTTOM;
+pub const BAR: u32 = wana_theme::color::SHELL_BAR;
+pub const BAR_TEXT: u32 = wana_theme::color::SHELL_BAR_TEXT;
 pub const BAR_HEIGHT: u32 = 40;
 const BAR_TEXT_SIZE: f32 = 18.0;
 const BAR_PADDING: f32 = 16.0;
@@ -24,10 +24,10 @@ pub const BRAND: &str = "وانا";
 /// Width of the bar's start (right end) that opens the launcher on a click.
 pub const BRAND_HIT: u32 = 160;
 
-pub const LAUNCHER_BG: u32 = 0x1E2638;
-pub const LAUNCHER_BORDER: u32 = 0x3A4560;
-pub const LAUNCHER_DIM: u32 = 0x9AA4B8;
-pub const ACCENT: u32 = 0x4F8CFF;
+pub const LAUNCHER_BG: u32 = wana_theme::color::SHELL_PANEL;
+pub const LAUNCHER_BORDER: u32 = wana_theme::color::SHELL_BORDER;
+pub const LAUNCHER_DIM: u32 = wana_theme::color::SHELL_DIM;
+pub const ACCENT: u32 = wana_theme::color::ACCENT_BLUE;
 pub const LAUNCHER_WIDTH: u32 = 480;
 pub const LAUNCHER_HEADER: u32 = 56;
 pub const LAUNCHER_ROW: u32 = 48;
@@ -39,8 +39,8 @@ pub const APPS_TITLE: &str = "التطبيقات";
 
 pub const DOCK_WIDTH: u32 = 560;
 pub const DOCK_HEIGHT: u32 = 64;
-pub const DOCK_BG: u32 = 0x121827;
-pub const DOCK_BORDER: u32 = 0x3A4560;
+pub const DOCK_BG: u32 = wana_theme::color::DOCK_BG;
+pub const DOCK_BORDER: u32 = wana_theme::color::SHELL_BORDER;
 const DOCK_PAD: u32 = 8;
 const DOCK_TEXT: f32 = 16.0;
 const DOCK_MAX: usize = 4;
