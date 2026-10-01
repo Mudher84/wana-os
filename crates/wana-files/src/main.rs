@@ -94,7 +94,7 @@ fn render(fonts: &FontSet, path: &Path, entries: &[Entry]) -> Result<Canvas, Str
     )?;
 
     if entries.is_empty() {
-        label(&mut c, fonts, "المجلد فارغ", 140.0, 20.0, DIM)?;
+        label(&mut c, fonts, "المجلد فارغ", 140.0, 20.0, palette.dim)?;
         return Ok(c);
     }
 
@@ -128,7 +128,7 @@ fn render(fonts: &FontSet, path: &Path, entries: &[Entry]) -> Result<Canvas, Str
             &format!("و {} عناصر أخرى", entries.len() - 8),
             500.0,
             15.0,
-            DIM,
+            palette.dim,
         )?;
     }
     Ok(c)

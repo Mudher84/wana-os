@@ -73,9 +73,9 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
     )?;
 
     fill(&mut canvas, 28, 112, WIDTH - 56, 184, palette.card);
-    label(&mut canvas, fonts, "الأذونات", 124.0, 21.0, TEXT)?;
+    label(&mut canvas, fonts, "الأذونات", 124.0, 21.0, palette.text)?;
     if rules.is_empty() {
-        label(&mut canvas, fonts, "لا توجد قواعد محفوظة", 166.0, 16.0, DIM)?;
+        label(&mut canvas, fonts, "لا توجد قواعد محفوظة", 166.0, 16.0, palette.dim)?;
     } else {
         for (index, rule) in rules.iter().take(4).enumerate() {
             let status = if rule.decision == Decision::Allow {
@@ -106,9 +106,9 @@ pub fn center(fonts: &FontSet, rules: &[Rule], audit: &[Audit]) -> Result<Canvas
     }
 
     fill(&mut canvas, 28, 316, WIDTH - 56, 250, palette.card);
-    label(&mut canvas, fonts, "آخر أحداث التدقيق", 328.0, 21.0, TEXT)?;
+    label(&mut canvas, fonts, "آخر أحداث التدقيق", 328.0, 21.0, palette.text)?;
     if audit.is_empty() {
-        label(&mut canvas, fonts, "السجل فارغ", 370.0, 16.0, DIM)?;
+        label(&mut canvas, fonts, "السجل فارغ", 370.0, 16.0, palette.dim)?;
     } else {
         for (index, event) in audit.iter().rev().take(5).enumerate() {
             let status = if event.decision == Decision::Allow {

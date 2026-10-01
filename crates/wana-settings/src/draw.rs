@@ -45,7 +45,7 @@ pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
         "إعدادات وانا الأساسية محفوظة محلياً وبشكل ذري",
         72.0,
         17.0,
-        dim,
+        palette.dim,
     )?;
 
     for (i, (name, value)) in [

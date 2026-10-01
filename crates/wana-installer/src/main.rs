@@ -104,7 +104,7 @@ fn render(
 ) -> Result<Canvas, String> {
     let palette = wana_theme::current();
     let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
-    label(&mut c, fonts, "تثبيت وانا", 24.0, 30.0, TEXT)?;
+    label(&mut c, fonts, "تثبيت وانا", 24.0, 30.0, palette.text)?;
     label(
         &mut c,
         fonts,
@@ -121,7 +121,7 @@ fn render(
                 "اختر القرص الهدف — الأسهم ثم Enter",
                 106.0,
                 18.0,
-                TEXT,
+                palette.text,
             )?;
             if list.is_empty() {
                 label(
@@ -149,7 +149,7 @@ fn render(
                     &format!("{} — {}", d.path.display(), gib(d.bytes)),
                     y as f32 + 11.0,
                     18.0,
-                    TEXT,
+                    palette.text,
                 )?;
             }
         }
@@ -168,7 +168,7 @@ fn render(
                 "تحذير: سيتم مسح القرص بالكامل",
                 172.0,
                 25.0,
-                TEXT,
+                palette.text,
             )?;
             if let Some(d) = list.get(selected) {
                 label(
@@ -177,7 +177,7 @@ fn render(
                     &format!("الهدف: {} — {}", d.path.display(), gib(d.bytes)),
                     222.0,
                     18.0,
-                    TEXT,
+                    palette.text,
                 )?;
             }
             label(
@@ -186,7 +186,7 @@ fn render(
                 "اضغط Enter مرة ثانية للتثبيت، أو Esc للرجوع",
                 274.0,
                 17.0,
-                TEXT,
+                palette.text,
             )?;
         }
         Stage::Done => {
@@ -204,7 +204,7 @@ fn render(
                 "يمكنك الآن إعادة التشغيل من القرص المثبت",
                 230.0,
                 18.0,
-                TEXT,
+                palette.text,
             )?;
         }
         Stage::Failed => {

@@ -83,7 +83,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
             ((x + 18) as f32, 122.0),
             (card_width - 36) as f32,
             18.0,
-            TEXT,
+            palette.text,
         )?;
         label(
             &mut canvas,
@@ -116,7 +116,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
             (48.0, 300.0),
             WIDTH as f32 - 96.0,
             17.0,
-            DIM,
+            palette.dim,
         )?;
     } else {
         for (index, notification) in notifications.iter().rev().take(4).enumerate() {
@@ -143,7 +143,7 @@ pub fn center(fonts: &FontSet, notifications: &[Notification]) -> Result<Canvas,
                 (48.0, top + 27.0),
                 WIDTH as f32 - 96.0,
                 14.0,
-                DIM,
+                palette.dim,
             )?;
         }
     }
