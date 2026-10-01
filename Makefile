@@ -711,14 +711,18 @@ services-boot-test:
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
 		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service user-bus ready: /run/user/1000/bus' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire ready: /run/user/1000/pipewire-0' \
 		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire-pulse ready: /run/user/1000/pulse/native' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=OnFailure' \
+		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
 		--expect '\[INIT\] info: service configuration PASS: 11 service\(s\)' \
@@ -750,14 +754,18 @@ production-session-boot-test:
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
 		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service user-bus ready: /run/user/1000/bus' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire ready: /run/user/1000/pipewire-0' \
 		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire-pulse ready: /run/user/1000/pulse/native' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=OnFailure' \
+		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: services ready: 11 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
@@ -913,6 +921,7 @@ compatibility-image-check:
 	test -x $(BR_OUT)/target/usr/sbin/wpa_supplicant
 	test -x $(BR_OUT)/target/sbin/dhcpcd
 	test -x $(BR_OUT)/target/usr/bin/wana-android
+	test -x $(BR_OUT)/target/usr/bin/wana-waydroid-container
 	test -x $(BR_OUT)/target/usr/bin/waydroid
 	test -e $(BR_OUT)/target/usr/lib/libgbinder.so.1
 	test -e $(BR_OUT)/target/usr/lib/libglibutil.so.1
