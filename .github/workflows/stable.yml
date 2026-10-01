@@ -21,7 +21,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-gate:
+    name: source + MSRV + protocol gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchains
+        run: |
+          rustup show active-toolchain
+          rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" --profile minimal
+
+      - name: Development libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgbm-dev libegl-dev libgles-dev libudev-dev libinput-dev libxkbcommon-dev xkb-data libwayland-dev wayland-protocols libharfbuzz-dev libfribidi-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Normal repository gate
+        run: make check
+
+      - name: Buildroot Rust MSRV
+        run: make msrv
+
+      - name: Wayland protocol scenarios
+        run: make wayland-host-test
+
+      - name: Release verifier self-test
+        run: python3 tools/test-prepare-release.py
+
   candidate:
+    needs: source-gate
     name: candidate A + runtime gates
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -93,6 +125,7 @@ jobs:
 
   rebuild:
     name: independent rebuild B
+    needs: source-gate
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
