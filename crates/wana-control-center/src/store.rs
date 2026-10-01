@@ -97,9 +97,13 @@ impl Store {
         valid_text("body", body, 480)?;
 
         let mut entries = self.list()?;
-        let seq = entries
-            .last()
-            .map_or(1, |entry| entry.seq.saturating_add(1));
+        let seq = match entries.last() {
+            Some(entry) => entry
+                .seq
+                .checked_add(1)
+                .ok_or("notification sequence exhausted")?,
+            None => 1,
+        };
         entries.push(Notification {
             seq,
             app: app.into(),
@@ -224,6 +228,29 @@ fn ensure_dir(root: &Path) -> Result<(), String> {
         .map_err(|e| format!("chmod {}: {e}", root.display()))
 }
 
+fn create_temp(root: &Path, name: &str) -> Result<(PathBuf, File), String> {
+    for attempt in 0..64u32 {
+        let path = root.join(format!(
+            ".{name}.tmp-{}-{attempt}",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("create {}: {e}", path.display())),
+        }
+    }
+    Err(format!(
+        "{}: no free atomic temp slot after 64 attempts",
+        root.display()
+    ))
+}
+
 fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
     ensure_dir(root)?;
     secure_metadata(path)?;
@@ -232,14 +259,8 @@ fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| format!("invalid notification path {}", path.display()))?;
-    let tmp = root.join(format!(".{name}.tmp-{}", std::process::id()));
+    let (tmp, mut file) = create_temp(root, name)?;
     let result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
         file.write_all(text.as_bytes())
             .map_err(|e| format!("write {}: {e}", tmp.display()))?;
         file.sync_all()
@@ -326,6 +347,47 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         symlink("/etc/passwd", root.join("history.tsv")).unwrap();
         assert!(store.list().is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_temp_slot_does_not_block_atomic_write() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let stale = root.join(format!(
+            ".history.tsv.tmp-{}-0",
+            std::process::id()
+        ));
+        fs::write(&stale, "stale").unwrap();
+
+        let store = Store::new(&root);
+        store
+            .push("org.wana.Test", "title", "body")
+            .expect("a second temp slot must be used");
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(stale.exists(), "unrelated stale temp is left untouched");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sequence_exhaustion_is_rejected_without_rewriting_history() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let history = root.join("history.tsv");
+        fs::write(
+            &history,
+            format!("{}\torg.wana.Test\ttitle\tbody\n", u64::MAX),
+        )
+        .unwrap();
+        fs::set_permissions(&history, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&history).unwrap();
+
+        let store = Store::new(&root);
+        assert!(store
+            .push("org.wana.Test", "next", "body")
+            .unwrap_err()
+            .contains("sequence exhausted"));
+        assert_eq!(fs::read(&history).unwrap(), before);
         let _ = fs::remove_dir_all(root);
     }
 }
