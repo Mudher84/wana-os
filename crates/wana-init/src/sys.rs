@@ -28,6 +28,7 @@ extern "C" {
         data: *const c_void,
     ) -> c_int;
     fn sethostname(name: *const c_char, len: usize) -> c_int;
+    fn chown(path: *const c_char, owner: u32, group: u32) -> c_int;
     fn reboot(cmd: c_int) -> c_int;
     fn sync();
     fn waitpid(pid: i32, status: *mut c_int, options: c_int) -> i32;
@@ -69,6 +70,18 @@ pub fn set_hostname(name: &str) -> io::Result<()> {
     // SAFETY: the pointer/length pair describes the bytes of `name`, which is
     // borrowed for the whole call; the kernel copies them.
     let rc = unsafe { sethostname(name.as_ptr().cast(), name.len()) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// chown(2).
+pub fn chown_path(path: &str, uid: u32, gid: u32) -> io::Result<()> {
+    let path = cstr(path)?;
+    // SAFETY: path is a live NUL-terminated CString and chown only reads it.
+    let rc = unsafe { chown(path.as_ptr(), uid, gid) };
     if rc == 0 {
         Ok(())
     } else {
