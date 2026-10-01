@@ -17,6 +17,7 @@ mod udev;
 use cmdline::TestAction;
 use mounts::Outcome;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Child, Command};
 use std::thread::sleep;
@@ -33,6 +34,9 @@ const SERVICES_DIR: &str = "/etc/wana/services.d";
 const SERVICES_RESTART_DELAY: Duration = Duration::from_secs(1);
 const LIVE_MOUNT: &str = "/run/wana-live";
 const LIVE_IMAGE: &str = "/run/wana-live/live/Wana-OS.img";
+const DESKTOP_UID: u32 = 1000;
+const DESKTOP_GID: u32 = 1000;
+const DESKTOP_RUNTIME: &str = "/run/user/1000";
 
 fn main() {
     let pid = std::process::id();
@@ -107,7 +111,11 @@ fn main() {
         .services
         .unwrap_or(opts.run.is_none() && opts.test.is_none());
     let services = if want_services {
-        start_services(&mut problems)
+        if prepare_desktop_runtime(&mut problems) {
+            start_services(&mut problems)
+        } else {
+            None
+        }
     } else {
         info!(
             INIT,
@@ -267,6 +275,32 @@ fn spawn_udevd(daemon: &str) -> Option<Child> {
             None
         }
     }
+}
+
+fn prepare_desktop_runtime(problems: &mut Vec<String>) -> bool {
+    if let Err(e) = fs::create_dir_all(DESKTOP_RUNTIME) {
+        error!(INIT, "desktop runtime: create {DESKTOP_RUNTIME}: {e}");
+        problems.push("desktop runtime unavailable".into());
+        return false;
+    }
+    if let Err(e) = fs::set_permissions(
+        DESKTOP_RUNTIME,
+        fs::Permissions::from_mode(0o700),
+    ) {
+        error!(INIT, "desktop runtime: chmod {DESKTOP_RUNTIME}: {e}");
+        problems.push("desktop runtime permissions failed".into());
+        return false;
+    }
+    if let Err(e) = sys::chown_path(DESKTOP_RUNTIME, DESKTOP_UID, DESKTOP_GID) {
+        error!(INIT, "desktop runtime: chown {DESKTOP_RUNTIME}: {e}");
+        problems.push("desktop runtime ownership failed".into());
+        return false;
+    }
+    info!(
+        INIT,
+        "desktop runtime: {DESKTOP_RUNTIME} uid={DESKTOP_UID} gid={DESKTOP_GID} mode=0700"
+    );
+    true
 }
 
 fn start_services(problems: &mut Vec<String>) -> Option<Child> {
