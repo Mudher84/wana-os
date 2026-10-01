@@ -189,7 +189,7 @@ security-hardening-boot-test:
 		--log out/logs/security-hardening-boot.log --timeout 180 \
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
 		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
-		--expect '\[INIT\] info: security mounts: 5/5 hardened \(nosuid,nodev,noexec\)' \
+		--expect '\[INIT\] info: security mounts: 6/6 hardened \(nosuid,nodev,noexec\)' \
 		--expect '\[INIT\] info: debug console shell: disabled' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
@@ -715,18 +715,22 @@ services-boot-test:
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=OnFailure' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 8 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 8 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 10 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 10 service\(s\)' \
 		--expect '\[INIT\] info: service order: system-bus' \
 		--expect '\[INIT\] info: service order: bluetooth' \
-		--expect '\[INIT\] info: service order: wpa-supplicant' \
-		--expect '\[INIT\] info: service order: dhcpcd' \
 		--expect '\[INIT\] info: service order: user-bus' \
 		--expect '\[INIT\] info: service order: pipewire' \
+		--expect '\[INIT\] info: service order: pipewire-pulse' \
 		--expect '\[INIT\] info: service order: wireplumber' \
 		--expect '\[INIT\] info: service order: desktop' \
+		--expect '\[INIT\] info: service order: wpa-supplicant' \
+		--expect '\[INIT\] info: service order: dhcpcd' \
+		--expect '\[INIT\] info: service order: waydroid-container' \
 		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down' \
@@ -748,9 +752,11 @@ production-session-boot-test:
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=OnFailure' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 8 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 10 service\(s\)' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
 		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
