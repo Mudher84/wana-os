@@ -1,0 +1,98 @@
+name: beta candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Beta version, for example 0.1.0-beta.1
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*-beta.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -eu
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]] || {
+            echo "invalid beta version: $version" >&2
+            exit 2
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y -qq
+
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod a+rw /dev/kvm
+          fi
+
+      - name: Cache downloads
+        uses: actions/cache@v6
+        with:
+          path: dl
+          key: br-dl-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}
+          restore-keys: br-dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v6
+        with:
+          path: ~/.buildroot-ccache
+          key: br-ccache-beta-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-${{ github.sha }}
+          restore-keys: |
+            br-ccache-${{ hashFiles('platform/buildroot.env', 'platform/configs/*') }}-
+            br-ccache-
+
+      - name: Build candidate image
+        shell: bash
+        run: |
+          set -o pipefail
+          make image 2>&1 | tee beta-image-build.log | { grep -E '^>>>|\[BUILD\]' || true; }
+
+      - name: Release candidate gates
+        run: make beta-release-test
+
+      - name: Prepare closed beta bundle
+        run: make beta-bundle VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Upload beta bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: wana-os-${{ steps.version.outputs.version }}
+          path: out/release/wana-os-${{ steps.version.outputs.version }}/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}"             out/release/wana-os-${{ steps.version.outputs.version }}/*             --verify-tag --prerelease --generate-notes             --title "Wana OS ${{ steps.version.outputs.version }}"
