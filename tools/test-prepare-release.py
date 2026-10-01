@@ -80,6 +80,19 @@ def main() -> int:
             if not (out / name).is_file():
                 raise SystemExit(f"release output missing {name}")
 
+        sums = {}
+        for line in (out / "RELEASE-SHA256SUMS").read_text().splitlines():
+            digest_value, name = line.split("  ", 1)
+            sums[name] = digest_value
+        expected_closed = {*PAYLOAD, "build-manifest.json", "release.json"}
+        if set(sums) != expected_closed:
+            raise SystemExit(
+                f"release checksum closure mismatch: {sorted(sums)} != {sorted(expected_closed)}"
+            )
+        for name in expected_closed:
+            if sums[name] != digest(out / name):
+                raise SystemExit(f"release checksum mismatch for {name}")
+
         (images / "bzImage").write_bytes(b"tampered")
         bad = run(images, out)
         if bad.returncode == 0 or "hash mismatch: bzImage" not in bad.stdout:
