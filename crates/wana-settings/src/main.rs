@@ -22,9 +22,17 @@ struct Args {
     hold: Option<u64>,
 }
 
+fn default_config_path() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map(|home| home.join(".config/wana/settings.conf"))
+        .unwrap_or_else(|| PathBuf::from("/var/lib/wana/settings.conf"))
+}
+
 fn args() -> Result<Args, String> {
     let mut out = Args {
-        config: PathBuf::from("/var/lib/wana/settings.conf"),
+        config: default_config_path(),
         fonts: PathBuf::from("/usr/share/fonts/wana"),
         set: None,
         print: false,
