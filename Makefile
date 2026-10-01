@@ -869,7 +869,8 @@ beta-release-test:
 	$(MAKE) control-center-boot-test
 	$(MAKE) hardware-compatibility-test
 
-beta-bundle: image
+beta-bundle:
+	@test -f "$(BR_OUT)/images/build-manifest.json" || { echo "[RELEASE] error: build image first" >&2; exit 2; }
 	@test -n "$(VERSION)" || { echo "[RELEASE] error: VERSION is required" >&2; exit 2; }
 	rm -rf "out/release/wana-os-$(VERSION)"
 	python3 tools/prepare-release.py \
