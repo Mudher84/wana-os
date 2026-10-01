@@ -123,7 +123,12 @@ fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> R
         .read(true)
         .custom_flags(O_NOFOLLOW)
         .open(image)
-        .map_err(|e| format!("open source {} without symlink following: {e}", image.display()))?;
+        .map_err(|e| {
+            format!(
+                "open source {} without symlink following: {e}",
+                image.display()
+            )
+        })?;
     let opened_source = src
         .metadata()
         .map_err(|e| format!("metadata {}: {e}", image.display()))?;
@@ -147,7 +152,12 @@ fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> R
         .write(true)
         .custom_flags(O_NOFOLLOW)
         .open(target)
-        .map_err(|e| format!("open target {} without symlink following: {e}", target.display()))?;
+        .map_err(|e| {
+            format!(
+                "open target {} without symlink following: {e}",
+                target.display()
+            )
+        })?;
     let opened_target = dst
         .metadata()
         .map_err(|e| format!("metadata target {}: {e}", target.display()))?;
