@@ -1,0 +1,9 @@
+# Root update broker. The desktop can request only status/fetch/clear
+# through a peer-credential-authenticated Unix socket.
+name=update
+exec=/usr/sbin/wana-updated
+after=power
+ready_path=/run/wana/update.sock
+restart=always
+uid=0
+gid=0

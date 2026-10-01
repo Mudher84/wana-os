@@ -35,6 +35,12 @@ define WANA_INIT_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 \
 		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-update \
 		$(TARGET_DIR)/usr/sbin/wana-update
+	$(INSTALL) -D -m 0755 \
+		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-updated \
+		$(TARGET_DIR)/usr/sbin/wana-updated
+	$(INSTALL) -D -m 0755 \
+		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-update-client \
+		$(TARGET_DIR)/usr/bin/wana-update-client
 	$(INSTALL) -d -m 0755 $(TARGET_DIR)/etc/wana/services.d
 endef
 
