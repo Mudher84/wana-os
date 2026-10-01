@@ -52,6 +52,7 @@ name = "wana-init"
 version = "0.1.0"
 dependencies = [
  "wana-log",
+ "wana-update",
 ]
 
 [[package]]
