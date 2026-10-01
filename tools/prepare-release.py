@@ -11,7 +11,13 @@ from pathlib import Path
 
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|rc)\.[0-9]+)?$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-PAYLOAD = ("Wana-OS-Live.iso", "disk.img", "bzImage", "rootfs.cpio.zst")
+PAYLOAD = (
+    "Wana-OS-Live.iso",
+    "disk.img",
+    "bzImage",
+    "rootfs.cpio.zst",
+    "rootfs.ext4.zst",
+)
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -143,10 +149,28 @@ def main() -> int:
     release_json.write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )
+
+    by_name = {entry["path"]: entry for entry in release_entries}
+    rootfs = by_name["rootfs.ext4.zst"]
+    kernel = by_name["bzImage"]
+    update_txt = args.out / "update.txt"
+    update_txt.write_text(
+        "WANA-UPDATE-1\n"
+        f"version={args.version}\n"
+        f"commit={commit}\n"
+        "rootfs=rootfs.ext4.zst\n"
+        f"rootfs_size={rootfs['size']}\n"
+        f"rootfs_sha256={rootfs['sha256']}\n"
+        "kernel=bzImage\n"
+        f"kernel_size={kernel['size']}\n"
+        f"kernel_sha256={kernel['sha256']}\n"
+    )
+
     bundle_entries = [
         *release_entries,
         {"path": manifest_target.name, "sha256": sha256(manifest_target)},
         {"path": release_json.name, "sha256": sha256(release_json)},
+        {"path": update_txt.name, "sha256": sha256(update_txt)},
     ]
     with (args.out / "RELEASE-SHA256SUMS").open("w") as output:
         for entry in bundle_entries:

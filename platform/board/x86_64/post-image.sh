@@ -37,6 +37,14 @@ ${GENIMAGE:-$HOST_DIR/bin/genimage} \
     --config "$out/genimage.cfg"
 echo "[BOOT] info: disk image $out/disk.img (root PARTUUID $WANA_ROOT_PARTUUID)"
 
+# Device-update payload: the exact ext4 root filesystem, compressed with the
+# pinned host zstd. Single-threaded compression keeps the byte stream stable.
+zstd="$HOST_DIR/bin/zstd"
+[ -x "$zstd" ] || { echo "[UPDATE] error: host zstd missing: $zstd" >&2; exit 1; }
+rm -f "$out/rootfs.ext4.zst"
+"$zstd" -q -19 -T1 -f "$out/rootfs.ext4" -o "$out/rootfs.ext4.zst"
+echo "[UPDATE] info: rootfs payload $out/rootfs.ext4.zst"
+
 BOARD_DIR="$board" BINARIES_DIR="$out" HOST_DIR="$HOST_DIR" \
     SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-}" \
     "$board/../../../tools/build-live-iso.sh"
