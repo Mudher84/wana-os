@@ -18,6 +18,8 @@ checksums are validated before packaging.
   initramfs.
 - A closed release directory contains the payload, build manifest,
   `release.json`, and `RELEASE-SHA256SUMS`.
+- `RELEASE-SHA256SUMS` covers every payload file plus `build-manifest.json`
+  and `release.json`; only the checksum file itself is excluded from self-hashing.
 - Beta versions must use `X.Y.Z-beta.N`.
 - `make beta-release-test` reruns critical kernel, boot, graphics, input,
   compositor, application, installer, permissions, security and Phase 28
