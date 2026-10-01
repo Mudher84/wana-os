@@ -34,6 +34,7 @@ struct Service {
     uid: u32,
     gid: u32,
     home: Option<PathBuf>,
+    env: Vec<(String, String)>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -41,6 +42,12 @@ fn valid_name(s: &str) -> bool {
         && s.len() <= 64
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
+fn valid_env_key(s: &str) -> bool {
+    let mut bytes = s.bytes();
+    matches!(bytes.next(), Some(b'A'..=b'Z' | b'_'))
+        && bytes.all(|b| matches!(b, b'A'..=b'Z' | b'0'..=b'9' | b'_'))
 }
 
 fn effective_uid() -> Result<u32, String> {
@@ -134,6 +141,7 @@ fn parse(path: &Path) -> Result<Service, String> {
     let mut uid = 0u32;
     let mut gid = 0u32;
     let mut home = None;
+    let mut env = Vec::new();
     let mut seen = BTreeSet::new();
 
     for (line_no, raw) in text.lines().enumerate() {
@@ -145,7 +153,7 @@ fn parse(path: &Path) -> Result<Service, String> {
             .split_once('=')
             .ok_or_else(|| format!("{}:{}: expected key=value", path.display(), line_no + 1))?;
         let (key, value) = (key.trim(), value.trim());
-        if key != "arg" && !seen.insert(key.to_string()) {
+        if key != "arg" && key != "env" && !seen.insert(key.to_string()) {
             return Err(format!(
                 "{}:{}: duplicate {key}",
                 path.display(),
@@ -226,6 +234,26 @@ fn parse(path: &Path) -> Result<Service, String> {
                 }
                 home = Some(p);
             }
+            "env" => {
+                let (name, val) = value.split_once('=').ok_or_else(|| {
+                    format!("{}:{}: env must be NAME=VALUE", path.display(), line_no + 1)
+                })?;
+                if !valid_env_key(name) || val.contains('\0') {
+                    return Err(format!(
+                        "{}:{}: invalid environment entry",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                if env.iter().any(|(existing, _)| existing == name) {
+                    return Err(format!(
+                        "{}:{}: duplicate environment key {name}",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                env.push((name.to_string(), val.to_string()));
+            }
             _ => {
                 return Err(format!(
                     "{}:{}: unknown field {key}",
@@ -245,6 +273,7 @@ fn parse(path: &Path) -> Result<Service, String> {
         uid,
         gid,
         home,
+        env,
     })
 }
 
@@ -312,6 +341,9 @@ fn spawn(s: &Service) -> Result<Child, String> {
         .current_dir("/");
     if let Some(home) = &s.home {
         cmd.env("HOME", home);
+    }
+    for (name, value) in &s.env {
+        cmd.env(name, value);
     }
     let (uid, gid) = (s.uid, s.gid);
     // SAFETY: this runs in the child after fork and before exec. Drop all
@@ -446,14 +478,24 @@ mod tests {
         .unwrap();
         fs::write(
             d.join("b.service"),
-            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\n",
+            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\nhome=/tmp\nenv=XDG_RUNTIME_DIR=/run/user/10\nenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/10/bus\n",
         )
         .unwrap();
         let map = load(&d).unwrap();
         assert_eq!(order(&map).unwrap(), ["a", "b"]);
         assert_eq!(map["b"].uid, 10);
         assert_eq!(map["b"].gid, 20);
-        assert_eq!(map["b"].home, None);
+        assert_eq!(map["b"].home, Some(PathBuf::from("/tmp")));
+        assert_eq!(
+            map["b"].env,
+            [
+                ("XDG_RUNTIME_DIR".into(), "/run/user/10".into()),
+                (
+                    "DBUS_SESSION_BUS_ADDRESS".into(),
+                    "unix:path=/run/user/10/bus".into()
+                ),
+            ]
+        );
         let _ = fs::remove_dir_all(d);
     }
 
@@ -478,6 +520,13 @@ mod tests {
     fn cycles_missing_dependencies_and_relative_exec_are_rejected() {
         let d = dir();
         fs::write(d.join("bad.service"), "name=bad\nexec=relative\n").unwrap();
+        assert!(load(&d).is_err());
+        fs::remove_file(d.join("bad.service")).unwrap();
+        fs::write(
+            d.join("bad.service"),
+            "name=bad\nexec=/bin/true\nenv=bad-name=value\n",
+        )
+        .unwrap();
         assert!(load(&d).is_err());
         fs::remove_file(d.join("bad.service")).unwrap();
         fs::write(d.join("a.service"), "name=a\nexec=/bin/true\nafter=b\n").unwrap();
