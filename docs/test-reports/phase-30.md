@@ -12,6 +12,9 @@ without using ccache.
 - `make stable-release-test` inherits the Beta runtime gate and then adds the
   graphical gates Beta intentionally omits: GL rendering, seat/focus, text,
   text-on-screen, layer-shell, shell, Dock, and window-management.
+- Normal installed boot has a dedicated production-session gate: PID 1 prepares
+  `/run/user/1000`, starts `wana-services`, and launches the compositor +
+  shell as uid/gid 1000 without `wana.run`.
 - `make stable-bundle VERSION=X.Y.Z` accepts only a stable version without a
   prerelease suffix and reuses the already-tested image.
 - Release versions are bound to `[workspace.package].version`.
@@ -45,6 +48,9 @@ hardens the destructive and persistent-state paths that the release depends on:
   CI logs are ignored.
 - The Stable workflow is read-only by default and grants `contents: write`
   only to the final reproducibility/publish job.
+- The production desktop runs as the dedicated `wana` user (uid/gid 1000),
+  with a private `/run/user/1000`, user-owned Settings/Permissions/Notifications
+  state, and only DRM/input device access granted through udev.
 
 These changes remain pre-stable until the source CI and the complete
 Buildroot/runtime suite pass on the same final commit.
@@ -61,7 +67,10 @@ Phase 30 is PASS only when an actual stable candidate has:
 6. reproducibility PASS for every manifest artifact;
 7. a release verifier PASS for the clean candidate commit;
 8. a published GitHub release bundle whose version equals the workspace
-   version.
+   version;
+9. the production desktop gate proves the compositor/shell session runs as
+   uid/gid 1000 with `/run/user/1000` and no inherited root supplementary
+   groups.
 
 Until that evidence exists, Wana OS is not labeled Stable.
 
