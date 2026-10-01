@@ -97,9 +97,13 @@ impl Store {
         valid_text("body", body, 480)?;
 
         let mut entries = self.list()?;
-        let seq = entries
-            .last()
-            .map_or(1, |entry| entry.seq.saturating_add(1));
+        let seq = match entries.last() {
+            Some(entry) => entry
+                .seq
+                .checked_add(1)
+                .ok_or("notification sequence exhausted")?,
+            None => 1,
+        };
         entries.push(Notification {
             seq,
             app: app.into(),
@@ -340,6 +344,29 @@ mod tests {
             fs::metadata(&root).unwrap().permissions().mode() & 0o777,
             0o700
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sequence_exhaustion_is_rejected_without_rewriting_history() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let history = root.join("history.tsv");
+        fs::write(
+            &history,
+            format!("{}\torg.wana.Test\ttitle\tbody\n", u64::MAX),
+        )
+        .unwrap();
+        fs::set_permissions(&history, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&history).unwrap();
+
+        let store = Store::new(&root);
+        assert!(store
+            .push("org.wana.Test", "next", "body")
+            .unwrap_err()
+            .contains("sequence exhausted"));
+        assert_eq!(fs::read(&history).unwrap(), before);
+
         let _ = fs::remove_dir_all(root);
     }
 
