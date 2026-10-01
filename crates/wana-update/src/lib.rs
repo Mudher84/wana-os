@@ -3,6 +3,7 @@ use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub const UPDATE_HEADER: &str = "WANA-UPDATE-1";
 pub const UPDATE_FILE: &str = "update.txt";
@@ -12,6 +13,9 @@ pub const KERNEL_FILE: &str = "bzImage";
 pub const INITRD_FILE: &str = "rootfs.cpio.zst";
 pub const STATE_ROOT: &str = "/var/lib/wana/update";
 pub const PENDING_DIR: &str = "/var/lib/wana/update/pending";
+pub const INSTALLED_RELEASE: &str = "/etc/wana-release";
+pub const STABLE_RELEASE_BASE: &str =
+    "https://github.com/Mudher84/wana-os/releases/latest/download";
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -363,6 +367,133 @@ pub fn verify_staged(dir: &Path) -> Result<Metadata, String> {
     }
 
     Ok(metadata)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledRelease {
+    pub version: String,
+    pub commit: String,
+}
+
+pub fn installed_release() -> Result<Option<InstalledRelease>, String> {
+    let path = Path::new(INSTALLED_RELEASE);
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut lines = text.lines();
+    if lines.next() != Some("WANA-RELEASE-1") {
+        return Err(format!("{}: unsupported release identity", path.display()));
+    }
+    let mut values = BTreeMap::new();
+    for line in lines {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| format!("{}: expected key=value", path.display()))?;
+        if !matches!(key, "version" | "commit") || values.insert(key, value).is_some() {
+            return Err(format!("{}: invalid or duplicate field {key:?}", path.display()));
+        }
+    }
+    let version = values.get("version").ok_or("installed version missing")?.to_string();
+    let commit = values.get("commit").ok_or("installed commit missing")?.to_string();
+    if !valid_version(&version) || !valid_commit(&commit) {
+        return Err("installed release identity is invalid".into());
+    }
+    Ok(Some(InstalledRelease { version, commit }))
+}
+
+fn curl_download(name: &str, target: &Path) -> Result<(), String> {
+    if name.starts_with('/') || name.split('/').any(|part| matches!(part, "" | "." | "..")) {
+        return Err(format!("unsafe release asset name {name:?}"));
+    }
+    let url = format!("{STABLE_RELEASE_BASE}/{name}");
+    let status = Command::new("/usr/bin/curl")
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "--connect-timeout",
+            "20",
+            "--retry",
+            "3",
+            "--retry-all-errors",
+            "--user-agent",
+            "Wana-OS-Updater/1",
+            "--output",
+        ])
+        .arg(target)
+        .arg(&url)
+        .status()
+        .map_err(|e| format!("start curl for {url}: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("download {url} failed: {status}"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchOutcome {
+    Current(Metadata),
+    Staged(Metadata),
+}
+
+pub fn fetch_latest_and_stage() -> Result<FetchOutcome, String> {
+    require_root()?;
+    if fs::symlink_metadata(PENDING_DIR).is_ok() {
+        return Err("an update is already pending; apply or clear it first".into());
+    }
+    let root = secure_state_root()?;
+    let download = root.join(format!(".download-{}", std::process::id()));
+    if fs::symlink_metadata(&download).is_ok() {
+        return Err(format!("{} already exists", download.display()));
+    }
+    DirBuilder::new()
+        .mode(0o700)
+        .create(&download)
+        .map_err(|e| format!("create {}: {e}", download.display()))?;
+
+    let result = (|| -> Result<FetchOutcome, String> {
+        curl_download(UPDATE_FILE, &download.join(UPDATE_FILE))?;
+        curl_download(SUMS_FILE, &download.join(SUMS_FILE))?;
+
+        let update_text = read_text_regular(&download.join(UPDATE_FILE), 64 * 1024)?;
+        let metadata = parse_update(&update_text)?;
+        let sums = release_sums(&download.join(SUMS_FILE))?;
+        let (_, update_sha) = sha256_file(&download.join(UPDATE_FILE))?;
+        if sums.get(UPDATE_FILE) != Some(&update_sha) {
+            return Err("downloaded update.txt does not match release checksums".into());
+        }
+
+        if installed_release()?
+            .is_some_and(|installed| installed.commit == metadata.commit)
+        {
+            return Ok(FetchOutcome::Current(metadata));
+        }
+
+        for name in [ROOTFS_FILE, KERNEL_FILE, INITRD_FILE] {
+            curl_download(name, &download.join(name))?;
+        }
+        let verified = verify_bundle(&download)?;
+        let staged = stage_bundle(&download)?;
+        if staged != verified.metadata {
+            return Err("staged update metadata changed unexpectedly".into());
+        }
+        Ok(FetchOutcome::Staged(staged))
+    })();
+
+    let cleanup = fs::remove_dir_all(&download)
+        .map_err(|e| format!("remove {}: {e}", download.display()));
+    match (result, cleanup) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(e), _) => Err(e),
+        (Ok(_), Err(e)) => Err(e),
+    }
 }
 
 pub fn effective_uid() -> Result<u32, String> {
