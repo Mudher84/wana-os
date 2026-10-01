@@ -6,6 +6,11 @@ export XDG_RUNTIME_DIR="$runtime"
 
 case "${1:-status}" in
     status)
+        i=0
+        while [ "$i" -lt 50 ] && [ ! -S "$runtime/pipewire-0" ]; do
+            sleep 0.1
+            i=$((i + 1))
+        done
         if [ -S "$runtime/pipewire-0" ]; then
             echo "WANA_AUDIO_READY runtime=$runtime"
             exec pw-cli info 0
