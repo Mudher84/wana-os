@@ -18,10 +18,12 @@ require systemd for Android support.
 - Waydroid is installed with `USE_SYSTEMD=0` and
   `USE_DBUS_ACTIVATION=0`; the privileged container manager is supervised by
   `wana-services` on the system D-Bus.
-- The container service uses `wana-waydroid-container`: before Android images
-  exist it waits without failing or entering a restart loop; once both
-  `system.img` and `vendor.img` are provisioned it starts the real Waydroid
-  container automatically without requiring a reboot.
+- The container service uses `wana-waydroid-container` and follows Waydroid
+  1.6.3's own initialized-state rule: it waits for
+  `/var/lib/waydroid/waydroid.cfg` plus the `/var/lib/waydroid/rootfs`
+  directory. Before that state exists it waits without failing or entering a
+  restart loop; once initialization is complete it starts the real container
+  automatically without requiring a reboot.
 - Waydroid bridge networking includes iproute2, iptables and dnsmasq.
 - Android audio is routed through Wana's PipeWire PulseAudio compatibility
   service.
