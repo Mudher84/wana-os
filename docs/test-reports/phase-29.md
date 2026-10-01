@@ -24,6 +24,10 @@ checksums are validated before packaging.
 - `make beta-release-test` reruns critical kernel, boot, graphics, input,
   compositor, application, installer, permissions, security and Phase 28
   hardware-compatibility gates.
+- The candidate gate also runs the reproducible part of the extended
+  compatibility suite: production services, PipeWire/BlueZ, Wine64 and the
+  pinned Waydroid runtime. The multi-gigabyte Android OTA image is deliberately
+  excluded from the release build and has its own final session gate.
 - `make beta-bundle VERSION=X.Y.Z-beta.N` packages only after the image and
   manifest pass the release verifier.
 - `.github/workflows/beta.yml` supports manual candidates and beta tags.
@@ -39,7 +43,7 @@ Phase 29 is PASS only when one Beta candidate commit has all of the following:
 
 1. normal CI is green;
 2. Buildroot image and runtime gates are green;
-3. Phase 28 hardware matrix is green;
+3. Phase 28 hardware matrix and the reproducible extended-compatibility gates are green;
 4. the Beta workflow completes `beta-release-test`;
 5. the release verifier reports PASS for the candidate commit;
 6. the resulting release bundle is uploaded without missing payload files.
