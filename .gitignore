@@ -8,6 +8,13 @@
 *.img
 *.qcow2
 
+# CI build logs created before build-manifest.py inspects Git cleanliness.
+/toolchain-build.log
+/image-build.log
+/beta-image-build.log
+/stable-image-A.log
+/stable-image-B.log
+
 # Editors
 *.swp
 .vscode/
