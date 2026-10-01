@@ -40,7 +40,10 @@ fn secure_metadata(path: &Path) -> Result<Option<fs::Metadata>, String> {
     match fs::symlink_metadata(path) {
         Ok(meta) => {
             if meta.file_type().is_symlink() || !meta.is_file() {
-                return Err(format!("{}: settings path must be a regular non-symlink file", path.display()));
+                return Err(format!(
+                    "{}: settings path must be a regular non-symlink file",
+                    path.display()
+                ));
             }
             let euid = effective_uid()?;
             if meta.uid() != euid {
@@ -74,7 +77,10 @@ impl Settings {
             .metadata()
             .map_err(|e| format!("metadata {}: {e}", path.display()))?;
         if before.dev() != opened.dev() || before.ino() != opened.ino() {
-            return Err(format!("{}: settings file changed while opening", path.display()));
+            return Err(format!(
+                "{}: settings file changed while opening",
+                path.display()
+            ));
         }
         let mut text = String::new();
         file.read_to_string(&mut text)
