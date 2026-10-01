@@ -1,0 +1,13 @@
+# Private desktop-session D-Bus.
+name=user-bus
+exec=/usr/bin/dbus-daemon
+arg=--session
+arg=--address=unix:path=/run/user/1000/bus
+arg=--nofork
+arg=--nopidfile
+after=system-bus
+restart=always
+uid=1000
+gid=1000
+home=/home/wana
+env=XDG_RUNTIME_DIR=/run/user/1000
