@@ -9,7 +9,7 @@
 //! | `wana.test=poweroff\|reboot` | automated test boot: stop the machine once init is ready |
 //! | `wana.shell=1` | explicitly start the debug root shell on the console (default off) |
 //! | `wana.udev=0` | do not start udevd (static `/dev` from devtmpfs only) |
-//! | `wana.services=0|1` | disable/force system services; by default one-shot `wana.run` boots skip services |
+//! | `wana.services=0|1` | disable/force system services; automated `wana.test` and one-shot `wana.run` boots skip them by default |
 //! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
 //! | `wana.live=1` | booted from the read-only Live ISO/initramfs path |
 
@@ -31,7 +31,7 @@ pub struct Options {
     /// Start udevd and coldplug devices (when udevd is installed).
     pub udev: bool,
     /// Explicit system-service policy. None means services on for normal boot,
-    /// off for one-shot `wana.run` bring-up/test boots.
+    /// off for automated `wana.test` and one-shot `wana.run` boots.
     pub services: Option<bool>,
     /// Program (absolute path) and arguments to run once after `ready`.
     pub run: Option<Vec<String>>,
