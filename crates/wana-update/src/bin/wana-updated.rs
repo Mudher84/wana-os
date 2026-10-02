@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -152,8 +152,12 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
     let reader = stream.try_clone().map_err(|e| format!("clone stream: {e}"))?;
     let mut line = String::new();
     BufReader::new(reader)
+        .take(129)
         .read_line(&mut line)
         .map_err(|e| format!("read request: {e}"))?;
+    if line.len() > 128 {
+        return respond(&mut stream, "ERR request-too-long");
+    }
     let mut fields = line.split_whitespace();
     let Some(command) = fields.next() else {
         return respond(&mut stream, "ERR empty-request");
