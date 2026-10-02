@@ -5,7 +5,7 @@ use std::os::unix::net::UnixStream;
 
 pub const SOCKET_PATH: &str = "/run/wana/auth.sock";
 pub const CREDENTIAL_DIR: &str = "/var/lib/wana/auth";
-pub const CREDENTIAL_FILE: &str = "/var/lib/wana/auth/default.phc";
+pub const CREDENTIAL_FILE: &str = "/var/lib/wana/auth/default.cred";
 pub const DESKTOP_UID: u32 = 1000;
 pub const DESKTOP_GID: u32 = 1000;
 pub const MAX_PASSWORD_BYTES: usize = 128;
