@@ -10,7 +10,8 @@ Status: **IN PROGRESS**
   available to uid 0 and the dedicated desktop uid 1000 through Linux
   `SO_PEERCRED`; setup/verify from uid 1000 additionally require the exact
   root-owned/read-only `wana-shell` executable parented by the trusted
-  `wana-compositor`, matched by executable device/inode.
+  `wana-compositor`, matched by executable device/inode. Both trusted
+  processes are non-dumpable to block same-uid ptrace/memory inspection.
 - First boot enters credential setup mode; later boots enter login mode.
 - Password input is decoded through the compositor-provided xkbcommon keymap,
   supports modifiers/layout text, is bounded to 128 UTF-8 bytes, and is never
