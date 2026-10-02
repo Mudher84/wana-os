@@ -170,6 +170,18 @@ fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> R
     if opened_target.is_file() {
         dst.set_len(source_len)
             .map_err(|e| format!("size target {}: {e}", target.display()))?;
+    } else if opened_target.file_type().is_block_device() {
+        let target_len = dst
+            .seek(SeekFrom::End(0))
+            .map_err(|e| format!("size target {}: {e}", target.display()))?;
+        if target_len < source_len {
+            return Err(format!(
+                "target {} is too small: {} bytes available, {} bytes required",
+                target.display(),
+                target_len,
+                source_len
+            ));
+        }
     }
     dst.seek(SeekFrom::Start(0))
         .map_err(|e| format!("seek target: {e}"))?;
