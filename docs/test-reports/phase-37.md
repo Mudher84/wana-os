@@ -19,6 +19,9 @@ Status: **IN PROGRESS**
 - Salt comes from `/dev/urandom`; verification uses constant-time comparison.
 - The credential directory is root-owned mode 0700 and the credential file is
   created atomically mode 0600 with file and directory fsync.
+- Credential verification binds the open file descriptor back to the checked
+  inode/device and revalidates ownership/mode/size after opening, rejecting
+  path-swap races before reading the verifier.
 - Failed verification is delayed by 500 ms.
 - The authentication layer is a full-screen privileged shell overlay with
   exclusive keyboard focus, so windows underneath cannot receive keyboard or
