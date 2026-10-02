@@ -19,8 +19,12 @@ The target performs, in order:
 - full image construction and manifest generation;
 - standalone UEFI kernel boot;
 - the complete Stable runtime gate, including native desktop, installer,
-  permissions/security, hardware matrix, audio, Bluetooth, Wine and Waydroid
-  runtime foundation.
+  permissions/security, hardware matrix, audio, Bluetooth, Wine and Waydroid;
+- Phase 35 power/session lifecycle;
+- Phase 36 A/B update application, trial boot and confirmation;
+- Phase 37 first-boot credential setup, next-boot login and in-session relock;
+- Phase 38 supervised Chrony/time diagnostics;
+- Phase 39 privacy-bounded diagnostics/support bundle.
 
 ## Android full-session evidence
 
