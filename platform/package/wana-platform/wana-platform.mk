@@ -28,6 +28,7 @@ define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/chrony.conf $(TARGET_DIR)/etc/wana/chrony.conf
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-grow-root $(TARGET_DIR)/usr/bin/wana-grow-root
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-time $(TARGET_DIR)/usr/bin/wana-time
+	$(INSTALL) -D -m 0755 $(@D)/bin/wana-diagnostics $(TARGET_DIR)/usr/bin/wana-diagnostics
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-audio $(TARGET_DIR)/usr/bin/wana-audio
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-bluetooth $(TARGET_DIR)/usr/bin/wana-bluetooth
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-wifi $(TARGET_DIR)/usr/bin/wana-wifi
