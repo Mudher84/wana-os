@@ -11,6 +11,7 @@ rust-version.workspace = true
 # surface, and Buildroot builds local Cargo packages with --offline.
 [dependencies]
 wana-log = { path = "../wana-log" }
+wana-update = { path = "../wana-update" }
 
 [lints]
 workspace = true

@@ -1,0 +1,98 @@
+#!/bin/sh
+set -eu
+
+global=/run/wpa_supplicant-global
+ctrl=/run/wpa_supplicant
+config=/var/lib/wana/wifi.conf
+
+iface_default() {
+    for p in /sys/class/net/*/wireless; do
+        [ -d "$p" ] || continue
+        basename "$(dirname "$p")"
+        return 0
+    done
+    return 1
+}
+
+iface=${WANA_WIFI_IFACE:-}
+if [ -z "$iface" ]; then
+    iface=$(iface_default 2>/dev/null || true)
+fi
+
+global_cli() {
+    /usr/sbin/wpa_cli -g "$global" "$@"
+}
+
+ensure_iface() {
+    [ -n "$iface" ] || {
+        echo "wana-wifi: no wireless interface found" >&2
+        exit 1
+    }
+    if global_cli interface_list 2>/dev/null | cut -f1 | grep -Fxq "$iface"; then
+        return 0
+    fi
+    global_cli interface_add "$iface" "$config" nl80211 "DIR=$ctrl GROUP=wana" "" "" >/dev/null
+}
+
+cli() {
+    ensure_iface
+    /usr/sbin/wpa_cli -p "$ctrl" -i "$iface" "$@"
+}
+
+quote_value() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+case "${1:-status}" in
+    status)
+        cli status
+        ;;
+    interfaces)
+        global_cli interface_list
+        ;;
+    scan)
+        cli scan >/dev/null
+        sleep 2
+        cli scan_results
+        ;;
+    connect)
+        [ "$#" -ge 2 ] || {
+            echo "usage: wana-wifi connect SSID [PASSWORD]" >&2
+            exit 2
+        }
+        ssid=$(quote_value "$2")
+        pass=${3:-}
+        id=$(cli add_network | tail -n1)
+        case "$id" in
+            ''|*[!0-9]*) echo "wana-wifi: add_network failed: $id" >&2; exit 1 ;;
+        esac
+        cli set_network "$id" ssid "\"$ssid\"" >/dev/null
+        if [ -n "$pass" ]; then
+            pass=$(quote_value "$pass")
+            cli set_network "$id" psk "\"$pass\"" >/dev/null
+        else
+            cli set_network "$id" key_mgmt NONE >/dev/null
+        fi
+        cli enable_network "$id" >/dev/null
+        cli select_network "$id" >/dev/null
+        cli save_config >/dev/null
+        cli reassociate >/dev/null
+        echo "WANA_WIFI_CONNECTING interface=$iface network=$id"
+        ;;
+    disconnect)
+        cli disconnect
+        ;;
+    forget)
+        [ "$#" -eq 2 ] || { echo "usage: wana-wifi forget NETWORK_ID" >&2; exit 2; }
+        cli remove_network "$2" >/dev/null
+        cli save_config >/dev/null
+        echo "WANA_WIFI_FORGOT network=$2"
+        ;;
+    networks)
+        cli list_networks
+        ;;
+    *)
+        echo "usage: wana-wifi {status|interfaces|scan|connect SSID [PASSWORD]|disconnect|networks|forget ID}" >&2
+        exit 2
+        ;;
+esac

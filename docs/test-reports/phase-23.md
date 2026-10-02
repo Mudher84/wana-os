@@ -25,6 +25,10 @@ source. The exit gate must prove the security posture in a booted Wana OS guest.
   weaken userspace binaries.
 - Permission policy and audit stores reject symlinks, insecure modes, and
   ownership that does not match the effective UID.
+- The compositor, privileged shell, Power UI and Update UI set
+  `PR_SET_DUMPABLE=0`. Same-uid ordinary applications therefore cannot ptrace
+  or read the memory/environment of the trusted process chain used by the
+  privileged brokers.
 
 ## Exit test
 

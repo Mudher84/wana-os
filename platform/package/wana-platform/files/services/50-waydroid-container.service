@@ -1,0 +1,9 @@
+# Privileged Waydroid container manager. The helper waits without failing
+# until Waydroid's own initialized state exists (waydroid.cfg + rootfs),
+# then replaces itself with the real container manager.
+name=waydroid-container
+exec=/usr/bin/wana-waydroid-container
+after=system-bus,dhcpcd
+restart=always
+uid=0
+gid=0

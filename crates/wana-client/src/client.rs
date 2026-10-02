@@ -61,9 +61,26 @@ struct PollFd {
 
 extern "C" {
     fn poll(fds: *mut PollFd, nfds: u64, timeout: c_int) -> c_int;
+    fn getsockopt(
+        fd: c_int,
+        level: c_int,
+        optname: c_int,
+        optval: *mut c_void,
+        optlen: *mut u32,
+    ) -> c_int;
 }
 
 const WL_MARSHAL_FLAG_DESTROY: u32 = 1;
+const SOL_SOCKET: c_int = 1;
+const SO_PEERCRED: c_int = 17;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerCred {
+    pub pid: i32,
+    pub uid: u32,
+    pub gid: u32,
+}
 
 /// A client-side object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +190,37 @@ impl Connection {
 
     pub fn display(&self) -> Proxy {
         Proxy(self.display)
+    }
+
+    pub fn peer_cred(&self) -> Result<PeerCred, String> {
+        // SAFETY: connected display returns its live Unix socket fd.
+        let fd = unsafe { wl_display_get_fd(self.display.as_ptr()) };
+        let mut cred = PeerCred {
+            pid: 0,
+            uid: u32::MAX,
+            gid: u32::MAX,
+        };
+        let mut len = std::mem::size_of::<PeerCred>() as u32;
+        // SAFETY: cred points to writable storage of exactly len bytes.
+        let rc = unsafe {
+            getsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_PEERCRED,
+                (&mut cred as *mut PeerCred).cast(),
+                &mut len,
+            )
+        };
+        if rc != 0 {
+            return Err(format!(
+                "Wayland SO_PEERCRED: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        if len as usize != std::mem::size_of::<PeerCred>() || cred.pid <= 0 {
+            return Err("Wayland SO_PEERCRED returned invalid credentials".into());
+        }
+        Ok(cred)
     }
 
     /// Sends a request; returns the new object for constructors

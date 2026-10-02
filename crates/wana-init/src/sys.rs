@@ -11,6 +11,8 @@ pub const MS_RDONLY: c_ulong = 1;
 pub const MS_NOSUID: c_ulong = 2;
 pub const MS_NODEV: c_ulong = 4;
 pub const MS_NOEXEC: c_ulong = 8;
+const MS_REMOUNT: c_ulong = 32;
+const MS_BIND: c_ulong = 4096;
 
 const RB_POWER_OFF: c_int = 0x4321_fedc_u32 as c_int;
 const RB_AUTOBOOT: c_int = 0x0123_4567;
@@ -27,7 +29,9 @@ extern "C" {
         flags: c_ulong,
         data: *const c_void,
     ) -> c_int;
+    fn umount2(target: *const c_char, flags: c_int) -> c_int;
     fn sethostname(name: *const c_char, len: usize) -> c_int;
+    fn chown(path: *const c_char, owner: u32, group: u32) -> c_int;
     fn reboot(cmd: c_int) -> c_int;
     fn sync();
     fn waitpid(pid: i32, status: *mut c_int, options: c_int) -> i32;
@@ -64,11 +68,79 @@ pub fn mount_fs(
     }
 }
 
+/// bind mount(2): expose an already-mounted persistent directory at the
+/// conventional system path without changing the underlying filesystem.
+pub fn bind_mount(source: &str, target: &str) -> io::Result<()> {
+    let (source, target) = (cstr(source)?, cstr(target)?);
+    // SAFETY: source/target are live C strings; fstype/data are ignored for
+    // MS_BIND and may be null.
+    let rc = unsafe {
+        mount(
+            source.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            MS_BIND,
+            std::ptr::null(),
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Remount an already-mounted filesystem read-write without changing
+/// its source, type or other mount options.
+pub fn remount_rw(target: &str) -> io::Result<()> {
+    let target = cstr(target)?;
+    // SAFETY: source, fstype and data are ignored by MS_REMOUNT and may be
+    // null. target is a live NUL-terminated CString.
+    let rc = unsafe {
+        mount(
+            std::ptr::null(),
+            target.as_ptr(),
+            std::ptr::null(),
+            MS_REMOUNT,
+            std::ptr::null(),
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// umount2(2) without lazy/force flags.
+pub fn unmount(target: &str) -> io::Result<()> {
+    let target = cstr(target)?;
+    // SAFETY: target is a live C string and flags=0 requests a normal unmount.
+    let rc = unsafe { umount2(target.as_ptr(), 0) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 /// sethostname(2).
 pub fn set_hostname(name: &str) -> io::Result<()> {
     // SAFETY: the pointer/length pair describes the bytes of `name`, which is
     // borrowed for the whole call; the kernel copies them.
     let rc = unsafe { sethostname(name.as_ptr().cast(), name.len()) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// chown(2).
+pub fn chown_path(path: &str, uid: u32, gid: u32) -> io::Result<()> {
+    let path = cstr(path)?;
+    // SAFETY: path is a live NUL-terminated CString and chown only reads it.
+    let rc = unsafe { chown(path.as_ptr(), uid, gid) };
     if rc == 0 {
         Ok(())
     } else {

@@ -60,5 +60,25 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 29 | Beta release ([phase 29 report](test-reports/phase-29.md)) | IN PROGRESS |
 | 30 | Stable release ([phase 30 report](test-reports/phase-30.md)) | IN PROGRESS |
 
-Audio (PipeWire), Bluetooth, Wine, and Android compatibility come after
-Milestone 4 and are not scheduled yet.
+## Milestone 6: Extended desktop compatibility
+
+| # | Phase | Status |
+|---|-------|--------|
+| 31 | Audio — ALSA + PipeWire + Pulse compatibility + WirePlumber ([phase 31 report](test-reports/phase-31.md)) | IN PROGRESS |
+| 32 | Bluetooth + real wireless connectivity — BlueZ, WPA2/WPA3, DHCP, common laptop drivers/firmware ([phase 32 report](test-reports/phase-32.md)) | IN PROGRESS |
+| 33 | Windows compatibility — native Wayland Wine64 runtime ([phase 33 report](test-reports/phase-33.md)) | IN PROGRESS |
+| 34 | Android compatibility + elastic installed storage — Waydroid/LXC/Binder and automatic root expansion ([phase 34 report](test-reports/phase-34.md)) | IN PROGRESS |
+
+## Milestone 7: System lifecycle
+
+| # | Phase | Status |
+|---|-------|--------|
+| 35 | Power + session lifecycle — peer-authenticated shutdown/reboot broker and native confirmation UI ([phase 35 report](test-reports/phase-35.md)) | IN PROGRESS |
+| 36 | Atomic A/B system updates + trial-boot rollback + recovery entries ([phase 36 report](test-reports/phase-36.md)) | IN PROGRESS |
+| 37 | Local authentication + persistent credential setup + in-session screen lock ([phase 37 report](test-reports/phase-37.md)) | IN PROGRESS |
+| 38 | Network time synchronization — supervised Chrony client and local tracking diagnostics ([phase 38 report](test-reports/phase-38.md)) | IN PROGRESS |
+| 39 | Diagnostics + privacy-bounded support bundle ([phase 39 report](test-reports/phase-39.md)) | IN PROGRESS |
+
+Implementation for phases 12–39 is allowed to land before evidence is collected.
+No phase is promoted to PASS until its final exit gate has actually run and the
+resulting evidence is recorded.

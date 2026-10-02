@@ -16,6 +16,8 @@ wana-wayland = { path = "../wana-wayland" }
 wana-client = { path = "../wana-client" }
 wana-text = { path = "../wana-text" }
 wana-theme = { path = "../wana-theme" }
+wana-auth = { path = "../wana-auth" }
+wana-input = { path = "../wana-input" }
 
 [lints]
 workspace = true

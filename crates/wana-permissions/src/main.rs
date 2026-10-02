@@ -146,12 +146,13 @@ fn ui(args: &Args, store: &Store) -> Result<(), String> {
             .map(|name| Font::load(&args.fonts.join(name)))
             .collect::<Result<_, _>>()?,
     };
-    let rules = store.rules()?;
-    let audit = store.audit()?;
-    let canvas = draw::center(&fonts, &rules, &audit)?;
-    let hash = sha256::hex(&sha256::digest(&canvas.bytes()));
+    let mut rules = store.rules()?;
+    let mut audit = store.audit()?;
 
     let app = App::connect()?;
+    let keyboard = app
+        .keyboard()?
+        .ok_or("permission center requires a keyboard seat")?;
     let window = Window::new(
         &app,
         "الأذونات والخصوصية — وانا",
@@ -159,6 +160,14 @@ fn ui(args: &Args, store: &Store) -> Result<(), String> {
         draw::WIDTH as i32,
         draw::HEIGHT as i32,
     )?;
+    let mut selected = 0usize;
+    let mut canvas = draw::center_selected(
+        &fonts,
+        &rules,
+        &audit,
+        (!rules.is_empty()).then_some(selected),
+    )?;
+    let mut hash = sha256::hex(&sha256::digest(&canvas.bytes()));
     window.present(&app, &canvas.bytes())?;
     info!(
         LOG,
@@ -182,6 +191,82 @@ fn ui(args: &Args, store: &Store) -> Result<(), String> {
                 window.destroy(&app);
                 return Ok(());
             }
+            if let Some((key, pressed)) = app.key_event(keyboard, &event) {
+                if !pressed {
+                    continue;
+                }
+                let mut redraw = false;
+                match key {
+                    103 if !rules.is_empty() => {
+                        selected = selected.saturating_sub(1);
+                        redraw = true;
+                    }
+                    108 if !rules.is_empty() => {
+                        selected = (selected + 1).min(rules.len().min(4) - 1);
+                        redraw = true;
+                    }
+                    105 | 106 | 28 if !rules.is_empty() => {
+                        let current = rules[selected].decision;
+                        let decision = match key {
+                            105 => Decision::Deny,
+                            106 => Decision::Allow,
+                            _ => {
+                                if current == Decision::Allow {
+                                    Decision::Deny
+                                } else {
+                                    Decision::Allow
+                                }
+                            }
+                        };
+                        let rule = rules[selected].clone();
+                        store.set(
+                            "settings-ui",
+                            &rule.app,
+                            &rule.permission,
+                            decision,
+                        )?;
+                        rules = store.rules()?;
+                        audit = store.audit()?;
+                        selected = selected.min(rules.len().saturating_sub(1));
+                        info!(
+                            LOG,
+                            "permission UI saved: app={} permission={} decision={}",
+                            rule.app,
+                            rule.permission,
+                            decision.as_str()
+                        );
+                        redraw = true;
+                    }
+                    111 => {
+                        store.clear_audit()?;
+                        audit = store.audit()?;
+                        info!(LOG, "permission UI cleared audit history");
+                        redraw = true;
+                    }
+                    1 => {
+                        window.destroy(&app);
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                if redraw {
+                    canvas = draw::center_selected(
+                        &fonts,
+                        &rules,
+                        &audit,
+                        (!rules.is_empty()).then_some(selected),
+                    )?;
+                    hash = sha256::hex(&sha256::digest(&canvas.bytes()));
+                    window.present(&app, &canvas.bytes())?;
+                    info!(
+                        LOG,
+                        "permission center updated: rules={} audit={} selected={} sha256 {hash}",
+                        rules.len(),
+                        audit.len(),
+                        selected
+                    );
+                }
+            }
             app.protocol_event(&event)?;
         }
     }
@@ -199,7 +284,6 @@ fn run() -> Result<(), String> {
             permission,
             decision,
         } => {
-            require_root()?;
             store.set("settings", app, permission, *decision)?;
             info!(
                 LOG,
@@ -209,7 +293,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::Check { app, permission } => {
-            require_root()?;
             let decision = store.decision(app, permission)?;
             store.record_check("broker", app, permission, decision)?;
             println!("{}", decision.as_str());
@@ -250,7 +333,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::ClearAudit => {
-            require_root()?;
             store.clear_audit()?;
             info!(LOG, "permission audit cleared");
             Ok(())

@@ -14,6 +14,7 @@ pub mod color {
     pub const DIM_LIGHT: u32 = 0x5C667A;
     pub const ACCENT_BLUE: u32 = 0x4F8CFF;
     pub const ACCENT_TEAL: u32 = 0x2DD4BF;
+    pub const ACCENT_VIOLET: u32 = 0x8B5CF6;
     pub const INFO_BLUE: u32 = 0x60A5FA;
     pub const DANGER: u32 = 0xF87171;
     pub const DANGER_STRONG: u32 = 0xB94A55;
@@ -26,6 +27,79 @@ pub mod color {
     pub const SHELL_BORDER: u32 = 0x3A4560;
     pub const SHELL_DIM: u32 = 0x9AA4B8;
     pub const DOCK_BG: u32 = 0x121827;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    pub bg: u32,
+    pub card: u32,
+    pub text: u32,
+    pub dim: u32,
+    pub accent: u32,
+    pub info: u32,
+    pub danger: u32,
+    pub danger_strong: u32,
+    pub desktop_top: u32,
+    pub desktop_bottom: u32,
+    pub shell_bar: u32,
+    pub shell_bar_text: u32,
+    pub shell_panel: u32,
+    pub shell_border: u32,
+    pub shell_dim: u32,
+    pub dock_bg: u32,
+}
+
+pub fn palette(theme: &str, accent: &str) -> Palette {
+    let accent = match accent {
+        "teal" => color::ACCENT_TEAL,
+        "violet" => color::ACCENT_VIOLET,
+        _ => color::ACCENT_BLUE,
+    };
+    if theme == "light" {
+        Palette {
+            bg: color::BG_LIGHT,
+            card: color::CARD_LIGHT,
+            text: color::TEXT_LIGHT,
+            dim: color::DIM_LIGHT,
+            accent,
+            info: color::INFO_BLUE,
+            danger: color::DANGER,
+            danger_strong: color::DANGER_STRONG,
+            desktop_top: 0xE7EEF9,
+            desktop_bottom: 0xDCE8F8,
+            shell_bar: 0xFFFFFF,
+            shell_bar_text: color::TEXT_LIGHT,
+            shell_panel: 0xFFFFFF,
+            shell_border: 0xCBD5E1,
+            shell_dim: 0x64748B,
+            dock_bg: 0xEEF2F7,
+        }
+    } else {
+        Palette {
+            bg: color::BG_DARK,
+            card: color::CARD_DARK,
+            text: color::TEXT_DARK,
+            dim: color::DIM_DARK,
+            accent,
+            info: color::INFO_BLUE,
+            danger: color::DANGER,
+            danger_strong: color::DANGER_STRONG,
+            desktop_top: color::DESKTOP_TOP,
+            desktop_bottom: color::DESKTOP_BOTTOM,
+            shell_bar: color::SHELL_BAR,
+            shell_bar_text: color::SHELL_BAR_TEXT,
+            shell_panel: color::SHELL_PANEL,
+            shell_border: color::SHELL_BORDER,
+            shell_dim: color::SHELL_DIM,
+            dock_bg: color::DOCK_BG,
+        }
+    }
+}
+
+pub fn current() -> Palette {
+    let theme = std::env::var("WANA_THEME").unwrap_or_else(|_| "dark".into());
+    let accent = std::env::var("WANA_ACCENT").unwrap_or_else(|_| "blue".into());
+    palette(&theme, &accent)
 }
 
 pub mod spacing {
@@ -44,5 +118,10 @@ mod tests {
         assert_ne!(color::BG_DARK, color::BG_LIGHT);
         assert_ne!(color::TEXT_DARK, color::TEXT_LIGHT);
         assert_ne!(color::CARD_DARK, color::CARD_LIGHT);
+        assert_ne!(super::palette("dark", "blue"), super::palette("light", "blue"));
+        assert_ne!(
+            super::palette("dark", "blue").accent,
+            super::palette("dark", "violet").accent
+        );
     }
 }

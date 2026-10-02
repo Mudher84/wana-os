@@ -1,0 +1,8 @@
+# DHCP/IPv4/IPv6 configuration for wired and wireless interfaces.
+name=dhcpcd
+exec=/sbin/dhcpcd
+arg=-B
+after=wpa-supplicant
+restart=always
+uid=0
+gid=0

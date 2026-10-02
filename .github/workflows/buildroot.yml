@@ -1,6 +1,7 @@
 name: buildroot
 
 # Stage 4: Buildroot. Runs only when the platform or build glue changes.
+# Pre-stable evidence reruns may update this comment only to retrigger the full gate.
 on:
   push:
     branches: [main, develop, "feature/**", "work/**", "claude/**"]
@@ -12,6 +13,7 @@ on:
       - "tools/**"
       - "Makefile"
       - ".github/workflows/buildroot.yml"
+      - ".gitignore"
   pull_request:
     paths:
       - "platform/**"
@@ -21,6 +23,7 @@ on:
       - "tools/**"
       - "Makefile"
       - ".github/workflows/buildroot.yml"
+      - ".gitignore"
   workflow_dispatch:
 
 concurrency:
@@ -45,7 +48,7 @@ jobs:
     name: toolchain, image, UEFI boot
     needs: config
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v5
 
@@ -164,6 +167,23 @@ jobs:
       - name: System services (PID1 supervisor + dependency graph validation)
         run: make services-boot-test
 
+      - name: Production desktop session (normal boot, no wana.run)
+        run: make production-session-boot-test
+
+      - name: Local authentication (first setup, persistent login, in-session relock)
+        run: make auth-login-boot-test
+
+      - name: Desktop power lifecycle (uid-1000 UI through privileged broker)
+        run: make power-ui-boot-test
+
+      - name: A/B update lifecycle (offline apply to B + persistent trial confirmation)
+        run: make update-ab-boot-test
+      - name: Network time service (local Chrony tracking interface)
+        run: make time-sync-boot-test
+
+      - name: Diagnostics support bundle (uid-1000 + privacy/mode assertions)
+        run: make diagnostics-boot-test
+
       - name: Live ISO (OVMF -> GRUB -> kernel + initramfs, explicit Live mode)
         run: make live-iso-boot-test
 
@@ -187,6 +207,21 @@ jobs:
 
       - name: Hardware compatibility matrix (e1000 + rtl8139 + PS/2 + NVMe)
         run: make hardware-compatibility-test
+
+      - name: Compatibility payload (PipeWire + BlueZ + Wine64 + LXC)
+        run: make compatibility-image-check
+
+      - name: Audio compatibility (PipeWire user graph)
+        run: make audio-compatibility-boot-test
+
+      - name: Bluetooth compatibility (BlueZ service)
+        run: make bluetooth-compatibility-boot-test
+
+      - name: Windows compatibility (Wine64 on native Wayland stack)
+        run: make windows-compatibility-boot-test
+
+      - name: Android compatibility foundation (Binder + LXC)
+        run: make android-compatibility-boot-test
 
       - name: Upload logs and kernel
         if: always()

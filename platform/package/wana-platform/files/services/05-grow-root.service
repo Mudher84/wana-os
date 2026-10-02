@@ -1,0 +1,8 @@
+# Expand the final persistent-data partition and ext4 filesystem to the
+# installed disk. The replaceable system root remains fixed-size.
+name=grow-root
+exec=/usr/bin/wana-grow-root
+arg=/data
+restart=never
+uid=0
+gid=0

@@ -7,15 +7,6 @@ use wana_text::raster::{draw, Canvas};
 
 pub const WIDTH: u32 = 720;
 pub const HEIGHT: u32 = 480;
-const BG_DARK: u32 = wana_theme::color::BG_DARK;
-const BG_LIGHT: u32 = wana_theme::color::BG_LIGHT;
-const CARD_DARK: u32 = wana_theme::color::CARD_DARK;
-const CARD_LIGHT: u32 = wana_theme::color::CARD_LIGHT;
-const TEXT_DARK: u32 = wana_theme::color::TEXT_DARK;
-const TEXT_LIGHT: u32 = wana_theme::color::TEXT_LIGHT;
-const DIM_DARK: u32 = wana_theme::color::DIM_DARK;
-const DIM_LIGHT: u32 = wana_theme::color::DIM_LIGHT;
-
 fn fill(c: &mut Canvas, x: u32, y: u32, w: u32, h: u32, rgb: u32) {
     for row in y..(y + h).min(c.height) {
         let start = (row * c.width + x.min(c.width)) as usize;
@@ -45,21 +36,24 @@ fn text(
 }
 
 pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
-    let light = s.theme == "light";
-    let bg = if light { BG_LIGHT } else { BG_DARK };
-    let card = if light { CARD_LIGHT } else { CARD_DARK };
-    let fg = if light { TEXT_LIGHT } else { TEXT_DARK };
-    let dim = if light { DIM_LIGHT } else { DIM_DARK };
+    settings_selected(fonts, s, None)
+}
 
-    let mut c = Canvas::new(WIDTH, HEIGHT, bg);
-    text(&mut c, fonts, "الإعدادات", 28.0, 30.0, fg)?;
+pub fn settings_selected(
+    fonts: &FontSet,
+    s: &Settings,
+    selected: Option<usize>,
+) -> Result<Canvas, String> {
+    let palette = wana_theme::palette(&s.theme, &s.accent);
+    let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
+    text(&mut c, fonts, "الإعدادات", 28.0, 30.0, palette.text)?;
     text(
         &mut c,
         fonts,
         "إعدادات وانا الأساسية محفوظة محلياً وبشكل ذري",
         72.0,
         17.0,
-        dim,
+        palette.dim,
     )?;
 
     for (i, (name, value)) in [
@@ -87,15 +81,36 @@ pub fn settings(fonts: &FontSet, s: &Settings) -> Result<Canvas, String> {
                 _ => "أزرق",
             },
         ),
+        ("المنطقة الزمنية", s.timezone.as_str()),
     ]
     .iter()
     .enumerate()
     {
-        let y = 128 + i as u32 * 96;
-        fill(&mut c, 32, y, WIDTH - 64, 76, card);
-        text(&mut c, fonts, name, y as f32 + 12.0, 20.0, fg)?;
-        text(&mut c, fonts, value, y as f32 + 40.0, 16.0, dim)?;
+        let y = 112 + i as u32 * 82;
+        let active = selected == Some(i);
+        let row_bg = if active { palette.accent } else { palette.card };
+        let row_text = if active {
+            wana_theme::color::TEXT_DARK
+        } else {
+            palette.text
+        };
+        let row_dim = if active {
+            wana_theme::color::TEXT_DARK
+        } else {
+            palette.dim
+        };
+        fill(&mut c, 32, y, WIDTH - 64, 70, row_bg);
+        text(&mut c, fonts, name, y as f32 + 10.0, 20.0, row_text)?;
+        text(&mut c, fonts, value, y as f32 + 38.0, 16.0, row_dim)?;
     }
+    text(
+        &mut c,
+        fonts,
+        "↑↓ اختيار   ←→ تغيير   Enter حفظ   Esc خروج",
+        446.0,
+        13.0,
+        palette.dim,
+    )?;
     Ok(c)
 }
 

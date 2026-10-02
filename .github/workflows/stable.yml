@@ -14,7 +14,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: stable-${{ github.ref }}
@@ -31,7 +31,7 @@ jobs:
       - name: Toolchains
         run: |
           rustup show active-toolchain
-          rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" --profile minimal
+          rustup toolchain install "$(sed -n 's/^rust-version = "\\(.*\\)"/\\1/p' Cargo.toml)" --profile minimal
 
       - name: Development libraries
         run: |
@@ -169,9 +169,11 @@ jobs:
           if-no-files-found: error
 
   compare:
-    name: reproducibility + publish
+    name: reproducibility
     needs: [candidate, rebuild]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
@@ -194,12 +196,28 @@ jobs:
           test -n "$manifest_a" -a -n "$manifest_b"
           tools/compare-manifests.py "$manifest_a" "$manifest_b"
 
+  publish:
+    name: publish stable release
+    needs: [candidate, rebuild, compare]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified stable bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: stable-candidate-A
+          path: candidate
+
       - name: Publish stable GitHub release
-        if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.candidate.outputs.version }}
         shell: bash
         run: |
           set -eu
-          gh release create "v$VERSION" candidate/*             --target "$GITHUB_SHA"             --generate-notes             --title "Wana OS $VERSION"
+          gh release create "v$VERSION" candidate/* \
+            --target "$GITHUB_SHA" \
+            --generate-notes \
+            --title "Wana OS $VERSION"

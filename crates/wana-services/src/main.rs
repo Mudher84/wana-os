@@ -10,6 +10,13 @@ use std::time::{Duration, Instant};
 use wana_log::{error, info, warn, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
+const READY_MARKER: &str = "/run/wana/services.ready";
+
+extern "C" {
+    fn setgroups(size: usize, list: *const u32) -> i32;
+    fn setgid(gid: u32) -> i32;
+    fn setuid(uid: u32) -> i32;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Restart {
@@ -27,6 +34,9 @@ struct Service {
     restart: Restart,
     uid: u32,
     gid: u32,
+    home: Option<PathBuf>,
+    env: Vec<(String, String)>,
+    ready_path: Option<PathBuf>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -34,6 +44,12 @@ fn valid_name(s: &str) -> bool {
         && s.len() <= 64
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
+fn valid_env_key(s: &str) -> bool {
+    let mut bytes = s.bytes();
+    matches!(bytes.next(), Some(b'A'..=b'Z' | b'_'))
+        && bytes.all(|b| matches!(b, b'A'..=b'Z' | b'0'..=b'9' | b'_'))
 }
 
 fn effective_uid() -> Result<u32, String> {
@@ -126,6 +142,9 @@ fn parse(path: &Path) -> Result<Service, String> {
     let mut restart = Restart::Never;
     let mut uid = 0u32;
     let mut gid = 0u32;
+    let mut home = None;
+    let mut env = Vec::new();
+    let mut ready_path = None;
     let mut seen = BTreeSet::new();
 
     for (line_no, raw) in text.lines().enumerate() {
@@ -137,7 +156,7 @@ fn parse(path: &Path) -> Result<Service, String> {
             .split_once('=')
             .ok_or_else(|| format!("{}:{}: expected key=value", path.display(), line_no + 1))?;
         let (key, value) = (key.trim(), value.trim());
-        if key != "arg" && !seen.insert(key.to_string()) {
+        if key != "arg" && key != "env" && !seen.insert(key.to_string()) {
             return Err(format!(
                 "{}:{}: duplicate {key}",
                 path.display(),
@@ -207,6 +226,52 @@ fn parse(path: &Path) -> Result<Service, String> {
                     .parse()
                     .map_err(|_| format!("{}:{}: invalid gid", path.display(), line_no + 1))?
             }
+            "home" => {
+                let p = PathBuf::from(value);
+                if !p.is_absolute() || value.split('/').any(|part| part == "..") {
+                    return Err(format!(
+                        "{}:{}: home must be an absolute safe path",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                home = Some(p);
+            }
+            "ready_path" => {
+                let p = PathBuf::from(value);
+                if !p.is_absolute()
+                    || value.split('/').any(|part| part == "..")
+                    || !p.starts_with("/run")
+                    || p == Path::new("/run")
+                {
+                    return Err(format!(
+                        "{}:{}: ready_path must be a safe transient path under /run",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                ready_path = Some(p);
+            }
+            "env" => {
+                let (name, val) = value.split_once('=').ok_or_else(|| {
+                    format!("{}:{}: env must be NAME=VALUE", path.display(), line_no + 1)
+                })?;
+                if !valid_env_key(name) || val.contains('\0') {
+                    return Err(format!(
+                        "{}:{}: invalid environment entry",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                if env.iter().any(|(existing, _)| existing == name) {
+                    return Err(format!(
+                        "{}:{}: duplicate environment key {name}",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+                env.push((name.to_string(), val.to_string()));
+            }
             _ => {
                 return Err(format!(
                     "{}:{}: unknown field {key}",
@@ -225,6 +290,9 @@ fn parse(path: &Path) -> Result<Service, String> {
         restart,
         uid,
         gid,
+        home,
+        env,
+        ready_path,
     })
 }
 
@@ -289,9 +357,31 @@ fn spawn(s: &Service) -> Result<Child, String> {
     cmd.args(&s.args)
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
-        .uid(s.uid)
-        .gid(s.gid)
         .current_dir("/");
+    if let Some(home) = &s.home {
+        cmd.env("HOME", home);
+    }
+    for (name, value) in &s.env {
+        cmd.env(name, value);
+    }
+    let (uid, gid) = (s.uid, s.gid);
+    // SAFETY: this runs in the child after fork and before exec. Drop all
+    // inherited supplementary groups before changing gid/uid so a non-root
+    // service cannot retain root group access accidentally.
+    unsafe {
+        cmd.pre_exec(move || {
+            if setgroups(0, std::ptr::null()) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if setgid(gid) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if setuid(uid) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let child = cmd
         .spawn()
         .map_err(|e| format!("{}: {}: {e}", s.name, s.exec.display()))?;
@@ -307,13 +397,92 @@ fn spawn(s: &Service) -> Result<Child, String> {
     Ok(child)
 }
 
+fn clear_stale_ready_path(service: &Service) -> Result<(), String> {
+    let Some(path) = &service.ready_path else {
+        return Ok(());
+    };
+    match fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || meta.is_dir() {
+                return Err(format!(
+                    "service {} readiness path {} is unsafe to replace",
+                    service.name,
+                    path.display()
+                ));
+            }
+            fs::remove_file(path).map_err(|e| {
+                format!(
+                    "service {} remove stale readiness path {}: {e}",
+                    service.name,
+                    path.display()
+                )
+            })?;
+            info!(
+                LOG,
+                "service {} removed stale readiness path {}",
+                service.name,
+                path.display()
+            );
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "service {} inspect readiness path {}: {e}",
+            service.name,
+            path.display()
+        )),
+    }
+}
+
+fn wait_ready(service: &Service, child: &mut Child) -> Result<(), String> {
+    let Some(path) = &service.ready_path else {
+        return Ok(());
+    };
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if path.exists() {
+            info!(
+                LOG,
+                "service {} ready: {}",
+                service.name,
+                path.display()
+            );
+            return Ok(());
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| format!("{}: readiness wait: {e}", service.name))?
+        {
+            return Err(format!(
+                "service {} exited {status} before readiness path {} appeared",
+                service.name,
+                path.display()
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "service {} readiness timeout waiting for {}",
+                service.name,
+                path.display()
+            ));
+        }
+        sleep(Duration::from_millis(50));
+    }
+}
+
 fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Result<(), String> {
     let sequence = order(&map)?;
     let mut children: BTreeMap<String, Child> = BTreeMap::new();
     for name in &sequence {
-        children.insert(name.clone(), spawn(&map[name])?);
+        clear_stale_ready_path(&map[name])?;
+        let mut child = spawn(&map[name])?;
+        wait_ready(&map[name], &mut child)?;
+        children.insert(name.clone(), child);
     }
-    info!(LOG, "services ready: {} service(s)", children.len());
+    fs::create_dir_all("/run/wana").map_err(|e| format!("create /run/wana: {e}"))?;
+    fs::write(READY_MARKER, format!("services={}\n", children.len()))
+        .map_err(|e| format!("write {READY_MARKER}: {e}"))?;
+    info!(LOG, "services ready: {} service(s); marker={READY_MARKER}", children.len());
     let deadline = timeout.map(|d| Instant::now() + d);
 
     loop {
@@ -334,7 +503,10 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
             if again {
                 warn!(LOG, "service {name} exited {status}; restarting");
                 sleep(Duration::from_millis(250));
-                children.insert(name.clone(), spawn(&map[name])?);
+                clear_stale_ready_path(&map[name])?;
+                let mut replacement = spawn(&map[name])?;
+                wait_ready(&map[name], &mut replacement)?;
+                children.insert(name.clone(), replacement);
             } else {
                 info!(LOG, "service {name} exited {status}; not restarting");
                 children.remove(name);
@@ -345,6 +517,11 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
 }
 
 fn run() -> Result<(), String> {
+    match fs::remove_file(READY_MARKER) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("remove stale {READY_MARKER}: {e}")),
+    }
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "run".into());
     let dir = PathBuf::from(args.next().unwrap_or_else(|| "/etc/wana/services.d".into()));
@@ -407,13 +584,25 @@ mod tests {
         .unwrap();
         fs::write(
             d.join("b.service"),
-            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\n",
+            "name=b\nexec=/bin/true\nafter=a\nuid=10\ngid=20\nhome=/tmp\nready_path=/run/user/10/bus\nenv=XDG_RUNTIME_DIR=/run/user/10\nenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/10/bus\n",
         )
         .unwrap();
         let map = load(&d).unwrap();
         assert_eq!(order(&map).unwrap(), ["a", "b"]);
         assert_eq!(map["b"].uid, 10);
         assert_eq!(map["b"].gid, 20);
+        assert_eq!(map["b"].home, Some(PathBuf::from("/tmp")));
+        assert_eq!(map["b"].ready_path, Some(PathBuf::from("/run/user/10/bus")));
+        assert_eq!(
+            map["b"].env,
+            [
+                ("XDG_RUNTIME_DIR".into(), "/run/user/10".into()),
+                (
+                    "DBUS_SESSION_BUS_ADDRESS".into(),
+                    "unix:path=/run/user/10/bus".into()
+                ),
+            ]
+        );
         let _ = fs::remove_dir_all(d);
     }
 
@@ -435,9 +624,28 @@ mod tests {
     }
 
     #[test]
+    fn readiness_paths_must_be_transient_runtime_paths() {
+        let d = dir();
+        fs::write(
+            d.join("bad-ready.service"),
+            "name=bad-ready\nexec=/bin/true\nready_path=/tmp/service.ready\n",
+        )
+        .unwrap();
+        assert!(load(&d).is_err());
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
     fn cycles_missing_dependencies_and_relative_exec_are_rejected() {
         let d = dir();
         fs::write(d.join("bad.service"), "name=bad\nexec=relative\n").unwrap();
+        assert!(load(&d).is_err());
+        fs::remove_file(d.join("bad.service")).unwrap();
+        fs::write(
+            d.join("bad.service"),
+            "name=bad\nexec=/bin/true\nenv=bad-name=value\n",
+        )
+        .unwrap();
         assert!(load(&d).is_err());
         fs::remove_file(d.join("bad.service")).unwrap();
         fs::write(d.join("a.service"), "name=a\nexec=/bin/true\nafter=b\n").unwrap();

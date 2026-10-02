@@ -1,68 +1,140 @@
 # Building Wana OS
 
 Everything goes through the top-level `Makefile`. Run `make help` for the
-current list of targets.
+authoritative target list.
 
-## What builds today
+## Host
 
-| Target | What it does | Needs |
-|--------|--------------|-------|
-| `make check` | rustfmt check, clippy (warnings are errors), unit tests, repository checks | Rust (rustup installs the version pinned in `rust-toolchain.toml`) |
-| `make buildroot-src` | Clones the pinned Buildroot (`platform/buildroot.env`) into `out/` and verifies the commit hash | git, github.com |
-| `make config` | Loads `wana_x86_64_defconfig` into `out/build/wana_x86_64` | host gcc, make |
-| `make config-check` | Checks that the defconfig loads and round-trips through `savedefconfig` unchanged | host gcc, make |
-| `make toolchain` | Builds the cross toolchain: gcc 14.3, glibc, Linux 6.18 headers, C++ | Host packages in `tools/host-packages-ubuntu.txt`, unrestricted network, about 30 min |
-| `make kernel` | Builds Linux 6.18.33 (`x86_64_defconfig` + `platform/board/x86_64/linux.fragment`) into `out/build/wana_x86_64/images/bzImage` | as `make toolchain` |
-| `make kernel-config-check` | Checks every fragment option reached the kernel `.config` | a built kernel |
-| `make kernel-boot-test` | Boots `bzImage` under QEMU + OVMF (UEFI) and checks the serial log | `qemu-system-x86`, `ovmf` |
-| `make msrv` | Unit tests with Buildroot's Rust version (`rust-version` in `Cargo.toml`) | `rustup toolchain install 1.88` |
-| `make image` | Full Buildroot build (toolchain, kernel, `wana-init`, rootfs, `disk.img`), then `make manifest` | as `make toolchain` |
-| `make manifest` | Writes `images/build-manifest.json` (commit, versions, config and artifact hashes) and `images/SHA256SUMS` | python3 |
-| `make repro-compare A=… B=…` | Compares two manifests artifact by artifact; exit 1 on any difference | python3 |
-| `make system-boot-test` | Boots `bzImage` + `rootfs.cpio.zst` under QEMU+OVMF with `wana.test=poweroff`; `wana-init` must print `ready` | `qemu-system-x86`, `ovmf` |
-| `make disk-boot-test` | Boots `images/disk.img` (GPT: ESP with GRUB + kernel, ext4 root) through OVMF with no `-kernel`; `wana-init` must reach `ready` | `qemu-system-x86`, `ovmf`, `mtools` |
-| `make graphics-boot-test` | Boots `disk.img` with a virtio-gpu display, runs `wana-kms` (modeset + page flips), screenshots the virtual screen and checks pixel colors | `qemu-system-x86`, `ovmf`, `mtools`, python3 |
-| `make gl-boot-test` | Boots `disk.img` with virtio-gpu, runs `wana-gl` (GBM + EGL + OpenGL ES shader, scanout via wana-drm), checks screenshot pixels | as `graphics-boot-test` |
-| `make br-<target>` | Runs any Buildroot target, e.g. `make br-menuconfig` | |
+Primary build host: Linux x86_64. Windows development uses WSL2 with a Linux
+distribution; the actual Buildroot build still runs in Linux.
 
-The ISO target does not exist yet (Phase 18).
-
-Build layout:
-
-```
-out/buildroot-<version>/   pinned Buildroot source (fetched)
-out/build/wana_x86_64/     Buildroot output (O=)
-dl/                        source tarball cache (BR2_DL_DIR)
-~/.buildroot-ccache        compiler cache (BR2_CCACHE)
-```
-
-## Host packages (Ubuntu 24.04)
+Install the Ubuntu host package set with:
 
 ```sh
 grep -v '^#' tools/host-packages-ubuntu.txt | xargs sudo apt-get install -y
 ```
 
-## Host requirements
+Rust is pinned by `rust-toolchain.toml`. The Buildroot/MSRV gate uses the Rust
+version declared by the workspace (`1.88` for the current Buildroot line).
 
-- Linux x86_64 host
-- `rustup` (it installs the toolchain pinned in `rust-toolchain.toml`)
-- GNU make, git
-- For `cargo test`/`clippy` on the host: GBM/EGL/GLES, udev/libinput/xkbcommon and libwayland development files, keymap data and the
-  Wayland protocol XML (`libgbm-dev libegl-dev libgles-dev libudev-dev libinput-dev libxkbcommon-dev xkb-data
-  libwayland-dev wayland-protocols` on Ubuntu)
+## Source and static gates
 
-## Network note
+```sh
+make check
+make msrv
+make wayland-host-test
+make config-check
+```
 
-A Buildroot build downloads upstream source tarballs from kernel.org, gnu.org
-and other hosts. It needs unrestricted outbound HTTPS. GitHub Actions runners
-have it. Restricted sandboxes may not (see
-[audit 0000](audit/0000-repository-audit.md)).
+`make check` runs formatting/lint/unit/repository checks. `make msrv` proves
+the Rust code on the Buildroot-compatible toolchain. `make wayland-host-test`
+runs protocol/compositor scenarios headlessly.
+
+## Buildroot and images
+
+```sh
+make buildroot-src
+make config
+make image
+```
+
+Important outputs are under `out/build/wana_x86_64/images/`:
+
+- `bzImage`;
+- `rootfs.cpio.zst`;
+- `rootfs.ext4` and `rootfs.ext4.zst`;
+- `disk.img`: UEFI/GPT installed image with ESP, system slots A/B and Data;
+- the Live ISO;
+- `build-manifest.json`;
+- `SHA256SUMS`.
+
+The disk layout is generated from `platform/board/x86_64/`. Slot A contains
+the factory root; slot B is reserved for a verified update. Data is persistent
+and last on disk so the installed system can expand it to the target device.
+
+## Boot/runtime gates
+
+The Makefile exposes focused QEMU gates for the kernel, disk, graphics, input,
+compositor, shell, applications, installer, permissions/security and hardware
+matrix. Examples:
+
+```sh
+make kernel-boot-test
+make disk-boot-test
+make compositor-boot-test
+make installed-disk-boot-test
+make security-hardening-boot-test
+make hardware-compatibility-test
+```
+
+Compatibility/lifecycle gates include:
+
+```sh
+make audio-compatibility-boot-test
+make bluetooth-compatibility-boot-test
+make windows-compatibility-boot-test
+make android-compatibility-boot-test
+make auth-login-boot-test
+make power-ui-boot-test
+make update-ab-boot-test
+make time-sync-boot-test
+make diagnostics-boot-test
+```
+
+## Final frozen-source validation
+
+Implementation is allowed to land before consolidated evidence. When the source
+line is frozen, run:
+
+```sh
+make final-validation-test
+```
+
+That target executes source/MSRV/protocol/config/image gates and the complete
+Stable runtime gate, including phases 35–39.
+
+Full Android UI evidence is intentionally separate because the reproducible
+release image does not embed multi-gigabyte Android OTA images. Use a
+pre-provisioned validation disk and deterministic installed test APK as
+described in [FINAL-VALIDATION.md](FINAL-VALIDATION.md).
+
+## Beta and Stable bundles
+
+After an image has passed its required gates:
+
+```sh
+make beta-bundle VERSION=0.1.0-beta.1
+make stable-bundle VERSION=0.1.0
+```
+
+`tools/prepare-release.py` binds the release to the exact Git commit and
+closed SHA-256 artifact set. Stable update assets include strict `update.txt`, compressed rootfs, kernel
+and initramfs metadata. The update metadata also records the raw ext4 size so
+older installations can reject a system image that will not fit their inactive
+A/B slot before any slot write begins.
+
+The Stable GitHub workflow performs an independent second no-ccache build and
+compares manifests/artifact hashes before publication. Publication permission
+is isolated to the final publish job.
+
+## A/B update behavior
+
+The online updater discovers the latest stable version, then pins subsequent
+metadata/checksum/payload downloads to that exact `vX.Y.Z` release tag.
+Downloads have size ceilings, payloads are verified by SHA-256, downgrades are
+rejected, and reusing one stable version for a different commit is rejected.
+
+The current trust boundary for online release origin is GitHub HTTPS plus
+repository/release control. The release payload itself is closed and
+hash-verified; a separate detached offline signing key is not part of the
+current Phase 36 exit gate.
 
 ## Reproducibility
 
-Every `make image` writes `images/build-manifest.json` and `images/SHA256SUMS`.
-To check an image, compare its hashes with the manifest of the CI build of the
-same commit. The `reproducibility` workflow builds each `develop`/`main` commit
-twice on separate runners and requires identical artifacts. `SOURCE_DATE_EPOCH`
-is the pinned Buildroot commit time. Disk identifiers are fixed in
-`platform/board/x86_64/disk.env`.
+`make image` writes `build-manifest.json` and `SHA256SUMS`.
+`make repro-compare A=... B=...` compares two manifests artifact-by-artifact.
+
+The reproducibility workflow performs independent builds of the same commit.
+Fixed disk identifiers and `SOURCE_DATE_EPOCH` remove expected image
+nondeterminism; the installer generates fresh identifiers for real installed
+media.

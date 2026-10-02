@@ -9,8 +9,13 @@
 //! | `wana.test=poweroff\|reboot` | automated test boot: stop the machine once init is ready |
 //! | `wana.shell=1` | explicitly start the debug root shell on the console (default off) |
 //! | `wana.udev=0` | do not start udevd (static `/dev` from devtmpfs only) |
+//! | `wana.services=0|1` | disable/force system services; automated `wana.test` and one-shot `wana.run` boots skip them by default |
 //! | `wana.run=/abs/path[,arg...]` | run one program after `ready` and wait for it (bring-up/tests); commas separate arguments |
 //! | `wana.live=1` | booted from the read-only Live ISO/initramfs path |
+//! | `wana.update=1` | boot the isolated A/B update environment |
+//! | `wana.active=A|B` | currently selected system slot |
+//! | `wana.root_a=PARTUUID=...` / `wana.root_b=PARTUUID=...` | A/B root devices |
+//! | `wana.data=UUID=...` | persistent Data filesystem used for staged updates |
 
 use wana_log::Level;
 
@@ -29,10 +34,20 @@ pub struct Options {
     pub shell: bool,
     /// Start udevd and coldplug devices (when udevd is installed).
     pub udev: bool,
+    /// Explicit system-service policy. None means services on for normal boot,
+    /// off for automated `wana.test` and one-shot `wana.run` boots.
+    pub services: Option<bool>,
     /// Program (absolute path) and arguments to run once after `ready`.
     pub run: Option<Vec<String>>,
     /// Booted from the Live ISO path.
     pub live: bool,
+    /// Isolated update environment loaded by GRUB from the staged bundle.
+    pub update: bool,
+    /// Slot selected before entering the update environment.
+    pub active_slot: char,
+    pub root_a: Option<String>,
+    pub root_b: Option<String>,
+    pub data: Option<String>,
     /// Unknown `wana.*` options or bad values, reported as warnings.
     pub warnings: Vec<String>,
 }
@@ -44,8 +59,14 @@ impl Default for Options {
             test: None,
             shell: false,
             udev: true,
+            services: None,
             run: None,
             live: false,
+            update: false,
+            active_slot: 'A',
+            root_a: None,
+            root_b: None,
+            data: None,
             warnings: Vec::new(),
         }
     }
@@ -72,15 +93,36 @@ pub fn parse(cmdline: &str) -> Options {
                     .warnings
                     .push(format!("wana.test: unknown action {other:?}")),
             },
-            "live" => match parse_bool(value) {
-                Some(on) => opts.live = on,
+            "live" | "update" => match parse_bool(value) {
+                Some(on) if key == "live" => opts.live = on,
+                Some(on) => opts.update = on,
                 None => opts
                     .warnings
-                    .push(format!("wana.live: unknown value {value:?}")),
+                    .push(format!("wana.{key}: unknown value {value:?}")),
             },
-            "shell" | "udev" => match parse_bool(value) {
+            "active" => match value {
+                "A" => opts.active_slot = 'A',
+                "B" => opts.active_slot = 'B',
+                _ => opts
+                    .warnings
+                    .push(format!("wana.active: unknown slot {value:?}")),
+            },
+            "root_a" | "root_b" | "data" => {
+                if valid_device_spec(value) {
+                    match key {
+                        "root_a" => opts.root_a = Some(value.to_owned()),
+                        "root_b" => opts.root_b = Some(value.to_owned()),
+                        _ => opts.data = Some(value.to_owned()),
+                    }
+                } else {
+                    opts.warnings
+                        .push(format!("wana.{key}: invalid device spec {value:?}"));
+                }
+            }
+            "shell" | "udev" | "services" => match parse_bool(value) {
                 Some(on) if key == "shell" => opts.shell = on,
-                Some(on) => opts.udev = on,
+                Some(on) if key == "udev" => opts.udev = on,
+                Some(on) => opts.services = Some(on),
                 None => opts
                     .warnings
                     .push(format!("wana.{key}: unknown value {value:?}")),
@@ -98,6 +140,18 @@ pub fn parse(cmdline: &str) -> Options {
         }
     }
     opts
+}
+
+fn valid_device_spec(value: &str) -> bool {
+    let Some((kind, id)) = value.split_once('=') else {
+        return false;
+    };
+    matches!(kind, "PARTUUID" | "UUID")
+        && !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F' | b'-'))
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
@@ -154,6 +208,14 @@ mod tests {
     }
 
     #[test]
+    fn service_policy_is_optional_and_validated() {
+        assert_eq!(parse("").services, None);
+        assert_eq!(parse("wana.services=0").services, Some(false));
+        assert_eq!(parse("wana.services=1").services, Some(true));
+        assert_eq!(parse("wana.services=maybe").warnings.len(), 1);
+    }
+
+    #[test]
     fn last_value_wins() {
         assert_eq!(
             parse("wana.test=poweroff wana.test=reboot").test,
@@ -180,6 +242,22 @@ mod tests {
         let o = parse("wana.run=wana-kms");
         assert_eq!(o.run, None);
         assert_eq!(o.warnings.len(), 1);
+    }
+
+    #[test]
+    fn update_mode_parses_slot_devices_strictly() {
+        let o = parse(
+            "wana.update=1 wana.active=B wana.root_a=PARTUUID=aaaa-1111 wana.root_b=PARTUUID=bbbb-2222 wana.data=UUID=cccc-3333",
+        );
+        assert!(o.update);
+        assert_eq!(o.active_slot, 'B');
+        assert_eq!(o.root_a.as_deref(), Some("PARTUUID=aaaa-1111"));
+        assert_eq!(o.root_b.as_deref(), Some("PARTUUID=bbbb-2222"));
+        assert_eq!(o.data.as_deref(), Some("UUID=cccc-3333"));
+        assert!(o.warnings.is_empty());
+
+        let bad = parse("wana.active=C wana.root_a=/dev/vda");
+        assert_eq!(bad.warnings.len(), 2);
     }
 
     #[test]

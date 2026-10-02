@@ -179,6 +179,7 @@ fn runtime_dir() -> Result<PathBuf, String> {
 }
 
 fn run(args: &Args) -> Result<(), String> {
+    protect_trusted_process()?;
     info!(
         COMPOSITOR,
         "wana-compositor {} starting",
@@ -444,9 +445,20 @@ struct PollFd {
     revents: i16,
 }
 const POLLIN: i16 = 1;
+const PR_SET_DUMPABLE: i32 = 4;
 
 extern "C" {
     fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
+    fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
+}
+
+fn protect_trusted_process() -> Result<(), String> {
+    // SAFETY: PR_SET_DUMPABLE with arg2=0 changes only this process attribute.
+    if unsafe { prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) } == 0 {
+        Ok(())
+    } else {
+        Err(format!("PR_SET_DUMPABLE=0: {}", std::io::Error::last_os_error()))
+    }
 }
 
 /// Waits until the Wayland event loop, the DRM device or libinput has
@@ -594,6 +606,9 @@ fn spawn_client(
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
         .env("XDG_RUNTIME_DIR", dir)
         .env("WAYLAND_DISPLAY", display);
+    if let Some(home) = std::env::var_os("HOME") {
+        cmd.env("HOME", home);
+    }
     if debug {
         cmd.env("WAYLAND_DEBUG", "1");
     }

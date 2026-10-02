@@ -1,0 +1,18 @@
+# Wana OS production desktop session.
+#
+# PID 1 starts wana-services on normal boot. The compositor owns the private
+# shell connection and restarts as a unit if the shell exits.
+name=desktop
+exec=/usr/bin/wana-session
+arg=/usr/bin/wana-compositor
+arg=--exit-with-shell
+arg=--shell
+arg=/usr/bin/wana-shell
+after=wireplumber,auth,power,update,time-sync
+restart=always
+uid=1000
+gid=1000
+home=/home/wana
+env=XDG_RUNTIME_DIR=/run/user/1000
+env=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+env=WANA_REQUIRE_AUTH=1

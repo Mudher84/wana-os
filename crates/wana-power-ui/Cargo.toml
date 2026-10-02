@@ -1,0 +1,18 @@
+[package]
+name = "wana-power-ui"
+description = "Wana OS native power confirmation dialog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wana-client = { path = "../wana-client" }
+wana-log = { path = "../wana-log" }
+wana-power = { path = "../wana-power" }
+wana-text = { path = "../wana-text" }
+wana-theme = { path = "../wana-theme" }
+
+[lints]
+workspace = true

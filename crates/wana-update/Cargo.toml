@@ -1,0 +1,14 @@
+[package]
+name = "wana-update"
+description = "Wana OS verified update bundle staging"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wana-log = { path = "../wana-log" }
+
+[lints]
+workspace = true

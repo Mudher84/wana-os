@@ -1,0 +1,11 @@
+# User audio/media graph.
+name=pipewire
+exec=/usr/bin/pipewire
+after=user-bus
+ready_path=/run/user/1000/pipewire-0
+restart=always
+uid=1000
+gid=1000
+home=/home/wana
+env=XDG_RUNTIME_DIR=/run/user/1000
+env=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus

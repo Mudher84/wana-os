@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+case "${1:-status}" in
+    status)
+        i=0
+        while [ "$i" -lt 50 ]; do
+            if output=$(/usr/bin/chronyc -n tracking 2>/dev/null); then
+                leap=$(printf '%s\n' "$output" | sed -n 's/^Leap status[[:space:]]*:[[:space:]]*//p')
+                stratum=$(printf '%s\n' "$output" | sed -n 's/^Stratum[[:space:]]*:[[:space:]]*//p')
+                echo "WANA_TIME_READY stratum=${stratum:-unknown} leap=${leap:-unknown}"
+                printf '%s\n' "$output"
+                exit 0
+            fi
+            sleep 0.1
+            i=$((i + 1))
+        done
+        echo "WANA_TIME_NOT_READY" >&2
+        exit 1
+        ;;
+    sources)
+        exec /usr/bin/chronyc -n sources -v
+        ;;
+    wait)
+        exec /usr/bin/chronyc waitsync 30 0 0 1
+        ;;
+    *)
+        echo "usage: wana-time {status|sources|wait}" >&2
+        exit 2
+        ;;
+esac

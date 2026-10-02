@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "wana-auth"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
 name = "wana-client"
 version = "0.1.0"
 dependencies = [
@@ -52,6 +59,7 @@ name = "wana-init"
 version = "0.1.0"
 dependencies = [
  "wana-log",
+ "wana-update",
 ]
 
 [[package]]
@@ -104,6 +112,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "wana-power"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
+name = "wana-power-ui"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-power",
+ "wana-text",
+ "wana-theme",
+]
+
+[[package]]
 name = "wana-render"
 version = "0.1.0"
 dependencies = [
@@ -116,6 +142,14 @@ name = "wana-services"
 version = "0.1.0"
 dependencies = [
  "wana-log",
+]
+
+[[package]]
+name = "wana-session"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+ "wana-settings",
 ]
 
 [[package]]
@@ -132,7 +166,9 @@ dependencies = [
 name = "wana-shell"
 version = "0.1.0"
 dependencies = [
+ "wana-auth",
  "wana-client",
+ "wana-input",
  "wana-log",
  "wana-motion",
  "wana-text",
@@ -146,6 +182,25 @@ version = "0.1.0"
 
 [[package]]
 name = "wana-text"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
+name = "wana-update-ui"
+version = "0.1.0"
+dependencies = [
+ "wana-client",
+ "wana-log",
+ "wana-power",
+ "wana-text",
+ "wana-theme",
+ "wana-update",
+]
+
+[[package]]
+name = "wana-update"
 version = "0.1.0"
 dependencies = [
  "wana-log",

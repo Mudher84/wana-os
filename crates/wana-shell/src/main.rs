@@ -38,7 +38,10 @@ mod toplevels;
 use apps::App;
 use launcher::{Action, Menu};
 use std::fs::File;
+use std::io::Read;
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::io::FromRawFd;
+use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -46,6 +49,8 @@ use toplevels::Toplevels;
 use wana_client::client::{Connection, Event, Proxy, Req, Val};
 use wana_client::layer::{self, LayerSurface, Spec};
 use wana_client::shm::Buffer;
+use wana_auth::AuthStatus;
+use wana_input::keyboard::{Keyboard, Modifiers};
 use wana_log::{debug, error, info, warn, Subsystem};
 use wana_motion::{duration, Curve, Motion};
 use wana_text::font::Font;
@@ -60,13 +65,27 @@ use wana_wayland::protocols::{
 const SHELL: Subsystem = Subsystem::Shell;
 const F_SETFD: i32 = 2;
 const FD_CLOEXEC: i32 = 1;
+const PR_SET_DUMPABLE: i32 = 4;
 const BTN_LEFT: u32 = 0x110;
 const CAP_POINTER: u32 = 1;
 const CAP_KEYBOARD: u32 = 2;
 const LAUNCHER_SELECTION_MOTION: Motion = Motion::new(duration::QUICK_MS, 6, Curve::EaseOutCubic);
+const KEY_BACKSPACE: u32 = 14;
+const KEY_ENTER: u32 = 28;
+
 
 extern "C" {
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
+}
+
+fn protect_trusted_process() -> Result<(), String> {
+    // SAFETY: PR_SET_DUMPABLE with arg2=0 changes only this process attribute.
+    if unsafe { prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) } == 0 {
+        Ok(())
+    } else {
+        Err(format!("PR_SET_DUMPABLE=0: {}", std::io::Error::last_os_error()))
+    }
 }
 
 struct Args {
@@ -214,6 +233,15 @@ fn show_unhashed(
 }
 
 /// The open launcher.
+struct LockScreen {
+    ls: LayerSurface,
+    setup_required: bool,
+    confirming: bool,
+    first: Option<String>,
+    input: String,
+    error: Option<String>,
+}
+
 struct Launcher {
     ls: LayerSurface,
     menu: Menu,
@@ -241,6 +269,7 @@ struct Devices {
     pointer_on: Option<Proxy>,
     at: (f64, f64),
     keyboard_on: Option<Proxy>,
+    keymap: Option<Keyboard>,
 }
 
 /// What an input event asks of the shell.
@@ -248,7 +277,7 @@ enum Input {
     /// Left button pressed on `surface` at surface-local `x`, `y`.
     Click(Proxy, f64, f64),
     /// Key pressed while `surface` has the keyboard.
-    Key(Proxy, u32),
+    Key(Proxy, u32, String),
 }
 
 impl Devices {
@@ -291,16 +320,49 @@ impl Devices {
             debug!(SHELL, "seat capabilities {caps:#x}");
         } else if Some(ev.target) == self.keyboard {
             match (ev.opcode, &ev.args[..]) {
-                (kev::KEYMAP, [_, Val::Int(fd), _]) => {
-                    // Navigation uses evdev codes: the keymap is not needed.
-                    // SAFETY: the fd came with the event and is ours.
-                    drop(unsafe { File::from_raw_fd(*fd) });
+                (kev::KEYMAP, [_, Val::Int(fd), Val::Uint(size)]) => {
+                    // SAFETY: the fd came with the event and ownership is transferred
+                    // to the client by the Wayland protocol.
+                    let file = unsafe { File::from_raw_fd(*fd) };
+                    let mut text = String::new();
+                    file.take(u64::from(*size))
+                        .read_to_string(&mut text)
+                        .map_err(|e| format!("read keyboard keymap: {e}"))?;
+                    let text = text.trim_end_matches('\0');
+                    self.keymap = Some(Keyboard::from_string(text)?);
                 }
                 (kev::ENTER, [_, s, _]) => self.keyboard_on = surface(s),
                 (kev::LEAVE, [_, s]) if surface(s) == self.keyboard_on => self.keyboard_on = None,
-                (kev::KEY, [_, _, Val::Uint(key), Val::Uint(1)]) => {
-                    if let Some(s) = self.keyboard_on {
-                        return Ok(Some(Input::Key(s, *key)));
+                (
+                    kev::MODIFIERS,
+                    [
+                        _,
+                        Val::Uint(depressed),
+                        Val::Uint(latched),
+                        Val::Uint(locked),
+                        Val::Uint(group),
+                    ],
+                ) => {
+                    if let Some(keymap) = self.keymap.as_mut() {
+                        keymap.set_modifiers(&Modifiers {
+                            depressed: *depressed,
+                            latched: *latched,
+                            locked: *locked,
+                            group: *group,
+                        });
+                    }
+                }
+                (kev::KEY, [_, _, Val::Uint(key), Val::Uint(state)]) => {
+                    let pressed = *state == 1;
+                    let text = self
+                        .keymap
+                        .as_mut()
+                        .map(|keyboard| keyboard.key(*key, pressed).text)
+                        .unwrap_or_default();
+                    if pressed {
+                        if let Some(s) = self.keyboard_on {
+                            return Ok(Some(Input::Key(s, *key, text)));
+                        }
                     }
                 }
                 _ => {}
@@ -325,7 +387,199 @@ impl Devices {
     }
 }
 
+fn prepare_lock_socket() -> Result<Option<UnixDatagram>, String> {
+    if !require_auth() {
+        return Ok(None);
+    }
+
+    let path = std::path::Path::new(wana_auth::LOCK_SOCKET_PATH);
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if !meta.file_type().is_socket() || meta.uid() != 1000 {
+                return Err(format!(
+                    "{}: refusing to replace unsafe lock endpoint",
+                    path.display()
+                ));
+            }
+            std::fs::remove_file(path)
+                .map_err(|e| format!("remove stale {}: {e}", path.display()))?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    }
+
+    let socket = UnixDatagram::bind(path)
+        .map_err(|e| format!("bind {}: {e}", path.display()))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| format!("nonblocking {}: {e}", path.display()))?;
+    info!(SHELL, "desktop lock endpoint ready: {}", path.display());
+    Ok(Some(socket))
+}
+
+fn lock_requested(socket: &UnixDatagram) -> Result<bool, String> {
+    let mut buffer = [0u8; 16];
+    loop {
+        match socket.recv(&mut buffer) {
+            Ok(size) => {
+                if &buffer[..size] == b"lock" {
+                    return Ok(true);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+            Err(e) => return Err(format!("read desktop lock request: {e}")),
+        }
+    }
+}
+
+fn require_auth() -> bool {
+    std::env::var("WANA_REQUIRE_AUTH").is_ok_and(|value| value == "1")
+}
+
+fn open_lock(
+    conn: &Connection,
+    compositor: Proxy,
+    layer_shell: Proxy,
+    shm: Proxy,
+    fonts: &FontSet,
+    events: &mut Vec<Event>,
+) -> Result<LockScreen, String> {
+    let setup_required = matches!(wana_auth::status()?, AuthStatus::SetupRequired);
+    let ls = LayerSurface::new(
+        conn,
+        compositor,
+        layer_shell,
+        Spec {
+            namespace: "wana-auth",
+            layer: layer::OVERLAY,
+            anchor: layer::ANCHOR_TOP
+                | layer::ANCHOR_BOTTOM
+                | layer::ANCHOR_LEFT
+                | layer::ANCHOR_RIGHT,
+            width: 0,
+            height: 0,
+            zone: 0,
+            keyboard: layer::KEYBOARD_EXCLUSIVE,
+        },
+        events,
+    )?;
+    let lock = LockScreen {
+        ls,
+        setup_required,
+        confirming: false,
+        first: None,
+        input: String::new(),
+        error: None,
+    };
+    redraw_lock(conn, shm, fonts, &lock)?;
+    info!(
+        SHELL,
+        "authentication screen mapped: mode={}",
+        if setup_required { "setup" } else { "login" }
+    );
+    Ok(lock)
+}
+
+fn redraw_lock(
+    conn: &Connection,
+    shm: Proxy,
+    fonts: &FontSet,
+    lock: &LockScreen,
+) -> Result<(), String> {
+    show_unhashed(
+        conn,
+        shm,
+        lock.ls.surface,
+        &draw::auth(
+            lock.ls.width,
+            lock.ls.height,
+            fonts,
+            lock.setup_required,
+            lock.confirming,
+            lock.input.chars().count(),
+            lock.error.as_deref(),
+        )?,
+    )
+}
+
+fn close_lock(conn: &Connection, lock: LockScreen) {
+    conn.destroy(
+        lock.ls.layer_surface,
+        proto::zwlr_layer_surface_v1::request::DESTROY,
+    );
+    conn.destroy(lock.ls.surface, wayland::wl_surface::request::DESTROY);
+}
+
+fn append_auth_text(lock: &mut LockScreen, text: &str) {
+    for ch in text.chars() {
+        if ch.is_control() {
+            continue;
+        }
+        let extra = ch.len_utf8();
+        if lock.input.len() + extra > wana_auth::MAX_PASSWORD_BYTES {
+            break;
+        }
+        lock.input.push(ch);
+    }
+}
+
+fn auth_key(lock: &mut LockScreen, key: u32, text: &str) -> Result<bool, String> {
+    lock.error = None;
+    match key {
+        KEY_BACKSPACE => {
+            lock.input.pop();
+            Ok(false)
+        }
+        KEY_ENTER if lock.setup_required => {
+            if let Err(e) = wana_auth::validate_password(&lock.input) {
+                lock.input.clear();
+                lock.error = Some(e);
+                return Ok(false);
+            }
+            if !lock.confirming {
+                lock.first = Some(std::mem::take(&mut lock.input));
+                lock.confirming = true;
+                info!(SHELL, "authentication confirmation requested");
+                return Ok(false);
+            }
+            let Some(first) = lock.first.take() else {
+                lock.confirming = false;
+                lock.input.clear();
+                lock.error = Some("أعد إنشاء كلمة المرور".into());
+                return Ok(false);
+            };
+            if first != lock.input {
+                lock.input.clear();
+                lock.confirming = false;
+                lock.error = Some("كلمتا المرور غير متطابقتين".into());
+                return Ok(false);
+            }
+            wana_auth::setup(&lock.input)?;
+            lock.input.clear();
+            info!(SHELL, "initial desktop credential setup complete");
+            Ok(true)
+        }
+        KEY_ENTER => {
+            let ok = wana_auth::verify(&lock.input)?;
+            lock.input.clear();
+            if ok {
+                info!(SHELL, "desktop credential accepted");
+                Ok(true)
+            } else {
+                lock.error = Some("كلمة المرور غير صحيحة".into());
+                Ok(false)
+            }
+        }
+        _ => {
+            if !text.is_empty() {
+                append_auth_text(lock, text);
+            }
+            Ok(false)
+        }
+    }
+}
 fn run(args: &Args) -> Result<(), String> {
+    protect_trusted_process()?;
     info!(SHELL, "wana-shell {} starting", env!("CARGO_PKG_VERSION"));
     // libwayland reads WAYLAND_SOCKET (and unsets it); keep that privileged
     // descriptor out of every program the shell starts.
@@ -507,22 +761,42 @@ fn run(args: &Args) -> Result<(), String> {
         toplevels.len()
     );
 
+    let lock_socket = prepare_lock_socket()?;
+    let mut lock = if require_auth() {
+        Some(open_lock(
+            &conn,
+            compositor,
+            layer_shell,
+            shm,
+            &set,
+            &mut events,
+        )?)
+    } else {
+        None
+    };
+
     conn.roundtrip()?;
-    info!(SHELL, "ready");
+    if lock.is_some() {
+        info!(SHELL, "locked: authentication required");
+    } else {
+        info!(SHELL, "ready");
+    }
 
     let mut started: Vec<Started> = Vec::new();
-    if let Some(cmd) = &args.autostart {
-        started.push(Started {
-            name: "autostart".into(),
-            child: spawn(cmd, "autostart")?,
-            ends_shell: args.exit_with_autostart,
-        });
+    if lock.is_none() {
+        if let Some(cmd) = &args.autostart {
+            started.push(Started {
+                name: "autostart".into(),
+                child: spawn(cmd, "autostart")?,
+                ends_shell: args.exit_with_autostart,
+            });
+        }
     }
 
     let mut devices = Devices::default();
     let mut launcher: Option<Launcher> = None;
     let mut test_launch = args.test_launch;
-    if test_launch.is_some() {
+    if lock.is_none() && test_launch.is_some() {
         launcher = Some(open_launcher(
             &conn,
             compositor,
@@ -535,6 +809,25 @@ fn run(args: &Args) -> Result<(), String> {
     }
 
     loop {
+        if lock.is_none() {
+            let requested = match &lock_socket {
+                Some(socket) => lock_requested(socket)?,
+                None => false,
+            };
+            if requested {
+                close_launcher(&conn, &mut launcher);
+                lock = Some(open_lock(
+                    &conn,
+                    compositor,
+                    layer_shell,
+                    shm,
+                    &set,
+                    &mut events,
+                )?);
+                info!(SHELL, "locked by user request");
+            }
+        }
+
         // Wake at least every second: the clock and the started programs.
         // Events queued while opening the launcher are handled at once.
         conn.wait(if events.is_empty() { 1000 } else { 0 })?;
@@ -576,6 +869,71 @@ fn run(args: &Args) -> Result<(), String> {
                 || layer::closed(&ev, dock.layer_surface)
             {
                 return Err("the compositor closed a shell surface".into());
+            }
+            if let Some(active) = lock.as_mut() {
+                if let Some((serial, width, height)) =
+                    layer::configure_of(&ev, active.ls.layer_surface)
+                {
+                    layer::ack(&conn, active.ls.layer_surface, serial)?;
+                    show_unhashed(
+                        &conn,
+                        shm,
+                        active.ls.surface,
+                        &draw::auth(
+                            width,
+                            height,
+                            &set,
+                            active.setup_required,
+                            active.confirming,
+                            active.input.chars().count(),
+                            active.error.as_deref(),
+                        )?,
+                    )?;
+                    continue;
+                }
+                if layer::closed(&ev, active.ls.layer_surface) {
+                    return Err("the compositor closed the authentication surface".into());
+                }
+            }
+
+            let input = devices.event(&conn, seat, &ev)?;
+            let mut auth_unlocked = false;
+            if let Some(active) = lock.as_mut() {
+                if let Some(Input::Key(surface, key, text)) = input.as_ref() {
+                    if *surface == active.ls.surface {
+                        auth_unlocked = auth_key(active, *key, text)?;
+                        if !auth_unlocked {
+                            redraw_lock(&conn, shm, &set, active)?;
+                        }
+                    }
+                }
+            }
+            if lock.is_some() {
+                if auth_unlocked {
+                    let finished = lock.take().expect("authentication lock exists");
+                    close_lock(&conn, finished);
+                    info!(SHELL, "authentication complete");
+                    info!(SHELL, "ready");
+                    if let Some(cmd) = &args.autostart {
+                        started.push(Started {
+                            name: "autostart".into(),
+                            child: spawn(cmd, "autostart")?,
+                            ends_shell: args.exit_with_autostart,
+                        });
+                    }
+                    if test_launch.is_some() {
+                        launcher = Some(open_launcher(
+                            &conn,
+                            compositor,
+                            layer_shell,
+                            shm,
+                            &set,
+                            &apps,
+                            &mut events,
+                        )?);
+                    }
+                }
+                continue;
             }
             if toplevels.event(&conn, &ev)? {
                 let labels = toplevels.labels();
@@ -645,7 +1003,7 @@ fn run(args: &Args) -> Result<(), String> {
                     }
                 }
             }
-            match devices.event(&conn, seat, &ev)? {
+            match input {
                 Some(Input::Click(s, x, _)) if s == bar.surface => {
                     // The bar's start is its right end (RTL).
                     if x >= f64::from(bar_width.saturating_sub(draw::BRAND_HIT)) {
@@ -674,7 +1032,7 @@ fn run(args: &Args) -> Result<(), String> {
                         action = Action::Launch(row);
                     }
                 }
-                Some(Input::Key(s, key)) => {
+                Some(Input::Key(s, key, _)) => {
                     if let Some(l) = launcher.as_mut().filter(|l| l.ls.surface == s) {
                         let before = l.menu.selected;
                         action = l.menu.key(key);
@@ -905,6 +1263,9 @@ fn spawn(argv: &[String], what: &str) -> Result<Child, String> {
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
         .env("WAYLAND_DISPLAY", display);
+    if let Some(home) = std::env::var_os("HOME") {
+        c.env("HOME", home);
+    }
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         c.env("XDG_RUNTIME_DIR", dir);
     }

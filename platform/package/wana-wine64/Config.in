@@ -1,0 +1,20 @@
+config BR2_PACKAGE_WANA_WINE64
+	bool "wana-wine64"
+	depends on BR2_x86_64
+	depends on !BR2_STATIC_LIBS
+	depends on BR2_TOOLCHAIN_HAS_THREADS_NPTL
+	depends on BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_DBUS
+	select BR2_PACKAGE_FONTCONFIG
+	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_PULSEAUDIO
+	help
+	  Wana OS 64-bit Wine compatibility runtime built with the native
+	  Wayland driver. This avoids the i386-only constraint of Buildroot's
+	  stock Wine package while keeping Wana OS itself x86_64-only.
+
+	  https://www.winehq.org/
+
+comment "wana-wine64 needs x86_64, Wayland, dynamic libraries and NPTL"
+	depends on !BR2_x86_64 || BR2_STATIC_LIBS || !BR2_TOOLCHAIN_HAS_THREADS_NPTL || !BR2_PACKAGE_WAYLAND

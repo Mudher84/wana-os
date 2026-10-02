@@ -10,3 +10,6 @@
 - -1 input 101 - - - - -
 - -1 kvm   102 - - - - -
 - -1 sgx   103 - - - - -
+
+# Unprivileged graphical desktop session. Login is disabled; PID 1 starts it.
+wana 1000 wana 1000 * /home/wana - - Wana desktop session

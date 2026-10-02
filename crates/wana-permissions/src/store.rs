@@ -62,7 +62,12 @@ pub struct Store {
 
 impl Store {
     pub fn system() -> Self {
-        Self::new("/var/lib/wana/permissions")
+        let root = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .map(|home| home.join(".local/state/wana/permissions"))
+            .unwrap_or_else(|| PathBuf::from("/var/lib/wana/permissions"));
+        Self::new(root)
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -241,9 +246,10 @@ impl Store {
         decision: Decision,
     ) -> Result<(), String> {
         let mut entries = self.audit()?;
-        let seq = entries
-            .last()
-            .map_or(1, |entry| entry.seq.saturating_add(1));
+        let seq = match entries.last() {
+            Some(entry) => entry.seq.checked_add(1).ok_or("audit sequence exhausted")?,
+            None => 1,
+        };
         entries.push(Audit {
             seq,
             action: action.into(),
@@ -365,14 +371,25 @@ fn write_atomic(root: &Path, path: &Path, text: &str) -> Result<(), String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| format!("invalid store path {}", path.display()))?;
-    let tmp = root.join(format!(".{name}.tmp-{}", std::process::id()));
+    let pid = std::process::id();
+    let (tmp, mut file) = (0..64)
+        .find_map(|slot| {
+            let tmp = root.join(format!(".{name}.tmp-{pid}-{slot}"));
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&tmp)
+            {
+                Ok(file) => Some(Ok((tmp, file))),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(e) => Some(Err(format!("create {}: {e}", tmp.display()))),
+            }
+        })
+        .transpose()?
+        .ok_or_else(|| format!("no free atomic temp slot for {}", path.display()))?;
+
     let result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
         file.write_all(text.as_bytes())
             .map_err(|e| format!("write {}: {e}", tmp.display()))?;
         file.sync_all()
@@ -422,6 +439,26 @@ mod tests {
     }
 
     #[test]
+    fn stale_temp_file_does_not_block_atomic_write() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let stale = root.join(format!(".policy.tsv.tmp-{}-0", std::process::id()));
+        fs::write(&stale, "stale").unwrap();
+
+        let store = Store::new(&root);
+        store
+            .set("system", "org.wana.Files", "files.read", Decision::Allow)
+            .unwrap();
+        assert_eq!(
+            store.decision("org.wana.Files", "files.read").unwrap(),
+            Decision::Allow
+        );
+        assert!(stale.exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn policy_defaults_to_deny_and_round_trips() {
         let root = temp();
         let store = Store::new(&root);
@@ -467,6 +504,32 @@ mod tests {
         assert_eq!(audit.len(), MAX_AUDIT);
         assert_eq!(audit.first().unwrap().seq, 18);
         assert_eq!(audit.last().unwrap().seq, (MAX_AUDIT + 17) as u64);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn audit_sequence_exhaustion_is_rejected_without_rewrite() {
+        let root = temp();
+        fs::create_dir_all(&root).unwrap();
+        let audit = root.join("audit.tsv");
+        fs::write(
+            &audit,
+            format!(
+                "{}\tset\ttester\torg.wana.Test\tfiles.read\tallow\n",
+                u64::MAX
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&audit, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&audit).unwrap();
+
+        let store = Store::new(&root);
+        assert!(store
+            .set("tester", "org.wana.Test", "files.read", Decision::Allow)
+            .unwrap_err()
+            .contains("audit sequence exhausted"));
+        assert_eq!(fs::read(&audit).unwrap(), before);
+
         let _ = fs::remove_dir_all(root);
     }
 

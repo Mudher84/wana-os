@@ -10,15 +10,18 @@ boot gate passes on top of the Phase 23 hardening line.
 
 - Native `wana-control-center` xdg application, rendered with the Wana text
   stack and exposed in the launcher.
-- Persistent notification history at `/var/lib/wana/notifications/history.tsv`.
+- Persistent notification history uses `$HOME/.local/state/wana/notifications/history.tsv`
+  for a desktop session, with `/var/lib/wana/notifications` retained as the
+  no-HOME bring-up fallback.
 - History is bounded to 64 entries.
 - Notification app IDs and text fields are validated before persistence.
 - Store directory is mode 0700; history and atomic replacement files are mode
   0600.
 - Symlink, ownership, insecure-mode, and open-time inode/device checks protect
   the history file.
-- Mutating commands (`notify`, `clear`, deterministic test seed) require
-  effective uid 0.
+- Mutating commands operate as the owning desktop user; the secure store still
+  rejects symlinks, foreign ownership and insecure modes, so another uid cannot
+  reuse that state path.
 - Writes use create-new temporary files, fsync, atomic rename, and directory
   fsync.
 - Native UI shows notification count and the newest four notifications.

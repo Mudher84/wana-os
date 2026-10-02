@@ -12,12 +12,6 @@ use wana_text::{fonts, sha256};
 const LOG: Subsystem = Subsystem::Shell;
 const WIDTH: u32 = 760;
 const HEIGHT: u32 = 520;
-const BG: u32 = wana_theme::color::BG_DARK;
-const CARD: u32 = wana_theme::color::CARD_DARK;
-const TEXT: u32 = wana_theme::color::TEXT_DARK;
-const DIM: u32 = wana_theme::color::DIM_DARK;
-const ACCENT: u32 = wana_theme::color::ACCENT_BLUE;
-const DANGER: u32 = wana_theme::color::DANGER_STRONG;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Disk {
@@ -26,7 +20,7 @@ struct Disk {
     bytes: u64,
 }
 
-fn disks(sys: &Path, source: &Path) -> Result<Vec<Disk>, String> {
+fn disks(sys: &Path, source: &Path, minimum_bytes: u64) -> Result<Vec<Disk>, String> {
     let source_name = source.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mut out = Vec::new();
     let root = sys.join("class/block");
@@ -51,10 +45,14 @@ fn disks(sys: &Path, source: &Path) -> Result<Vec<Disk>, String> {
         if sectors == 0 {
             continue;
         }
+        let bytes = sectors.saturating_mul(512);
+        if bytes < minimum_bytes {
+            continue;
+        }
         out.push(Disk {
             path: PathBuf::from("/dev").join(&name),
             name,
-            bytes: sectors.saturating_mul(512),
+            bytes,
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -108,15 +106,16 @@ fn render(
     selected: usize,
     stage: Stage,
 ) -> Result<Canvas, String> {
-    let mut c = Canvas::new(WIDTH, HEIGHT, BG);
-    label(&mut c, fonts, "تثبيت وانا", 24.0, 30.0, TEXT)?;
+    let palette = wana_theme::current();
+    let mut c = Canvas::new(WIDTH, HEIGHT, palette.bg);
+    label(&mut c, fonts, "تثبيت وانا", 24.0, 30.0, palette.text)?;
     label(
         &mut c,
         fonts,
         &format!("المصدر: {}", source.display()),
         68.0,
         15.0,
-        DIM,
+        palette.dim,
     )?;
     match stage {
         Stage::Select => {
@@ -126,7 +125,7 @@ fn render(
                 "اختر القرص الهدف — الأسهم ثم Enter",
                 106.0,
                 18.0,
-                TEXT,
+                palette.text,
             )?;
             if list.is_empty() {
                 label(
@@ -135,7 +134,7 @@ fn render(
                     "لا يوجد قرص صالح للتثبيت",
                     170.0,
                     20.0,
-                    DANGER,
+                    palette.danger_strong,
                 )?;
             }
             for (i, d) in list.iter().take(6).enumerate() {
@@ -146,7 +145,7 @@ fn render(
                     y,
                     WIDTH - 64,
                     46,
-                    if i == selected { ACCENT } else { CARD },
+                    if i == selected { palette.accent } else { palette.card },
                 );
                 label(
                     &mut c,
@@ -154,19 +153,26 @@ fn render(
                     &format!("{} — {}", d.path.display(), gib(d.bytes)),
                     y as f32 + 11.0,
                     18.0,
-                    TEXT,
+                    palette.text,
                 )?;
             }
         }
         Stage::Confirm => {
-            fill(&mut c, 32, 150, WIDTH - 64, 180, DANGER);
+            fill(
+                &mut c,
+                32,
+                150,
+                WIDTH - 64,
+                180,
+                palette.danger_strong,
+            );
             label(
                 &mut c,
                 fonts,
                 "تحذير: سيتم مسح القرص بالكامل",
                 172.0,
                 25.0,
-                TEXT,
+                palette.text,
             )?;
             if let Some(d) = list.get(selected) {
                 label(
@@ -175,7 +181,7 @@ fn render(
                     &format!("الهدف: {} — {}", d.path.display(), gib(d.bytes)),
                     222.0,
                     18.0,
-                    TEXT,
+                    palette.text,
                 )?;
             }
             label(
@@ -184,7 +190,7 @@ fn render(
                 "اضغط Enter مرة ثانية للتثبيت، أو Esc للرجوع",
                 274.0,
                 17.0,
-                TEXT,
+                palette.text,
             )?;
         }
         Stage::Done => {
@@ -194,7 +200,7 @@ fn render(
                 "اكتمل التثبيت والتحقق من القراءة بنجاح",
                 180.0,
                 24.0,
-                ACCENT,
+                palette.accent,
             )?;
             label(
                 &mut c,
@@ -202,7 +208,7 @@ fn render(
                 "يمكنك الآن إعادة التشغيل من القرص المثبت",
                 230.0,
                 18.0,
-                TEXT,
+                palette.text,
             )?;
         }
         Stage::Failed => {
@@ -212,7 +218,7 @@ fn render(
                 "فشل التثبيت — لم يتم اعتماد القرص",
                 190.0,
                 24.0,
-                DANGER,
+                palette.danger_strong,
             )?;
         }
     }
@@ -266,7 +272,13 @@ fn parse_args() -> Result<Args, String> {
 
 fn run() -> Result<(), String> {
     let a = parse_args()?;
-    let mut list = disks(Path::new("/sys"), &a.source)?;
+    let source_meta = fs::metadata(&a.source)
+        .map_err(|e| format!("installer source {}: {e}", a.source.display()))?;
+    let minimum_bytes = source_meta.len();
+    if minimum_bytes == 0 {
+        return Err("installer source image is empty".into());
+    }
+    let mut list = disks(Path::new("/sys"), &a.source, minimum_bytes)?;
     if let Some(target) = &a.target {
         list.retain(|d| &d.path == target);
         if list.is_empty() {
@@ -403,9 +415,17 @@ mod tests {
     }
 
     #[test]
+    fn disk_discovery_excludes_undersized_targets() {
+        let r = root();
+        let got = disks(&r, Path::new("/dev/vda"), 2_000_000).unwrap();
+        assert!(got.is_empty());
+        let _ = fs::remove_dir_all(r);
+    }
+
+    #[test]
     fn disk_discovery_excludes_source_and_virtual_noise() {
         let r = root();
-        let got = disks(&r, Path::new("/dev/vda")).unwrap();
+        let got = disks(&r, Path::new("/dev/vda"), 1_000_000).unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].name, "vdb");
         assert_eq!(got[0].bytes, 2000 * 512);

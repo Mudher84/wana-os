@@ -1,0 +1,8 @@
+# Privileged power broker for the unprivileged Wana desktop session.
+name=power
+exec=/usr/sbin/wana-powerd
+after=system-bus
+ready_path=/run/wana/power.sock
+restart=always
+uid=0
+gid=0

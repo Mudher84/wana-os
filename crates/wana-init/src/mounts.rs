@@ -33,6 +33,13 @@ pub const EARLY: &[Mount] = &[
         data: "",
     },
     Mount {
+        source: "cgroup2",
+        target: "/sys/fs/cgroup",
+        fstype: "cgroup2",
+        flags: MS_NOSUID | MS_NODEV | MS_NOEXEC,
+        data: "",
+    },
+    Mount {
         source: "devtmpfs",
         target: "/dev",
         fstype: "devtmpfs",
@@ -92,7 +99,14 @@ pub fn apply(m: &Mount) -> Outcome {
     }
 }
 
-pub const HARDENED_RUNTIME_TARGETS: &[&str] = &["/proc", "/sys", "/dev/shm", "/run", "/tmp"];
+pub const HARDENED_RUNTIME_TARGETS: &[&str] = &[
+    "/proc",
+    "/sys",
+    "/sys/fs/cgroup",
+    "/dev/shm",
+    "/run",
+    "/tmp",
+];
 
 pub fn verify_runtime_hardening() -> Result<usize, String> {
     let text = std::fs::read_to_string("/proc/self/mountinfo")
@@ -179,6 +193,7 @@ mod tests {
     fn runtime_mountinfo_requires_all_hardening_flags() {
         let good = r#"26 1 0:22 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
 27 1 0:23 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+31 27 0:29 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup2 rw
 28 1 0:24 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
 29 1 0:25 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw
 30 1 0:26 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw

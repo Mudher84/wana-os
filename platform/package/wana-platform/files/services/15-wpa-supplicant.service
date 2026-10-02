@@ -1,0 +1,11 @@
+# WPA2/WPA3 backend. The global control socket is writable by group wana;
+# the daemon remains root because nl80211 requires network administration.
+name=wpa-supplicant
+exec=/usr/sbin/wpa_supplicant
+arg=-g/run/wpa_supplicant-global
+arg=-Gwana
+arg=-u
+after=system-bus
+restart=always
+uid=0
+gid=0

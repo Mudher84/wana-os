@@ -1,0 +1,91 @@
+#!/bin/sh
+set -eu
+umask 077
+
+home=${HOME:-/home/wana}
+runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+out_dir="$home/Diagnostics"
+mkdir -p "$out_dir"
+chmod 0700 "$out_dir"
+
+stamp=$(date -u +%Y%m%d-%H%M%S 2>/dev/null || echo unknown)
+tmp="$runtime/wana-diagnostics-$$"
+bundle="$out_dir/wana-support-$stamp.tar.gz"
+rm -rf "$tmp"
+mkdir -m 0700 "$tmp"
+trap 'rm -rf "$tmp"' EXIT
+
+section() {
+    printf '\n== %s ==\n' "$1"
+}
+
+safe_run() {
+    name=$1
+    shift
+    section "$name"
+    "$@" 2>&1 || printf 'unavailable (exit=%s)\n' "$?"
+}
+
+{
+    echo "WANA-DIAGNOSTICS-1"
+    echo "collected_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
+    echo "uid=$(id -u)"
+    echo "gid=$(id -g)"
+
+    section "release"
+    if [ -r /usr/lib/wana/release ]; then
+        cat /usr/lib/wana/release
+    else
+        echo "release identity unavailable"
+    fi
+
+    safe_run "kernel" uname -a
+
+    section "uptime"
+    cat /proc/uptime 2>/dev/null || true
+
+    section "memory"
+    sed -n -e '/^MemTotal:/p' -e '/^MemAvailable:/p' -e '/^SwapTotal:/p' -e '/^SwapFree:/p' /proc/meminfo 2>/dev/null || true
+
+    safe_run "filesystem-root" df -h /
+    if [ -d /data ]; then
+        safe_run "filesystem-data" df -h /data
+    fi
+
+    section "mounts"
+    awk '$2 == "/" || $2 == "/data" || $2 ~ "^/home/wana" || $2 ~ "^/var/lib/wana" {print}' /proc/mounts 2>/dev/null || true
+
+    section "runtime-endpoints"
+    for endpoint in auth.sock power.sock update.sock services.ready; do
+        if [ -e "/run/wana/$endpoint" ] || [ -S "/run/wana/$endpoint" ]; then
+            echo "$endpoint=present"
+        else
+            echo "$endpoint=missing"
+        fi
+    done
+
+    safe_run "authentication" /usr/bin/wana-auth status
+    safe_run "power-broker" /usr/bin/wana-power status
+    safe_run "update-broker" /usr/bin/wana-update-client status
+    safe_run "time" /usr/bin/wana-time status
+    safe_run "waydroid" /usr/bin/waydroid status
+    if command -v wine >/dev/null 2>&1; then
+        safe_run "wine" wine --version
+    elif command -v wine64 >/dev/null 2>&1; then
+        safe_run "wine" wine64 --version
+    fi
+} > "$tmp/summary.txt"
+
+if grep -Eq 'wifi\.conf|default\.cred|/var/lib/wana/auth|psk=|password=' "$tmp/summary.txt"; then
+    echo "WANA_DIAGNOSTICS_PRIVACY_FAIL" >&2
+    exit 1
+fi
+echo "WANA_DIAGNOSTICS_PRIVACY_PASS"
+
+tar -czf "$bundle" -C "$tmp" summary.txt
+chmod 0600 "$bundle"
+mode=$(ls -ln "$bundle" | awk '{print $1}')
+[ "$mode" = "-rw-------" ] || { echo "diagnostics: unsafe bundle mode $mode" >&2; exit 1; }
+printf 'WANA_DIAGNOSTICS_BUNDLE path=%s mode=600\n' "$bundle"
+
+/usr/bin/wana-control-center notify     org.wana.Diagnostics     "حزمة تشخيص النظام جاهزة"     "$bundle" >/dev/null 2>&1 || true

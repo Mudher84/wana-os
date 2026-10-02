@@ -1,0 +1,7 @@
+# Wana desktop device access.
+# The graphical session runs as uid/gid 1000 (wana). Limit direct device
+# access to its primary group instead of running the desktop as root.
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", GROUP="wana", MODE="0660"
+SUBSYSTEM=="drm", KERNEL=="renderD[0-9]*", GROUP="wana", MODE="0660"
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", GROUP="wana", MODE="0660"
+SUBSYSTEM=="sound", GROUP="wana", MODE="0660"

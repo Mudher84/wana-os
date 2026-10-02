@@ -120,6 +120,8 @@ def main():
     ap.add_argument("--gpu", choices=["virtio", "std"], default="virtio")
     ap.add_argument("--timeout", type=int, default=180)
     ap.add_argument("--memory", default="1024", help="guest RAM in MiB")
+    ap.add_argument("--persistent-disk", action="store_true",
+                    help="write the primary --disk instead of QEMU snapshot mode")
     ap.add_argument("--log", default="qemu-graphics.log")
     ap.add_argument("--expect", action="append", default=[])
     ap.add_argument("--reject", action="append", default=[],
@@ -175,7 +177,8 @@ def main():
             "-device", f"{device},netdev=wana-net0",
         ]
     if args.disk:
-        cmd += ["-drive", f"file={args.disk},if=virtio,format=raw,snapshot=on"]
+        snapshot = "off" if args.persistent_disk else "on"
+        cmd += ["-drive", f"file={args.disk},if=virtio,format=raw,snapshot={snapshot}"]
     elif args.iso:
         cmd += ["-drive", f"file={args.iso},media=cdrom,readonly=on"]
     else:
@@ -186,7 +189,7 @@ def main():
     for disk in args.writable_disk:
         cmd += ["-drive", f"file={disk},if=virtio,format=raw"]
 
-    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} network={args.network} writable_disks={len(args.writable_disk)} firmware={ovmf} timeout={args.timeout}s")
+    log("info", f"qemu accel={accel} gpu={args.gpu} input={args.input} network={args.network} persistent_disk={args.persistent_disk} writable_disks={len(args.writable_disk)} firmware={ovmf} timeout={args.timeout}s")
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
     os.set_blocking(proc.stdout.fileno(), False)

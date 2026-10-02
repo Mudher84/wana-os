@@ -26,3 +26,22 @@ if [ -f "$conf" ]; then
     echo 'udev_log="err"' >> "$conf"
     echo "[INIT] info: $conf: udev_log=\"err\""
 fi
+
+# Installed release identity. This is deterministic source metadata used by the
+# updater to avoid re-downloading the release that is already installed.
+repo=$(cd "$(dirname "$0")/../../.." && pwd)
+version=$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' "$repo/Cargo.toml" | head -n1)
+commit=$(git -C "$repo" rev-parse HEAD)
+mkdir -p "$target/etc"
+cat > "$target/etc/wana-release" <<EOF
+WANA-RELEASE-1
+version=$version
+commit=$commit
+EOF
+chmod 0644 "$target/etc/wana-release"
+
+# Bind-mount targets for persistent Data must exist in the immutable system
+# image before PID 1 mounts the Data volume over them.
+mkdir -p "$target/data" "$target/home/wana" "$target/var/lib/wana" \
+    "$target/var/lib/waydroid" "$target/var/lib/bluetooth"
+echo "[BUILD] info: /etc/wana-release version=$version commit=$commit"

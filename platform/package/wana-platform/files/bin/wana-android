@@ -1,0 +1,122 @@
+#!/bin/sh
+set -eu
+
+runtime=${XDG_RUNTIME_DIR:-/run/user/1000}
+display=${WAYLAND_DISPLAY:-wayland-0}
+bus=${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/1000/bus}
+
+export XDG_RUNTIME_DIR="$runtime"
+export WAYLAND_DISPLAY="$display"
+export DBUS_SESSION_BUS_ADDRESS="$bus"
+
+need_root() {
+    [ "$(id -u)" -eq 0 ] || {
+        echo "wana-android: this operation requires root" >&2
+        exit 1
+    }
+}
+
+need_user() {
+    [ "$(id -u)" -ne 0 ] || {
+        echo "wana-android: run this session command as the desktop user" >&2
+        exit 1
+    }
+}
+
+wait_wayland() {
+    i=0
+    while [ "$i" -lt 50 ] && [ ! -S "$runtime/$display" ]; do
+        sleep 0.1
+        i=$((i + 1))
+    done
+    [ -S "$runtime/$display" ] || {
+        echo "wana-android: Wayland socket $runtime/$display is not ready" >&2
+        exit 1
+    }
+}
+
+session_running() {
+    waydroid status 2>/dev/null | grep -q 'Session:[[:space:]]*RUNNING'
+}
+
+launch_test_package() {
+    marker=/var/lib/wana/android-test-package
+    [ -f "$marker" ] || return 0
+    package=$(tr -d '\r\n' < "$marker")
+    case "$package" in
+        ''|*[!A-Za-z0-9._]*)
+            echo "wana-android: invalid test package marker" >&2
+            return 1
+            ;;
+    esac
+    waydroid app launch "$package"
+    echo "WANA_ANDROID_APK_LAUNCH package=$package"
+}
+
+start_session() {
+    need_user
+    wait_wayland
+    if session_running; then
+        return 0
+    fi
+    log="$runtime/wana-waydroid-session.log"
+    waydroid session start >"$log" 2>&1 &
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if session_running; then
+            echo "WANA_ANDROID_SESSION_READY display=$display"
+            return 0
+        fi
+        sleep 0.2
+        i=$((i + 1))
+    done
+    echo "wana-android: Android session did not become ready" >&2
+    tail -n 40 "$log" >&2 2>/dev/null || true
+    return 1
+}
+
+case "${1:-status}" in
+    status)
+        exec waydroid status
+        ;;
+    init)
+        need_root
+        shift
+        exec waydroid init "$@"
+        ;;
+    session-start)
+        start_session
+        ;;
+    session-stop)
+        need_user
+        exec waydroid session stop
+        ;;
+    ui)
+        start_session
+        launch_test_package
+        exec waydroid show-full-ui
+        ;;
+    install)
+        need_user
+        [ "$#" -eq 2 ] || { echo "usage: wana-android install APP.apk" >&2; exit 2; }
+        start_session
+        exec waydroid app install "$2"
+        ;;
+    launch)
+        need_user
+        [ "$#" -eq 2 ] || { echo "usage: wana-android launch PACKAGE" >&2; exit 2; }
+        start_session
+        exec waydroid app launch "$2"
+        ;;
+    shell)
+        need_root
+        exec waydroid shell
+        ;;
+    log)
+        exec waydroid log
+        ;;
+    *)
+        echo "usage: wana-android {status|init [options]|session-start|session-stop|ui|install APP.apk|launch PACKAGE|shell|log}" >&2
+        exit 2
+        ;;
+esac

@@ -10,6 +10,7 @@ pub struct Settings {
     pub language: String,
     pub theme: String,
     pub accent: String,
+    pub timezone: String,
 }
 
 impl Default for Settings {
@@ -18,6 +19,7 @@ impl Default for Settings {
             language: "ar".into(),
             theme: "dark".into(),
             accent: "blue".into(),
+            timezone: "Asia/Baghdad".into(),
         }
     }
 }
@@ -65,6 +67,48 @@ fn secure_metadata(path: &Path) -> Result<Option<fs::Metadata>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{}: {e}", path.display())),
     }
+}
+
+fn secure_parent_directory(parent: &Path) -> Result<(), String> {
+    fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+    let meta = fs::symlink_metadata(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!(
+            "{}: settings directory must be a real directory",
+            parent.display()
+        ));
+    }
+    let euid = effective_uid()?;
+    if meta.uid() != euid {
+        return Err(format!(
+            "{}: settings directory owner uid {} does not match effective uid {euid}",
+            parent.display(),
+            meta.uid()
+        ));
+    }
+    if meta.mode() & 0o022 != 0 {
+        return Err(format!(
+            "{}: settings directory is group/other writable (mode {:o})",
+            parent.display(),
+            meta.mode() & 0o777
+        ));
+    }
+    Ok(())
+}
+
+fn valid_timezone(value: &str) -> bool {
+    if value.is_empty() || value.len() > 64 || value.starts_with('/') || value.contains("..") {
+        return false;
+    }
+    let mut saw_slash = false;
+    for byte in value.bytes() {
+        match byte {
+            b'/' => saw_slash = true,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'+' => {}
+            _ => return false,
+        }
+    }
+    saw_slash
 }
 
 impl Settings {
@@ -117,7 +161,8 @@ impl Settings {
             "language" if matches!(value, "ar" | "en") => self.language = value.into(),
             "theme" if matches!(value, "dark" | "light") => self.theme = value.into(),
             "accent" if matches!(value, "blue" | "teal" | "violet") => self.accent = value.into(),
-            "language" | "theme" | "accent" => {
+            "timezone" if valid_timezone(value) => self.timezone = value.into(),
+            "language" | "theme" | "accent" | "timezone" => {
                 return Err(format!("{key}: unsupported value {value:?}"));
             }
             _ => return Err(format!("unknown setting {key:?}")),
@@ -127,30 +172,40 @@ impl Settings {
 
     pub fn encode(&self) -> String {
         format!(
-            "language={}\ntheme={}\naccent={}\n",
-            self.language, self.theme, self.accent
+            "language={}\ntheme={}\naccent={}\ntimezone={}\n",
+            self.language, self.theme, self.accent, self.timezone
         )
     }
 
     pub fn save_atomic(&self, path: &Path) -> Result<(), String> {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+        secure_parent_directory(parent)?;
 
         let file_name = path
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| format!("invalid settings path {}", path.display()))?;
-        let tmp: PathBuf = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
-
         secure_metadata(path)?;
 
+        let pid = std::process::id();
+        let (tmp, mut file) = (0..64)
+            .find_map(|slot| {
+                let tmp: PathBuf = parent.join(format!(".{file_name}.tmp-{pid}-{slot}"));
+                match OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&tmp)
+                {
+                    Ok(file) => Some(Ok((tmp, file))),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                    Err(e) => Some(Err(format!("create {}: {e}", tmp.display()))),
+                }
+            })
+            .transpose()?
+            .ok_or_else(|| format!("no free atomic temp slot for {}", path.display()))?;
+
         let result = (|| -> Result<(), String> {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&tmp)
-                .map_err(|e| format!("create {}: {e}", tmp.display()))?;
             file.write_all(self.encode().as_bytes())
                 .map_err(|e| format!("write {}: {e}", tmp.display()))?;
             file.sync_all()
@@ -180,11 +235,36 @@ mod tests {
     static N: AtomicUsize = AtomicUsize::new(0);
 
     fn path() -> PathBuf {
-        std::env::temp_dir().join(format!(
+        let dir = std::env::temp_dir().join(format!(
             "wana-settings-test-{}-{}",
             std::process::id(),
             N.fetch_add(1, Ordering::Relaxed)
-        ))
+        ));
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        dir.join("settings.conf")
+    }
+
+    fn cleanup(path: &Path) {
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir_all(parent);
+        }
+    }
+
+    #[test]
+    fn stale_temp_file_does_not_block_settings_save() {
+        let p = path();
+        let parent = p.parent().unwrap();
+        fs::create_dir_all(parent).unwrap();
+        let file_name = p.file_name().unwrap().to_str().unwrap();
+        let stale = parent.join(format!(".{file_name}.tmp-{}-0", std::process::id()));
+        fs::write(&stale, "stale").unwrap();
+
+        Settings::default().save_atomic(&p).unwrap();
+        assert_eq!(Settings::load(&p).unwrap(), Settings::default());
+        assert!(stale.exists());
+
+        cleanup(&p);
     }
 
     #[test]
@@ -197,13 +277,13 @@ mod tests {
         assert_eq!(Settings::load(&p).unwrap(), s);
         assert_eq!(
             fs::read_to_string(&p).unwrap(),
-            "language=ar\ntheme=light\naccent=teal\n"
+            "language=ar\ntheme=light\naccent=teal\ntimezone=Asia/Baghdad\n"
         );
         assert_eq!(
             fs::metadata(&p).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        let _ = fs::remove_file(p);
+        cleanup(&p);
     }
 
     #[test]
@@ -216,8 +296,17 @@ mod tests {
         symlink(&real, &link).unwrap();
         assert!(Settings::load(&link).is_err());
         assert!(Settings::default().save_atomic(&link).is_err());
-        let _ = fs::remove_file(link);
-        let _ = fs::remove_file(real);
+        cleanup(&link);
+        cleanup(&real);
+    }
+
+    #[test]
+    fn insecure_settings_directory_is_rejected() {
+        let p = path();
+        let parent = p.parent().unwrap();
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(Settings::default().save_atomic(&p).is_err());
+        cleanup(&p);
     }
 
     #[test]
@@ -225,6 +314,8 @@ mod tests {
         assert!(Settings::parse("theme=dark\ntheme=light\n").is_err());
         assert!(Settings::parse("theme=neon\n").is_err());
         assert!(Settings::parse("unknown=x\n").is_err());
+        assert!(Settings::parse("timezone=../../etc/passwd\n").is_err());
+        assert!(Settings::parse("timezone=UTC\n").is_err());
         assert!(Settings::parse("broken\n").is_err());
     }
 }

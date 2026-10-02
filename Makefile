@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test auth-login-boot-test power-ui-boot-test update-ab-boot-test time-sync-boot-test diagnostics-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -68,7 +68,13 @@ help:
 	@echo "    make beta-release-test  run the release-candidate boot/install/security gates"
 	@echo "    make beta-bundle VERSION=0.1.0-beta.1  validate and package the release payload"
 	@echo "    make stable-release-test  run the stable candidate gates"
+	@echo "    make auth-login-boot-test  persist first password setup, then verify login on the next boot"
+	@echo "    make power-ui-boot-test  launch Power from the real uid-1000 desktop and power off through the broker"
+	@echo "    make update-ab-boot-test  apply a staged A/B update, boot the new slot, and confirm the trial boot"
+	@echo "    make time-sync-boot-test  verify the supervised Chrony client and local tracking interface"
+	@echo "    make diagnostics-boot-test  generate a privacy-bounded uid-1000 support bundle from the launcher"
 	@echo "    make stable-bundle VERSION=0.1.0  validate and package the stable payload"
+	@echo "    make final-validation-test  run the complete source + image + stable runtime gate once, at the end"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
 	@echo "  make clean           remove Rust output and out/build/"
 	@echo "  make distclean       also remove out/ and dl/"
@@ -173,7 +179,7 @@ system-boot-test:
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
 		--expect 'Run /init as init process' \
 		--expect '\[INIT\] info: wana-init [0-9.]+ starting' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
@@ -188,8 +194,8 @@ security-hardening-boot-test:
 		--append "wana.test=poweroff" \
 		--log out/logs/security-hardening-boot.log --timeout 180 \
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
-		--expect '\[INIT\] info: security mounts: 5/5 hardened \(nosuid,nodev,noexec\)' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
+		--expect '\[INIT\] info: security mounts: 6/6 hardened \(nosuid,nodev,noexec\)' \
 		--expect '\[INIT\] info: debug console shell: disabled' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
@@ -207,7 +213,7 @@ disk-boot-test:
 		--expect 'Linux version $(subst .,\.,$(KERNEL_VERSION))-wana' \
 		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
@@ -224,7 +230,7 @@ hardware-nvme-boot-test:
 		--expect '\[BOOT\] info: loading Wana OS kernel' \
 		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
 
@@ -638,7 +644,7 @@ settings-boot-test:
 		--screendump-on 'settings mapped' --screendump-delay-ms 200 --screendump out/test/settings.ppm \
 		--pixel 0.234375,0.225=111827 --pixel 0.25,0.4=1e293b \
 		--expect '\[COMPOSITOR\] info: window mapped: "الإعدادات — وانا" \(org.wana.Settings\) 720x480 at 280,160' \
-		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, sha256 [0-9a-f]{64}' \
+		--expect '\[SHELL\] info: settings mapped: 720x480, language=ar, theme=dark, accent=blue, timezone=Asia/Baghdad, sha256 [0-9a-f]{64}' \
 		--expect '\[COMPOSITOR\] info: test client /usr/bin/wana-settings exited successfully' \
 		--expect '\[INIT\] info: /usr/bin/wana-compositor exited successfully' \
 		--expect 'reboot: Power down' \
@@ -702,19 +708,226 @@ files-boot-test:
 
 # Phase 17: PID1 starts wana-services before declaring ready. The test
 # also asks the manager to validate the canonical service directory.
-SERVICES_ARGS := wana.run=/usr/sbin/wana-services,check,/etc/wana/services.d wana.test=poweroff wana.shell=0
+SERVICES_ARGS := wana.run=/usr/sbin/wana-services,check,/etc/wana/services.d wana.services=1 wana.test=poweroff wana.shell=0
 services-boot-test:
 	mkdir -p out/logs out/test
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-services.img "$(SERVICES_ARGS)"
 	tools/qemu-boot-test.sh --disk out/test/disk-services.img \
 		--log out/logs/services-boot.log --timeout 180 \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
-		--expect '\[INIT\] info: services ready: 0 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 0 service\(s\)' \
+		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
+		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
+		--expect '\[INIT\] info: service auth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service auth ready: /run/wana/auth.sock' \
+		--expect '\[INIT\] info: service power started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service power ready: /run/wana/power.sock' \
+		--expect '\[INIT\] info: service update started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service update ready: /run/wana/update.sock' \
+		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service time-sync started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service user-bus ready: /run/user/1000/bus' \
+		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire ready: /run/user/1000/pipewire-0' \
+		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service pipewire-pulse ready: /run/user/1000/pulse/native' \
+		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
+		--expect '\[INIT\] info: services ready: 15 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 15 service\(s\)' \
+		--expect '\[INIT\] info: service order: grow-root' \
+		--expect '\[INIT\] info: service order: system-bus' \
+		--expect '\[INIT\] info: service order: auth' \
+		--expect '\[INIT\] info: service order: bluetooth' \
+		--expect '\[INIT\] info: service order: time-sync' \
+		--expect '\[INIT\] info: service order: power' \
+		--expect '\[INIT\] info: service order: update' \
+		--expect '\[INIT\] info: service order: user-bus' \
+		--expect '\[INIT\] info: service order: pipewire' \
+		--expect '\[INIT\] info: service order: pipewire-pulse' \
+		--expect '\[INIT\] info: service order: wireplumber' \
+		--expect '\[INIT\] info: service order: desktop' \
+		--expect '\[INIT\] info: service order: wpa-supplicant' \
+		--expect '\[INIT\] info: service order: dhcpcd' \
+		--expect '\[INIT\] info: service order: waydroid-container' \
 		--expect '\[INIT\] info: /usr/sbin/wana-services exited successfully' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down' \
 		--reject '\[INIT\] error'
+
+# Production desktop boot: boot the unmodified installed image with no
+# wana.run test command. PID 1 must start wana-services, which starts the
+# persistent compositor + shell session as uid/gid 1000.
+production-session-boot-test:
+	mkdir -p out/logs out/test
+	tools/qemu-graphics-test.py --disk $(BR_OUT)/images/disk.img --gpu virtio --timeout 45 --memory 1024 \
+		--log out/logs/production-session-boot.log \
+		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
+		--expect '\[INIT\] info: service auth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service auth ready: /run/wana/auth.sock' \
+		--expect '\[INIT\] info: services ready: 15 service\(s\); marker=/run/wana/services.ready' \
+		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
+		--expect '\[SHELL\] info: session environment: language=ar locale=ar_IQ.UTF-8 timezone=Asia/Baghdad theme=dark accent=blue' \
+		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
+		--expect '\[SHELL\] info: authentication screen mapped: mode=setup' \
+		--expect '\[SHELL\] info: locked: authentication required' \
+		--reject '\[SHELL\] info: launcher opened' \
+		--reject '\[SECURITY\] warn: auth request rejected'
+
+# Phase 37: first-boot password setup and next-boot login on the same writable disk.
+AUTH_TEST_PASSWORD := wana2026
+auth-login-boot-test:
+	mkdir -p out/logs out/test
+	cp --sparse=always $(BR_OUT)/images/disk.img out/test/disk-auth-login.img
+	tools/qemu-graphics-test.py --disk out/test/disk-auth-login.img --persistent-disk --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/auth-setup-boot.log \
+		--send-on '\[SHELL\] info: authentication screen mapped: mode=setup' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
+		--send 'sendkey ret' \
+		--send 'wait:authentication confirmation requested' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
+		--send 'sendkey ret' \
+		--send 'wait:authentication complete' --send 'quit' \
+		--expect '\[SECURITY\] info: initial desktop credential created by pid=[0-9]+ uid=1000' \
+		--expect '\[SHELL\] info: initial desktop credential setup complete' \
+		--expect '\[SHELL\] info: authentication complete' \
+		--expect '\[SHELL\] info: ready'
+	tools/qemu-graphics-test.py --disk out/test/disk-auth-login.img --persistent-disk --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/auth-login-boot.log \
+		--send-on '\[SHELL\] info: authentication screen mapped: mode=login' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
+		--send 'sendkey ret' \
+		--send 'wait:authentication complete' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 8/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 9/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 10/11 "قفل الشاشة"' \
+		--send 'sendkey ret' \
+		--send 'wait:locked by user request' --send 'quit' \
+		--expect '\[SECURITY\] info: desktop credential verified: pid=[0-9]+ uid=1000' \
+		--expect '\[SHELL\] info: desktop credential accepted' \
+		--expect '\[SHELL\] info: authentication complete' \
+		--expect '\[SHELL\] info: ready' \
+		--expect '\[SHELL\] info: app "قفل الشاشة": /usr/bin/wana-lock \(pid [0-9]+\)' \
+		--expect 'WANA_DESKTOP_LOCK_REQUESTED' \
+		--expect '\[SHELL\] info: locked by user request'
+
+# Phase 35: real desktop power path. Start the production uid-1000 session,
+# launch Power from the launcher, require a second confirmation Enter, and
+# prove that the privileged broker authorizes the desktop peer before shutdown.
+power-ui-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-power-ui.img "wana.auth-test-bypass=1"
+	tools/qemu-graphics-test.py --disk out/test/disk-power-ui.img --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/power-ui-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 8/11 "الطاقة"' \
+		--send 'sendkey ret' \
+		--send 'wait:power UI mapped: 620x360' \
+		--send 'sendkey ret' \
+		--send 'wait:power UI confirmation requested action=poweroff' \
+		--send 'sendkey ret' \
+		--expect '\[SHELL\] info: app "الطاقة": /usr/bin/wana-power-ui \(pid [0-9]+\)' \
+		--expect '\[COMPOSITOR\] info: window mapped: "الطاقة — وانا" \(org.wana.Power\) 620x360' \
+		--expect '\[SHELL\] info: power UI mapped: 620x360' \
+		--expect '\[SHELL\] info: power UI confirmation requested action=poweroff' \
+		--expect '\[SECURITY\] info: power action authorized: poweroff pid=[0-9]+ uid=1000' \
+		--expect 'reboot: Power down' \
+		--reject '\[SECURITY\] warn: power request rejected'
+
+# Phase 36: deterministic A/B system update. The helper injects the exact
+# current build into Data/pending without network access. The first persistent
+# boot must apply it to inactive slot B and arm trial state. The second boot
+# must use slot B, wait for the full service graph, and confirm that trial.
+UPDATE_TEST_VERSION := $(shell sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
+update-ab-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-update-test-disk.sh \
+		$(BR_OUT)/images $(BR_OUT)/host/bin/genimage \
+		out/test/disk-update-ab.img "$(UPDATE_TEST_VERSION)" "$(git rev-parse HEAD)"
+	tools/qemu-boot-test.sh --disk out/test/disk-update-ab.img --persistent-disk \
+		--log out/logs/update-ab-apply.log --timeout 300 \
+		--expect '\[BOOT\] info: loading Wana OS update environment' \
+		--expect '\[INIT\] info: boot mode: isolated A/B update environment; active slot=A' \
+		--expect '\[INIT\] info: update verified: version=$(UPDATE_TEST_VERSION) commit=[0-9a-f]+ active=A target=B' \
+		--expect '\[INIT\] info: update root written: slot=B device=' \
+		--expect '\[INIT\] info: update root verified: slot=B' \
+		--expect '\[INIT\] info: update kernel installed: slot=B' \
+		--expect '\[INIT\] info: update selector committed: slot=B; previous=A trial=armed' \
+		--expect '\[INIT\] info: update applied successfully; next slot=B; rebooting'
+	tools/qemu-boot-test.sh --disk out/test/disk-update-ab.img --persistent-disk \
+		--log out/logs/update-ab-confirm.log --timeout 90 \
+		--expect '\[BOOT\] info: loading Wana OS slot B' \
+		--expect 'root=PARTUUID=' \
+		--expect '\[INIT\] info: persistent data: .*home,wifi,updates,waydroid,bluetooth bound' \
+		--expect '\[INIT\] info: services ready: 15 service\(s\); marker=/run/wana/services.ready' \
+		--expect '\[INIT\] info: trial boot confirmed: slot=B' \
+		--expect '\[INIT\] info: ready'
+
+# Phase 38: the supervised network-time client must be reachable locally.
+# This gate does not require external synchronization; real network sync is
+# recorded separately so CI is not coupled to public NTP availability.
+TIME_SYNC_ARGS := wana.run=/usr/bin/wana-time,status wana.services=1 wana.test=poweroff wana.shell=0
+time-sync-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-time-sync.img "$(TIME_SYNC_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-time-sync.img \
+		--log out/logs/time-sync-boot.log --timeout 180 \
+		--expect '\[INIT\] info: service time-sync started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect 'WANA_TIME_READY stratum=.* leap=.*' \
+		--expect '\[INIT\] info: /usr/bin/wana-time exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+# Phase 39: launch the diagnostics helper from the normal desktop user.
+# The helper itself verifies that sensitive credential/Wi-Fi paths are absent
+# and that the resulting support archive is mode 0600.
+diagnostics-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-diagnostics.img "wana.auth-test-bypass=1"
+	tools/qemu-graphics-test.py --disk out/test/disk-diagnostics.img --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/diagnostics-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 8/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 9/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 10/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 11/11 "تشخيص النظام"' \
+		--send 'sendkey ret' \
+		--send 'wait:WANA_DIAGNOSTICS_PRIVACY_PASS' \
+		--send 'wait:WANA_DIAGNOSTICS_BUNDLE path=/home/wana/Diagnostics/.* mode=600' --send 'quit' \
+		--expect '\[SHELL\] info: app "تشخيص النظام": /usr/bin/wana-diagnostics \(pid [0-9]+\)' \
+		--expect 'WANA_DIAGNOSTICS_PRIVACY_PASS' \
+		--expect 'WANA_DIAGNOSTICS_BUNDLE path=/home/wana/Diagnostics/.* mode=600'
 
 # Phase 18: boot the generated UEFI Live ISO. Live mode runs entirely
 # from the initramfs, with no installed root partition. The QEMU monitor exits
@@ -798,7 +1011,7 @@ installed-disk-boot-test:
 		--expect '\[BOOT\] info: loading Wana OS kernel' \
 		--expect "root=PARTUUID=$$WANA_ROOT_PARTUUID" \
 		--expect 'Run /sbin/init as init process' \
-		--expect '\[INIT\] info: early mounts: 7 ok, 0 failed' \
+		--expect '\[INIT\] info: early mounts: 8 ok, 0 failed' \
 		--expect '\[INIT\] info: hostname: wana' \
 		--expect '\[INIT\] info: ready' \
 		--expect 'reboot: Power down'
@@ -847,6 +1060,123 @@ hardware-compatibility-test:
 	$(MAKE) hardware-input-ps2-test
 	$(MAKE) hardware-nvme-boot-test
 
+# Post-stable compatibility foundation. These gates are intentionally grouped
+# so development can finish first and the complete validation can run at the end.
+compatibility-image-check:
+	test -x $(BR_OUT)/target/usr/bin/pipewire
+	test -x $(BR_OUT)/target/usr/bin/pipewire-pulse
+	test -x $(BR_OUT)/target/usr/bin/wireplumber
+	test -x $(BR_OUT)/target/usr/bin/bluetoothctl
+	test -x $(BR_OUT)/target/usr/libexec/bluetooth/bluetoothd
+	test -x $(BR_OUT)/target/usr/bin/lxc-start
+	test -x $(BR_OUT)/target/usr/bin/wana-audio
+	test -x $(BR_OUT)/target/usr/bin/wana-bluetooth
+	test -x $(BR_OUT)/target/usr/bin/wana-wifi
+	test -x $(BR_OUT)/target/usr/sbin/wpa_supplicant
+	test -x $(BR_OUT)/target/sbin/dhcpcd
+	test -x $(BR_OUT)/target/usr/bin/wana-android
+	test -x $(BR_OUT)/target/usr/bin/wana-waydroid-container
+	test -x $(BR_OUT)/target/usr/bin/waydroid
+	test -e $(BR_OUT)/target/usr/lib/libgbinder.so.1
+	test -e $(BR_OUT)/target/usr/lib/libglibutil.so.1
+	test -x $(BR_OUT)/target/usr/bin/wana-winrun
+	@test -x $(BR_OUT)/target/usr/bin/wine64 || test -x $(BR_OUT)/target/usr/bin/wine
+	@echo "[COMPAT] image payload: PASS"
+
+AUDIO_COMPAT_ARGS := wana.run=/usr/bin/wana-audio,status wana.services=1 wana.test=poweroff wana.shell=0
+audio-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-audio-compat.img "$(AUDIO_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-audio-compat.img \
+		--log out/logs/audio-compatibility-boot.log --timeout 180 \
+		--expect 'WANA_AUDIO_READY runtime=/run/user/1000' \
+		--expect '\[INIT\] info: /usr/bin/wana-audio exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+BLUETOOTH_COMPAT_ARGS := wana.run=/usr/bin/wana-bluetooth,status wana.services=1 wana.test=poweroff wana.shell=0
+bluetooth-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-bluetooth-compat.img "$(BLUETOOTH_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-bluetooth-compat.img \
+		--log out/logs/bluetooth-compatibility-boot.log --timeout 180 \
+		--expect 'WANA_BLUETOOTH_READY adapters=[0-9]+' \
+		--expect '\[INIT\] info: /usr/bin/wana-bluetooth exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+WINDOWS_COMPAT_ARGS := wana.run=/usr/bin/wana-winrun,--version wana.test=poweroff wana.shell=0
+windows-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-windows-compat.img "$(WINDOWS_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-windows-compat.img \
+		--log out/logs/windows-compatibility-boot.log --timeout 180 \
+		--expect 'wine-11\.0' \
+		--expect '\[INIT\] info: /usr/bin/wana-winrun exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+ANDROID_COMPAT_ARGS := wana.run=/usr/bin/waydroid,--version wana.test=poweroff wana.shell=0
+android-compatibility-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-android-compat.img "$(ANDROID_COMPAT_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-android-compat.img \
+		--log out/logs/android-compatibility-boot.log --timeout 180 \
+		--expect '^1\.6\.3$' \
+		--expect '\[INIT\] info: /usr/bin/waydroid exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
+
+# Full Android UI validation is intentionally separate from the reproducible
+# release image. The operator provisions the official Waydroid image first;
+# this target then proves that Wana's non-root desktop can start a session and
+# request the full Android UI through its native Wayland socket.
+android-session-boot-test:
+	@test -n "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: ANDROID_TEST_DISK is required (pre-provisioned image)" >&2; exit 2; }
+	@test -s "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: missing $(ANDROID_TEST_DISK)" >&2; exit 2; }
+	@test -n "$(ANDROID_TEST_PACKAGE)" || { echo "[ANDROID] error: ANDROID_TEST_PACKAGE is required and must match /var/lib/wana/android-test-package inside the test disk" >&2; exit 2; }
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh "$(ANDROID_TEST_DISK)" out/test/disk-android-session.img "wana.auth-test-bypass=1"
+	tools/qemu-graphics-test.py --disk out/test/disk-android-session.img --gpu virtio --input virtio --timeout 420 --memory 3072 \
+		--log out/logs/android-session-boot.log \
+		--send-on '\[SHELL\] info: ready' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/11' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/11 "أندرويد"' \
+		--send 'sendkey ret' \
+		--send 'wait:WANA_ANDROID_SESSION_READY display=wayland-0' --send 'quit' \
+		--expect '\[SHELL\] info: apps: 11 from /usr/share/wana-shell/apps' \
+		--expect '\[SHELL\] info: app "أندرويد": /usr/bin/wana-android ui \(pid [0-9]+\)' \
+		--expect 'WANA_ANDROID_SESSION_READY display=wayland-0' \
+		--expect 'WANA_ANDROID_APK_LAUNCH package=$(ANDROID_TEST_PACKAGE)' \
+		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+
+extended-compatibility-test:
+	$(MAKE) compatibility-image-check
+	$(MAKE) production-session-boot-test
+	$(MAKE) audio-compatibility-boot-test
+	$(MAKE) bluetooth-compatibility-boot-test
+	$(MAKE) windows-compatibility-boot-test
+	$(MAKE) android-compatibility-boot-test
+
+# One-shot end-of-development validation. Keep this target for the final pass:
+# it deliberately performs no incremental development work, only evidence
+# collection after implementation has stopped changing.
+final-validation-test:
+	python3 tools/test-prepare-release.py
+	$(MAKE) check
+	$(MAKE) msrv
+	$(MAKE) wayland-host-test
+	$(MAKE) config-check
+	$(MAKE) image
+	$(MAKE) kernel-boot-test
+	$(MAKE) stable-release-test
+
 # Phase 29: release candidates rerun the critical native, install, security,
 # and hardware gates against one built image before packaging it.
 beta-release-test:
@@ -870,6 +1200,7 @@ beta-release-test:
 	$(MAKE) security-hardening-boot-test
 	$(MAKE) control-center-boot-test
 	$(MAKE) hardware-compatibility-test
+	$(MAKE) extended-compatibility-test
 
 beta-bundle:
 	@test -f "$(BR_OUT)/images/build-manifest.json" || { echo "[RELEASE] error: build image first" >&2; exit 2; }
@@ -885,6 +1216,12 @@ beta-bundle:
 # is enforced by the stable GitHub workflow with an independent no-ccache build.
 stable-release-test:
 	$(MAKE) beta-release-test
+	$(MAKE) production-session-boot-test
+	$(MAKE) auth-login-boot-test
+	$(MAKE) power-ui-boot-test
+	$(MAKE) update-ab-boot-test
+	$(MAKE) time-sync-boot-test
+	$(MAKE) diagnostics-boot-test
 	$(MAKE) gl-boot-test
 	$(MAKE) seat-boot-test
 	$(MAKE) text-boot-test

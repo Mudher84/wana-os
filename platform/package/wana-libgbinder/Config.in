@@ -1,0 +1,10 @@
+config BR2_PACKAGE_WANA_LIBGBINDER
+	bool "wana-libgbinder"
+	depends on BR2_USE_MMU
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_WANA_LIBGLIBUTIL
+	help
+	  Pinned Android Binder userspace library for Wana OS.
+
+	  https://github.com/mer-hybris/libgbinder

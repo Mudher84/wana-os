@@ -1,0 +1,12 @@
+# PulseAudio protocol compatibility on top of the Wana PipeWire graph.
+name=pipewire-pulse
+exec=/usr/bin/pipewire-pulse
+after=pipewire
+ready_path=/run/user/1000/pulse/native
+restart=always
+uid=1000
+gid=1000
+home=/home/wana
+env=XDG_RUNTIME_DIR=/run/user/1000
+env=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+env=PULSE_RUNTIME_PATH=/run/user/1000/pulse

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_WANA_LIBGLIBUTIL
+	bool "wana-libglibutil"
+	depends on BR2_USE_MMU
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_LIBGLIB2
+	help
+	  Pinned libglibutil runtime used by Wana OS Android compatibility.
+
+	  https://github.com/sailfishos/libglibutil

@@ -1,12 +1,14 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use wana_log::{error, info, Subsystem};
 
 const LOG: Subsystem = Subsystem::Init;
 const CHUNK: usize = 1024 * 1024;
+// Linux O_NOFOLLOW. Wana OS targets Linux/x86_64; refuse a final symlink at open time.
+const O_NOFOLLOW: i32 = 0o400000;
 
 #[derive(Debug)]
 struct Args {
@@ -14,6 +16,14 @@ struct Args {
     target: PathBuf,
     confirm: String,
     allow_regular: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ValidatedPaths {
+    source_dev: u64,
+    source_ino: u64,
+    target_dev: u64,
+    target_ino: u64,
 }
 
 fn args() -> Result<Args, String> {
@@ -53,14 +63,7 @@ fn effective_uid() -> Result<u32, String> {
         .map_err(|e| format!("/proc/self/status: invalid effective uid: {e}"))
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (fs::canonicalize(a), fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
-}
-
-fn validate(a: &Args) -> Result<(), String> {
+fn validate(a: &Args) -> Result<ValidatedPaths, String> {
     let source_meta = fs::symlink_metadata(&a.image)
         .map_err(|e| format!("installer source {}: {e}", a.image.display()))?;
     if source_meta.file_type().is_symlink() {
@@ -76,15 +79,21 @@ fn validate(a: &Args) -> Result<(), String> {
             a.image.display()
         ));
     }
-    if same_file(&a.image, &a.target) {
-        return Err("installer source and target are the same file/device".into());
-    }
     let expected = format!("ERASE:{}", a.target.display());
     if a.confirm != expected {
         return Err(format!("confirmation mismatch; expected {expected:?}"));
     }
     let meta = fs::symlink_metadata(&a.target)
         .map_err(|e| format!("target {}: {e}", a.target.display()))?;
+    if source_meta.dev() == meta.dev() && source_meta.ino() == meta.ino() {
+        return Err("installer source and target are the same file/device".into());
+    }
+    if source_meta.file_type().is_block_device()
+        && meta.file_type().is_block_device()
+        && source_meta.rdev() == meta.rdev()
+    {
+        return Err("installer source and target refer to the same block device".into());
+    }
     if meta.file_type().is_symlink() {
         return Err(format!(
             "installer target must not be a symlink: {}",
@@ -101,11 +110,34 @@ fn validate(a: &Args) -> Result<(), String> {
     if ty.is_block_device() && effective_uid()? != 0 {
         return Err("installing to a block device requires effective uid 0".into());
     }
-    Ok(())
+    Ok(ValidatedPaths {
+        source_dev: source_meta.dev(),
+        source_ino: source_meta.ino(),
+        target_dev: meta.dev(),
+        target_ino: meta.ino(),
+    })
 }
 
-fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
-    let mut src = File::open(image).map_err(|e| format!("open {}: {e}", image.display()))?;
+fn copy_and_verify(image: &Path, target: &Path, validated: &ValidatedPaths) -> Result<u64, String> {
+    let mut src = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(image)
+        .map_err(|e| {
+            format!(
+                "open source {} without symlink following: {e}",
+                image.display()
+            )
+        })?;
+    let opened_source = src
+        .metadata()
+        .map_err(|e| format!("metadata {}: {e}", image.display()))?;
+    if opened_source.dev() != validated.source_dev || opened_source.ino() != validated.source_ino {
+        return Err(format!(
+            "installer source changed after validation: {}",
+            image.display()
+        ));
+    }
     let source_len = src
         .seek(SeekFrom::End(0))
         .map_err(|e| format!("size {}: {e}", image.display()))?;
@@ -118,11 +150,38 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
     let mut dst = OpenOptions::new()
         .read(true)
         .write(true)
+        .custom_flags(O_NOFOLLOW)
         .open(target)
-        .map_err(|e| format!("open target {}: {e}", target.display()))?;
-    if dst.metadata().map(|m| m.is_file()).unwrap_or(false) {
+        .map_err(|e| {
+            format!(
+                "open target {} without symlink following: {e}",
+                target.display()
+            )
+        })?;
+    let opened_target = dst
+        .metadata()
+        .map_err(|e| format!("metadata target {}: {e}", target.display()))?;
+    if opened_target.dev() != validated.target_dev || opened_target.ino() != validated.target_ino {
+        return Err(format!(
+            "installer target changed after validation: {}",
+            target.display()
+        ));
+    }
+    if opened_target.is_file() {
         dst.set_len(source_len)
             .map_err(|e| format!("size target {}: {e}", target.display()))?;
+    } else if opened_target.file_type().is_block_device() {
+        let target_len = dst
+            .seek(SeekFrom::End(0))
+            .map_err(|e| format!("size target {}: {e}", target.display()))?;
+        if target_len < source_len {
+            return Err(format!(
+                "target {} is too small: {} bytes available, {} bytes required",
+                target.display(),
+                target_len,
+                source_len
+            ));
+        }
     }
     dst.seek(SeekFrom::Start(0))
         .map_err(|e| format!("seek target: {e}"))?;
@@ -190,14 +249,14 @@ fn copy_and_verify(image: &Path, target: &Path) -> Result<u64, String> {
 
 fn run() -> Result<(), String> {
     let a = args()?;
-    validate(&a)?;
+    let validated = validate(&a)?;
     info!(
         LOG,
         "installer write authorized: image={} target={}",
         a.image.display(),
         a.target.display()
     );
-    let bytes = copy_and_verify(&a.image, &a.target)?;
+    let bytes = copy_and_verify(&a.image, &a.target, &validated)?;
     info!(LOG, "installer readback PASS: {bytes} bytes");
     Ok(())
 }
@@ -234,8 +293,96 @@ mod tests {
         let data: Vec<u8> = (0..2_500_000).map(|i| (i % 251) as u8).collect();
         fs::write(&src, &data).unwrap();
         fs::write(&dst, b"x").unwrap();
-        assert_eq!(copy_and_verify(&src, &dst).unwrap(), data.len() as u64);
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        let validated = validate(&args).unwrap();
+        assert_eq!(
+            copy_and_verify(&src, &dst, &validated).unwrap(),
+            data.len() as u64
+        );
         assert_eq!(fs::read(&dst).unwrap(), data);
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(dst);
+    }
+
+    #[test]
+    fn copy_rejects_target_replaced_after_validation() {
+        let src = temp("src-toctou");
+        let dst = temp("dst-toctou");
+        let old = temp("old-dst-toctou");
+        fs::write(&src, b"image-data").unwrap();
+        fs::write(&dst, b"original-target").unwrap();
+
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        let validated = validate(&args).unwrap();
+
+        fs::rename(&dst, &old).unwrap();
+        fs::write(&dst, b"replacement-target").unwrap();
+        let error = copy_and_verify(&src, &dst, &validated).unwrap_err();
+        assert!(error.contains("target changed after validation"));
+        assert_eq!(fs::read(&dst).unwrap(), b"replacement-target");
+
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(dst);
+        let _ = fs::remove_file(old);
+    }
+
+    #[test]
+    fn copy_rejects_target_symlink_swap_after_validation() {
+        use std::os::unix::fs::symlink;
+
+        let src = temp("src-symlink-swap");
+        let dst = temp("dst-symlink-swap");
+        let old = temp("old-dst-symlink-swap");
+        let victim = temp("victim-symlink-swap");
+        fs::write(&src, b"image-data").unwrap();
+        fs::write(&dst, b"original-target").unwrap();
+        fs::write(&victim, b"victim-data").unwrap();
+
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        let validated = validate(&args).unwrap();
+
+        fs::rename(&dst, &old).unwrap();
+        symlink(&victim, &dst).unwrap();
+        let error = copy_and_verify(&src, &dst, &validated).unwrap_err();
+        assert!(error.contains("without symlink following"));
+        assert_eq!(fs::read(&victim).unwrap(), b"victim-data");
+
+        let _ = fs::remove_file(src);
+        let _ = fs::remove_file(dst);
+        let _ = fs::remove_file(old);
+        let _ = fs::remove_file(victim);
+    }
+
+    #[test]
+    fn validation_rejects_hardlinked_source_and_target() {
+        let src = temp("src-hardlink");
+        let dst = temp("dst-hardlink");
+        fs::write(&src, b"image").unwrap();
+        fs::hard_link(&src, &dst).unwrap();
+
+        let args = Args {
+            image: src.clone(),
+            target: dst.clone(),
+            confirm: format!("ERASE:{}", dst.display()),
+            allow_regular: true,
+        };
+        assert!(validate(&args).is_err());
+
         let _ = fs::remove_file(src);
         let _ = fs::remove_file(dst);
     }

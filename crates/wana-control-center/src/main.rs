@@ -124,11 +124,12 @@ fn ui(args: &Args, store: &Store) -> Result<(), String> {
             .map(|name| Font::load(&args.fonts.join(name)))
             .collect::<Result<_, _>>()?,
     };
-    let notifications = store.list()?;
-    let canvas = draw::center(&fonts, &notifications)?;
-    let hash = sha256::hex(&sha256::digest(&canvas.bytes()));
+    let mut notifications = store.list()?;
 
     let app = App::connect()?;
+    let keyboard = app
+        .keyboard()?
+        .ok_or("control center requires a keyboard seat")?;
     let window = Window::new(
         &app,
         "مركز التحكم — وانا",
@@ -136,6 +137,8 @@ fn ui(args: &Args, store: &Store) -> Result<(), String> {
         draw::WIDTH as i32,
         draw::HEIGHT as i32,
     )?;
+    let mut canvas = draw::center(&fonts, &notifications)?;
+    let mut hash = sha256::hex(&sha256::digest(&canvas.bytes()));
     window.present(&app, &canvas.bytes())?;
     info!(
         LOG,
@@ -158,6 +161,40 @@ fn ui(args: &Args, store: &Store) -> Result<(), String> {
                 window.destroy(&app);
                 return Ok(());
             }
+            if let Some((key, pressed)) = app.key_event(keyboard, &event) {
+                if !pressed {
+                    continue;
+                }
+                let mut redraw = false;
+                match key {
+                    19 => {
+                        notifications = store.list()?;
+                        info!(LOG, "control center refreshed notifications");
+                        redraw = true;
+                    }
+                    111 => {
+                        store.clear()?;
+                        notifications = store.list()?;
+                        info!(LOG, "control center cleared notification history");
+                        redraw = true;
+                    }
+                    1 => {
+                        window.destroy(&app);
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                if redraw {
+                    canvas = draw::center(&fonts, &notifications)?;
+                    hash = sha256::hex(&sha256::digest(&canvas.bytes()));
+                    window.present(&app, &canvas.bytes())?;
+                    info!(
+                        LOG,
+                        "control center updated: notifications={} sha256 {hash}",
+                        notifications.len()
+                    );
+                }
+            }
             app.protocol_event(&event)?;
         }
     }
@@ -171,7 +208,6 @@ fn run() -> Result<(), String> {
     match &args.command {
         Command::Ui => ui(&args, &store),
         Command::Notify { app, title, body } => {
-            require_root()?;
             let seq = store.push(app, title, body)?;
             info!(LOG, "notification stored: seq={seq} app={app}");
             Ok(())
@@ -186,7 +222,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Command::Clear => {
-            require_root()?;
             store.clear()?;
             info!(LOG, "notification history cleared");
             Ok(())

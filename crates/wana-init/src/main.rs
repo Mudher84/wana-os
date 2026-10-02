@@ -16,9 +16,11 @@ mod udev;
 
 use cmdline::TestAction;
 use mounts::Outcome;
-use std::fs;
-use std::path::Path;
-use std::process::{Child, Command};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use sys::{Halt, Reaped};
@@ -33,6 +35,18 @@ const SERVICES_DIR: &str = "/etc/wana/services.d";
 const SERVICES_RESTART_DELAY: Duration = Duration::from_secs(1);
 const LIVE_MOUNT: &str = "/run/wana-live";
 const LIVE_IMAGE: &str = "/run/wana-live/live/Wana-OS.img";
+const DESKTOP_UID: u32 = 1000;
+const DESKTOP_GID: u32 = 1000;
+const DESKTOP_RUNTIME: &str = "/run/user/1000";
+const DATA_MOUNT: &str = "/data";
+const DATA_DEVICE: &str = "/dev/disk/by-label/WANA-DATA";
+const UPDATE_DATA_MOUNT: &str = "/run/wana-update-data";
+const UPDATE_NEW_ROOT: &str = "/run/wana-update-new";
+const UPDATE_ESP_MOUNT: &str = "/run/wana-update-esp";
+const UPDATE_ESP_DEVICE: &str = "/dev/disk/by-label/WANA-ESP";
+const SERVICES_READY_MARKER: &str = "/run/wana/services.ready";
+const UPDATE_STATE_ROOT: &str = "/var/lib/wana/update";
+const UPDATE_TRIAL_FILE: &str = "/var/lib/wana/update/trial-boot.cfg";
 
 fn main() {
     let pid = std::process::id();
@@ -79,8 +93,18 @@ fn main() {
     }
 
     set_identity();
-    if opts.live {
+    if opts.update {
+        info!(INIT, "boot mode: isolated A/B update environment; active slot={}", opts.active_slot);
+    } else if opts.live {
         info!(INIT, "boot mode: Live ISO");
+    } else {
+        match sys::remount_rw("/") {
+            Ok(()) => info!(INIT, "installed root: remounted read-write"),
+            Err(e) => {
+                error!(INIT, "installed root: remount read-write failed: {e}");
+                problems.push("installed root is not writable".into());
+            }
+        }
     }
 
     let udevd = if opts.udev {
@@ -89,6 +113,30 @@ fn main() {
         info!(INIT, "udev: disabled (wana.udev=0)");
         None
     };
+
+    if opts.update {
+        match apply_staged_update(&opts) {
+            Ok(slot) => {
+                info!(INIT, "update applied successfully; next slot={slot}; rebooting");
+                let err = sys::halt(Halt::Reboot);
+                error!(INIT, "update reboot failed: {err}");
+                supervise(false, udevd, None);
+            }
+            Err(e) => {
+                error!(INIT, "update failed: {e}");
+                if let Err(mark_error) = quarantine_failed_update(&opts, &e) {
+                    error!(INIT, "cannot quarantine failed update: {mark_error}");
+                }
+                let err = sys::halt(Halt::Reboot);
+                error!(INIT, "failed-update reboot failed: {err}");
+                supervise(false, udevd, None);
+            }
+        }
+    }
+
+    if !opts.live && !opts.update {
+        prepare_persistent_data(&mut problems);
+    }
 
     if opts.live {
         match mount_live_media() {
@@ -103,7 +151,50 @@ fn main() {
         }
     }
 
-    let services = start_services(&mut problems);
+    let want_services = opts
+        .services
+        .unwrap_or(opts.run.is_none() && opts.test.is_none());
+    let services = if want_services {
+        if prepare_desktop_runtime(&mut problems) {
+            start_services(&mut problems)
+        } else {
+            None
+        }
+    } else {
+        info!(
+            INIT,
+            "services: disabled for automated/one-shot boot (set wana.services=1 to override)"
+        );
+        None
+    };
+
+    if !opts.live
+        && !opts.update
+        && opts.run.is_none()
+        && opts.test.is_none()
+        && want_services
+    {
+        if !wait_for_path(Path::new(SERVICES_READY_MARKER), Duration::from_secs(20)) {
+            error!(INIT, "services readiness marker did not appear: {SERVICES_READY_MARKER}");
+            problems.push("service graph did not become ready".into());
+        }
+        match settle_trial_boot(opts.active_slot, problems.is_empty()) {
+            Ok(Some(previous)) => {
+                warn!(
+                    INIT,
+                    "trial boot failed; restoring previous slot={previous} and rebooting"
+                );
+                let err = sys::halt(Halt::Reboot);
+                error!(INIT, "rollback reboot failed: {err}");
+                supervise(false, udevd, services);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                error!(INIT, "trial boot state: {e}");
+                problems.push("trial boot state invalid".into());
+            }
+        }
+    }
 
     let uptime = read_first_field("/proc/uptime").unwrap_or_else(|| "?".into());
     if problems.is_empty() {
@@ -212,6 +303,499 @@ fn start_udev(problems: &mut Vec<String>) -> Option<Child> {
     Some(child)
 }
 
+fn device_from_spec(spec: &str) -> Result<PathBuf, String> {
+    let (kind, id) = spec
+        .split_once('=')
+        .ok_or_else(|| format!("invalid device spec {spec:?}"))?;
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F' | b'-'))
+    {
+        return Err(format!("invalid device identifier {id:?}"));
+    }
+    match kind {
+        "PARTUUID" => Ok(Path::new("/dev/disk/by-partuuid").join(id)),
+        "UUID" => Ok(Path::new("/dev/disk/by-uuid").join(id)),
+        _ => Err(format!("unsupported device spec {spec:?}")),
+    }
+}
+
+fn require_block_device(path: &Path) -> Result<(), String> {
+    if !wait_for_path(path, Duration::from_secs(10)) {
+        return Err(format!("device {} did not appear", path.display()));
+    }
+    let meta = fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !meta.file_type().is_block_device() {
+        return Err(format!("{} is not a block device", path.display()));
+    }
+    Ok(())
+}
+
+fn mount_update_data(spec: &str) -> Result<PathBuf, String> {
+    let device = device_from_spec(spec)?;
+    require_block_device(&device)?;
+    fs::create_dir_all(UPDATE_DATA_MOUNT)
+        .map_err(|e| format!("create {UPDATE_DATA_MOUNT}: {e}"))?;
+    sys::mount_fs(
+        device.to_str().ok_or("data device path is not UTF-8")?,
+        UPDATE_DATA_MOUNT,
+        "ext4",
+        sys::MS_NOSUID | sys::MS_NODEV,
+        "",
+    )
+    .map_err(|e| format!("mount update data {}: {e}", device.display()))?;
+    Ok(device)
+}
+
+fn verify_new_slot(device: &Path) -> Result<(), String> {
+    fs::create_dir_all(UPDATE_NEW_ROOT)
+        .map_err(|e| format!("create {UPDATE_NEW_ROOT}: {e}"))?;
+    sys::mount_fs(
+        device.to_str().ok_or("root slot device path is not UTF-8")?,
+        UPDATE_NEW_ROOT,
+        "ext4",
+        sys::MS_RDONLY | sys::MS_NOSUID | sys::MS_NODEV,
+        "",
+    )
+    .map_err(|e| format!("mount new root {}: {e}", device.display()))?;
+
+    let result = (|| -> Result<(), String> {
+        for relative in ["usr/sbin/wana-init", "usr/bin/wana-session", "etc/hostname"] {
+            let path = Path::new(UPDATE_NEW_ROOT).join(relative);
+            let meta = fs::symlink_metadata(&path)
+                .map_err(|e| format!("new root missing {}: {e}", path.display()))?;
+            if meta.file_type().is_symlink() || !meta.is_file() || meta.len() == 0 {
+                return Err(format!("new root has invalid {}", path.display()));
+            }
+        }
+        Ok(())
+    })();
+
+    let unmount = sys::unmount(UPDATE_NEW_ROOT)
+        .map_err(|e| format!("unmount verified root: {e}"));
+    result?;
+    unmount
+}
+
+fn replace_slot_kernel(
+    pending: &Path,
+    metadata: &wana_update::Metadata,
+    slot: char,
+) -> Result<(), String> {
+    if !wait_for_path(Path::new(UPDATE_ESP_DEVICE), Duration::from_secs(10)) {
+        return Err(format!("{UPDATE_ESP_DEVICE} did not appear"));
+    }
+    fs::create_dir_all(UPDATE_ESP_MOUNT)
+        .map_err(|e| format!("create {UPDATE_ESP_MOUNT}: {e}"))?;
+    sys::mount_fs(
+        UPDATE_ESP_DEVICE,
+        UPDATE_ESP_MOUNT,
+        "vfat",
+        sys::MS_NOSUID | sys::MS_NODEV | sys::MS_NOEXEC,
+        "",
+    )
+    .map_err(|e| format!("mount ESP: {e}"))?;
+
+    let result = (|| -> Result<(), String> {
+        let dir = Path::new(UPDATE_ESP_MOUNT).join("wana");
+        fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        let final_path = dir.join(format!("bzImage-{slot}"));
+        let temp_path = dir.join(format!(".bzImage-{slot}.new"));
+        if let Ok(meta) = fs::symlink_metadata(&temp_path) {
+            if meta.file_type().is_symlink() || !meta.is_file() {
+                return Err(format!("unsafe stale kernel temp {}", temp_path.display()));
+            }
+            fs::remove_file(&temp_path)
+                .map_err(|e| format!("remove {}: {e}", temp_path.display()))?;
+        }
+        fs::copy(pending.join(wana_update::KERNEL_FILE), &temp_path)
+            .map_err(|e| format!("copy new slot kernel: {e}"))?;
+        let (size, digest) = wana_update::sha256_file(&temp_path)?;
+        if size != metadata.kernel_size || digest != metadata.kernel_sha256 {
+            let _ = fs::remove_file(&temp_path);
+            return Err("copied slot kernel failed verification".into());
+        }
+        File::open(&temp_path)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| format!("sync {}: {e}", temp_path.display()))?;
+        fs::rename(&temp_path, &final_path)
+            .map_err(|e| format!("replace {}: {e}", final_path.display()))?;
+        Ok(())
+    })();
+
+    let unmount = sys::unmount(UPDATE_ESP_MOUNT).map_err(|e| format!("unmount ESP: {e}"));
+    result?;
+    unmount
+}
+
+fn write_slot_selector(update_root: &Path, slot: char) -> Result<(), String> {
+    let selector = update_root.join("boot-slot.cfg");
+    if let Ok(meta) = fs::symlink_metadata(&selector) {
+        if meta.file_type().is_symlink() || !meta.is_file() || meta.uid() != 0 {
+            return Err(format!("unsafe existing selector {}", selector.display()));
+        }
+    }
+    let temp = update_root.join(format!(".boot-slot.cfg.tmp-{}", std::process::id()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|e| format!("create {}: {e}", temp.display()))?;
+    writeln!(file, "set wana_slot=\"{slot}\"")
+        .map_err(|e| format!("write {}: {e}", temp.display()))?;
+    file.sync_all()
+        .map_err(|e| format!("sync {}: {e}", temp.display()))?;
+    fs::rename(&temp, &selector)
+        .map_err(|e| format!("replace {}: {e}", selector.display()))?;
+    File::open(update_root)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("sync {}: {e}", update_root.display()))
+}
+
+fn finish_update_state(pending: &Path, update_root: &Path) -> Result<(), String> {
+    let applied = update_root.join("last-applied.txt");
+    let temp = update_root.join(format!(".last-applied.tmp-{}", std::process::id()));
+    if let Ok(meta) = fs::symlink_metadata(&temp) {
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            return Err(format!("unsafe stale applied temp {}", temp.display()));
+        }
+        fs::remove_file(&temp).map_err(|e| format!("remove {}: {e}", temp.display()))?;
+    }
+    fs::copy(pending.join(wana_update::UPDATE_FILE), &temp)
+        .map_err(|e| format!("copy applied metadata: {e}"))?;
+    File::open(&temp)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| format!("sync {}: {e}", temp.display()))?;
+    fs::rename(&temp, &applied)
+        .map_err(|e| format!("replace {}: {e}", applied.display()))?;
+
+    let meta = fs::symlink_metadata(pending)
+        .map_err(|e| format!("{}: {e}", pending.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != 0 {
+        return Err(format!("unsafe pending directory {}", pending.display()));
+    }
+    fs::remove_dir_all(pending)
+        .map_err(|e| format!("remove completed pending update: {e}"))?;
+    File::open(update_root)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("sync {}: {e}", update_root.display()))
+}
+
+fn write_trial_boot(update_root: &Path, previous: char, next: char) -> Result<(), String> {
+    let path = update_root.join("trial-boot.cfg");
+    let temp = update_root.join(format!(".trial-boot.tmp-{}", std::process::id()));
+    if let Ok(meta) = fs::symlink_metadata(&temp) {
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            return Err(format!("unsafe stale trial temp {}", temp.display()));
+        }
+        fs::remove_file(&temp).map_err(|e| format!("remove {}: {e}", temp.display()))?;
+    }
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|e| format!("create {}: {e}", temp.display()))?;
+    writeln!(file, "previous={previous}\nnext={next}")
+        .map_err(|e| format!("write {}: {e}", temp.display()))?;
+    file.sync_all()
+        .map_err(|e| format!("sync {}: {e}", temp.display()))?;
+    fs::rename(&temp, &path)
+        .map_err(|e| format!("replace {}: {e}", path.display()))?;
+    File::open(update_root)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("sync {}: {e}", update_root.display()))
+}
+
+fn read_trial_boot() -> Result<Option<(char, char)>, String> {
+    let path = Path::new(UPDATE_TRIAL_FILE);
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.uid() != 0 || meta.len() > 128 {
+        return Err(format!("{}: unsafe trial state", path.display()));
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let mut previous = None;
+    let mut next = None;
+    for line in text.lines() {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| format!("{}: malformed trial state", path.display()))?;
+        let slot = match value {
+            "A" => 'A',
+            "B" => 'B',
+            _ => return Err(format!("{}: invalid slot {value:?}", path.display())),
+        };
+        match key {
+            "previous" if previous.is_none() => previous = Some(slot),
+            "next" if next.is_none() => next = Some(slot),
+            _ => return Err(format!("{}: duplicate/unknown field {key:?}", path.display())),
+        }
+    }
+    let previous = previous.ok_or_else(|| format!("{}: missing previous", path.display()))?;
+    let next = next.ok_or_else(|| format!("{}: missing next", path.display()))?;
+    if previous == next {
+        return Err(format!("{}: previous and next slots are identical", path.display()));
+    }
+    Ok(Some((previous, next)))
+}
+
+fn remove_trial_boot() -> Result<(), String> {
+    match fs::remove_file(UPDATE_TRIAL_FILE) {
+        Ok(()) => {
+            File::open(UPDATE_STATE_ROOT)
+                .and_then(|dir| dir.sync_all())
+                .map_err(|e| format!("sync {UPDATE_STATE_ROOT}: {e}"))?;
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("remove {UPDATE_TRIAL_FILE}: {e}")),
+    }
+}
+
+fn settle_trial_boot(active: char, healthy: bool) -> Result<Option<char>, String> {
+    let Some((previous, next)) = read_trial_boot()? else {
+        return Ok(None);
+    };
+    if active == previous {
+        info!(INIT, "trial boot already on previous slot={previous}; clearing trial state");
+        remove_trial_boot()?;
+        return Ok(None);
+    }
+    if active != next {
+        return Err(format!(
+            "trial boot active slot {active} matches neither previous={previous} nor next={next}"
+        ));
+    }
+    if healthy {
+        info!(INIT, "trial boot confirmed: slot={next}");
+        remove_trial_boot()?;
+        return Ok(None);
+    }
+    write_slot_selector(Path::new(UPDATE_STATE_ROOT), previous)?;
+    remove_trial_boot()?;
+    Ok(Some(previous))
+}
+
+fn apply_staged_update(opts: &cmdline::Options) -> Result<char, String> {
+    let data_spec = opts.data.as_deref().ok_or("update boot missing wana.data")?;
+    let root_a = opts.root_a.as_deref().ok_or("update boot missing wana.root_a")?;
+    let root_b = opts.root_b.as_deref().ok_or("update boot missing wana.root_b")?;
+    let inactive = if opts.active_slot == 'A' { 'B' } else { 'A' };
+    let target_spec = if inactive == 'A' { root_a } else { root_b };
+
+    let _data_device = mount_update_data(data_spec)?;
+    let update_root = Path::new(UPDATE_DATA_MOUNT).join("var/lib/wana/update");
+    let pending = update_root.join("pending");
+    let pending_meta = fs::symlink_metadata(&pending)
+        .map_err(|e| format!("{}: {e}", pending.display()))?;
+    if pending_meta.file_type().is_symlink() || !pending_meta.is_dir() || pending_meta.uid() != 0 {
+        return Err(format!("{}: unsafe pending directory", pending.display()));
+    }
+
+    let metadata = wana_update::verify_staged(&pending)?;
+    info!(
+        INIT,
+        "update verified: version={} commit={} active={} target={inactive} raw_rootfs_bytes={}",
+        metadata.version,
+        metadata.commit,
+        opts.active_slot,
+        metadata.rootfs_raw_size
+    );
+
+    let compressed = pending.join(wana_update::ROOTFS_FILE);
+    let zstd_test = Command::new("/usr/bin/zstd")
+        .args(["-q", "-t"])
+        .arg(&compressed)
+        .status()
+        .map_err(|e| format!("run zstd integrity test: {e}"))?;
+    if !zstd_test.success() {
+        return Err(format!("zstd integrity test failed: {zstd_test}"));
+    }
+
+    let target = device_from_spec(target_spec)?;
+    require_block_device(&target)?;
+    let mut capacity_probe = OpenOptions::new()
+        .read(true)
+        .open(&target)
+        .map_err(|e| format!("open inactive root {} for sizing: {e}", target.display()))?;
+    let target_capacity = capacity_probe
+        .seek(SeekFrom::End(0))
+        .map_err(|e| format!("size inactive root {}: {e}", target.display()))?;
+    if target_capacity < metadata.rootfs_raw_size {
+        return Err(format!(
+            "inactive root {} too small: {} bytes available, {} bytes required",
+            target.display(),
+            target_capacity,
+            metadata.rootfs_raw_size
+        ));
+    }
+    drop(capacity_probe);
+
+    let output = OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .map_err(|e| format!("open inactive root {}: {e}", target.display()))?;
+    let sync_handle = output
+        .try_clone()
+        .map_err(|e| format!("clone inactive root handle: {e}"))?;
+    let status = Command::new("/usr/bin/zstd")
+        .args(["-d", "-q", "-c"])
+        .arg(&compressed)
+        .stdout(Stdio::from(output))
+        .status()
+        .map_err(|e| format!("decompress root update: {e}"))?;
+    if !status.success() {
+        return Err(format!("root update decompression failed: {status}"));
+    }
+    sync_handle
+        .sync_all()
+        .map_err(|e| format!("sync inactive root {}: {e}", target.display()))?;
+    info!(INIT, "update root written: slot={inactive} device={}", target.display());
+
+    verify_new_slot(&target)?;
+    info!(INIT, "update root verified: slot={inactive}");
+
+    replace_slot_kernel(&pending, &metadata, inactive)?;
+    info!(INIT, "update kernel installed: slot={inactive}");
+
+    // Pending is removed before the selector changes. If power is lost here,
+    // GRUB still boots the old active slot rather than re-entering update mode.
+    finish_update_state(&pending, &update_root)?;
+    write_trial_boot(&update_root, opts.active_slot, inactive)?;
+    write_slot_selector(&update_root, inactive)?;
+    info!(
+        INIT,
+        "update selector committed: slot={inactive}; previous={} trial=armed",
+        opts.active_slot
+    );
+    Ok(inactive)
+}
+
+fn quarantine_failed_update(opts: &cmdline::Options, reason: &str) -> Result<(), String> {
+    let data_spec = opts.data.as_deref().ok_or("failed update has no wana.data")?;
+    let pending_root = Path::new(UPDATE_DATA_MOUNT).join("var/lib/wana/update/pending");
+    if !pending_root.exists() {
+        let _ = mount_update_data(data_spec)?;
+    }
+    let marker = pending_root.join(wana_update::UPDATE_FILE);
+    if marker.exists() {
+        let failed = pending_root.join("update.failed");
+        if failed.exists() {
+            fs::remove_file(&failed)
+                .map_err(|e| format!("remove old {}: {e}", failed.display()))?;
+        }
+        fs::rename(&marker, &failed)
+            .map_err(|e| format!("quarantine {}: {e}", marker.display()))?;
+        fs::write(pending_root.join("update-error.txt"), format!("{reason}\n"))
+            .map_err(|e| format!("record update failure: {e}"))?;
+        info!(INIT, "failed update quarantined; normal active slot will boot");
+    }
+    Ok(())
+}
+
+fn wait_for_path(path: &Path, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if path.exists() {
+            return true;
+        }
+        sleep(Duration::from_millis(50));
+    }
+    path.exists()
+}
+
+fn ensure_owned_dir(path: &str, mode: u32, uid: u32, gid: u32) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|e| format!("create {path}: {e}"))?;
+    let meta = fs::symlink_metadata(path).map_err(|e| format!("{path}: {e}"))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!("{path}: expected real directory"));
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|e| format!("chmod {path}: {e}"))?;
+    sys::chown_path(path, uid, gid).map_err(|e| format!("chown {path}: {e}"))
+}
+
+fn seed_wifi_config() -> Result<(), String> {
+    let source = Path::new("/var/lib/wana/wifi.conf");
+    let target = Path::new("/data/var/lib/wana/wifi.conf");
+    if target.exists() || !source.is_file() {
+        return Ok(());
+    }
+    fs::copy(source, target)
+        .map_err(|e| format!("seed {} -> {}: {e}", source.display(), target.display()))?;
+    fs::set_permissions(target, fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("chmod {}: {e}", target.display()))
+}
+
+fn prepare_persistent_data(problems: &mut Vec<String>) -> bool {
+    if !wait_for_path(Path::new(DATA_DEVICE), Duration::from_secs(5)) {
+        warn!(INIT, "persistent data: {DATA_DEVICE} not found; using root filesystem fallback");
+        problems.push("persistent data partition unavailable".into());
+        return false;
+    }
+    if let Err(e) = fs::create_dir_all(DATA_MOUNT) {
+        error!(INIT, "persistent data: create {DATA_MOUNT}: {e}");
+        problems.push("persistent data mountpoint unavailable".into());
+        return false;
+    }
+    if let Err(e) = sys::mount_fs(
+        DATA_DEVICE,
+        DATA_MOUNT,
+        "ext4",
+        sys::MS_NOSUID | sys::MS_NODEV,
+        "",
+    ) {
+        error!(INIT, "persistent data: mount {DATA_DEVICE} on {DATA_MOUNT}: {e}");
+        problems.push("persistent data mount failed".into());
+        return false;
+    }
+
+    let setup = (|| -> Result<(), String> {
+        ensure_owned_dir("/data/home", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/home/wana", 0o700, DESKTOP_UID, DESKTOP_GID)?;
+        ensure_owned_dir("/data/var", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/var/lib", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/var/lib/wana", 0o755, 0, 0)?;
+        ensure_owned_dir("/data/var/lib/waydroid", 0o700, 0, 0)?;
+        ensure_owned_dir("/data/var/lib/bluetooth", 0o700, 0, 0)?;
+        seed_wifi_config()?;
+
+        for (source, target) in [
+            ("/data/home/wana", "/home/wana"),
+            ("/data/var/lib/wana", "/var/lib/wana"),
+            ("/data/var/lib/waydroid", "/var/lib/waydroid"),
+            ("/data/var/lib/bluetooth", "/var/lib/bluetooth"),
+        ] {
+            fs::create_dir_all(target).map_err(|e| format!("create {target}: {e}"))?;
+            sys::bind_mount(source, target)
+                .map_err(|e| format!("bind {source} -> {target}: {e}"))?;
+        }
+        Ok(())
+    })();
+
+    match setup {
+        Ok(()) => {
+            info!(
+                INIT,
+                "persistent data: {DATA_DEVICE} -> {DATA_MOUNT}; home,wifi,updates,waydroid,bluetooth bound"
+            );
+            true
+        }
+        Err(e) => {
+            error!(INIT, "persistent data: {e}");
+            problems.push("persistent data setup failed".into());
+            false
+        }
+    }
+}
+
 fn mount_live_media() -> Result<(&'static str, u64), String> {
     fs::create_dir_all(LIVE_MOUNT).map_err(|e| format!("create {LIVE_MOUNT}: {e}"))?;
 
@@ -256,6 +840,39 @@ fn spawn_udevd(daemon: &str) -> Option<Child> {
             None
         }
     }
+}
+
+fn prepare_desktop_runtime(problems: &mut Vec<String>) -> bool {
+    if let Err(e) = fs::create_dir_all("/run/dbus") {
+        error!(INIT, "runtime: create /run/dbus: {e}");
+        problems.push("system bus runtime unavailable".into());
+        return false;
+    }
+    if let Err(e) = fs::set_permissions("/run/dbus", fs::Permissions::from_mode(0o755)) {
+        error!(INIT, "runtime: chmod /run/dbus: {e}");
+        problems.push("system bus runtime permissions failed".into());
+        return false;
+    }
+    if let Err(e) = fs::create_dir_all(DESKTOP_RUNTIME) {
+        error!(INIT, "desktop runtime: create {DESKTOP_RUNTIME}: {e}");
+        problems.push("desktop runtime unavailable".into());
+        return false;
+    }
+    if let Err(e) = fs::set_permissions(DESKTOP_RUNTIME, fs::Permissions::from_mode(0o700)) {
+        error!(INIT, "desktop runtime: chmod {DESKTOP_RUNTIME}: {e}");
+        problems.push("desktop runtime permissions failed".into());
+        return false;
+    }
+    if let Err(e) = sys::chown_path(DESKTOP_RUNTIME, DESKTOP_UID, DESKTOP_GID) {
+        error!(INIT, "desktop runtime: chown {DESKTOP_RUNTIME}: {e}");
+        problems.push("desktop runtime ownership failed".into());
+        return false;
+    }
+    info!(
+        INIT,
+        "desktop runtime: {DESKTOP_RUNTIME} uid={DESKTOP_UID} gid={DESKTOP_GID} mode=0700"
+    );
+    true
 }
 
 fn start_services(problems: &mut Vec<String>) -> Option<Child> {

@@ -1,0 +1,11 @@
+# Network time synchronization. Chronyd starts privileged only long enough
+# to adjust the clock, then drops to its Buildroot-created chrony user.
+name=time-sync
+exec=/usr/sbin/chronyd
+arg=-n
+arg=-f
+arg=/etc/wana/chrony.conf
+after=dhcpcd
+restart=always
+uid=0
+gid=0
