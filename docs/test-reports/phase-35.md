@@ -6,8 +6,12 @@ Status: **IN PROGRESS**
 
 - Root-owned `wana-powerd` broker exposes `/run/wana/power.sock`.
 - The socket is mode 0660, owned by root and the desktop group.
-- Peer authorization uses Linux `SO_PEERCRED`; only uid 0 and the Wana
-  desktop uid 1000 are accepted.
+- Peer authorization starts with Linux `SO_PEERCRED`. Status is available to
+  uid 0 and the Wana desktop uid 1000, but destructive power requests from the
+  desktop are accepted only when the peer is the root-owned/read-only
+  `wana-power-ui` or `wana-update-ui` executable and its parent is the
+  trusted `wana-shell` executable. Executable identity is bound by device/inode,
+  not process name.
 - Supported operations are deliberately narrow: status, poweroff and reboot.
 - The broker syncs filesystems before invoking the Linux reboot syscall.
 - The native Arabic `wana-power-ui` requires a second Enter confirmation for
