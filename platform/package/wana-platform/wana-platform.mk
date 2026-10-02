@@ -17,6 +17,7 @@ define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/services/15-wpa-supplicant.service $(TARGET_DIR)/etc/wana/services.d/wpa-supplicant.service
 	$(INSTALL) -D -m 0644 $(@D)/services/16-dhcpcd.service $(TARGET_DIR)/etc/wana/services.d/dhcpcd.service
 	$(INSTALL) -D -m 0644 $(@D)/services/20-bluetooth.service $(TARGET_DIR)/etc/wana/services.d/bluetooth.service
+	$(INSTALL) -D -m 0644 $(@D)/services/25-time-sync.service $(TARGET_DIR)/etc/wana/services.d/time-sync.service
 	$(INSTALL) -D -m 0644 $(@D)/services/30-pipewire.service $(TARGET_DIR)/etc/wana/services.d/pipewire.service
 	$(INSTALL) -D -m 0644 $(@D)/services/35-pipewire-pulse.service $(TARGET_DIR)/etc/wana/services.d/pipewire-pulse.service
 	$(INSTALL) -D -m 0644 $(@D)/services/40-wireplumber.service $(TARGET_DIR)/etc/wana/services.d/wireplumber.service
@@ -24,7 +25,9 @@ define WANA_PLATFORM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/services/45-power.service $(TARGET_DIR)/etc/wana/services.d/power.service
 	$(INSTALL) -D -m 0644 $(@D)/services/46-update.service $(TARGET_DIR)/etc/wana/services.d/update.service
 	$(INSTALL) -D -m 0644 $(@D)/services/50-waydroid-container.service $(TARGET_DIR)/etc/wana/services.d/waydroid-container.service
+	$(INSTALL) -D -m 0644 $(@D)/chrony.conf $(TARGET_DIR)/etc/wana/chrony.conf
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-grow-root $(TARGET_DIR)/usr/bin/wana-grow-root
+	$(INSTALL) -D -m 0755 $(@D)/bin/wana-time $(TARGET_DIR)/usr/bin/wana-time
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-audio $(TARGET_DIR)/usr/bin/wana-audio
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-bluetooth $(TARGET_DIR)/usr/bin/wana-bluetooth
 	$(INSTALL) -D -m 0755 $(@D)/bin/wana-wifi $(TARGET_DIR)/usr/bin/wana-wifi
