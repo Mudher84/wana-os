@@ -20,9 +20,11 @@ Status: **IN PROGRESS**
   while fetch/stage and clear from uid 1000 require the root-owned/read-only
   `wana-update-ui` executable parented by the trusted `wana-shell`; the
   broker compares executable device/inode through `/proc` rather than trusting
-  a process name. The shell and Update UI are non-dumpable, preventing same-uid
-  ptrace from turning an ordinary app into the trusted request chain. Root
-  retains administrative CLI access.
+  a process name. Mutation requests also carry the connected Wayland server PID
+  from `SO_PEERCRED`; it must equal the trusted compositor that parents the
+  shell, which rejects public Wayland socket replacement. The shell and Update
+  UI are non-dumpable, preventing same-uid ptrace from turning an ordinary app
+  into the trusted request chain. Root retains administrative CLI access.
 - Staging uses a root-owned Data directory, create-new temporary state, fsync
   and atomic rename.
 - Update metadata/checksum reads are bound to the same checked inode/device
