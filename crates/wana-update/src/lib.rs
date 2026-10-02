@@ -492,14 +492,11 @@ fn curl_download(base: &str, name: &str, target: &Path, max_bytes: u64) -> Resul
     }
 }
 
-pub fn broker_request(command: &str) -> Result<String, String> {
-    if !matches!(command, "status" | "fetch-stage" | "clear") {
-        return Err("update broker command must be status|fetch-stage|clear".into());
-    }
+fn broker_request_line(line: &str) -> Result<String, String> {
     let mut stream =
         UnixStream::connect(BROKER_SOCKET).map_err(|e| format!("connect {BROKER_SOCKET}: {e}"))?;
     stream
-        .write_all(format!("{command}\n").as_bytes())
+        .write_all(format!("{line}\n").as_bytes())
         .map_err(|e| format!("write {BROKER_SOCKET}: {e}"))?;
     let mut reply = String::new();
     stream
@@ -514,6 +511,23 @@ pub fn broker_request(command: &str) -> Result<String, String> {
     } else {
         Ok(reply)
     }
+}
+
+pub fn broker_request(command: &str) -> Result<String, String> {
+    if !matches!(command, "status" | "fetch-stage" | "clear") {
+        return Err("update broker command must be status|fetch-stage|clear".into());
+    }
+    broker_request_line(command)
+}
+
+pub fn broker_request_from_ui(command: &str, compositor_pid: i32) -> Result<String, String> {
+    if !matches!(command, "fetch-stage" | "clear") {
+        return Err("UI update broker command must be fetch-stage|clear".into());
+    }
+    if compositor_pid <= 0 {
+        return Err("invalid compositor pid".into());
+    }
+    broker_request_line(&format!("{command} {compositor_pid}"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
