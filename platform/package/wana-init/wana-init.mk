@@ -33,6 +33,9 @@ define WANA_INIT_INSTALL_TARGET_CMDS
 		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-auth \
 		$(TARGET_DIR)/usr/bin/wana-auth
 	$(INSTALL) -D -m 0755 \
+		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-lock \
+		$(TARGET_DIR)/usr/bin/wana-lock
+	$(INSTALL) -D -m 0755 \
 		$(@D)/target/$(RUSTC_TARGET_NAME)/$(if $(BR2_ENABLE_DEBUG),debug,release)/wana-powerd \
 		$(TARGET_DIR)/usr/sbin/wana-powerd
 	$(INSTALL) -D -m 0755 \
