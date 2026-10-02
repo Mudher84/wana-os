@@ -8,6 +8,9 @@ Status: **IN PROGRESS**
   persistent Data partition.
 - Stable update payloads contain a compressed root filesystem, kernel and
   initramfs bound to strict metadata and SHA-256 values.
+- Online stable updates accept only strict `X.Y.Z` versions. A candidate older
+  than the installed version is rejected, and reusing the same version with a
+  different commit is rejected as version equivocation.
 - `wana-updated` is a root broker; the desktop can only request status,
   fetch/stage and clear over a peer-credential-authenticated Unix socket.
 - Staging uses a root-owned Data directory, create-new temporary state, fsync
