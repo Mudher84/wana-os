@@ -10,7 +10,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PREPARE = ROOT / "tools" / "prepare-release.py"
-PAYLOAD = ("Wana-OS-Live.iso", "disk.img", "bzImage", "rootfs.cpio.zst")
+PAYLOAD = (
+    "Wana-OS-Live.iso",
+    "disk.img",
+    "bzImage",
+    "rootfs.cpio.zst",
+    "rootfs.ext4.zst",
+)
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 
@@ -31,6 +37,10 @@ def fixture(root: Path) -> tuple[Path, Path]:
             "size": path.stat().st_size,
             "sha256": digest(path),
         })
+    # prepare-release also binds update compatibility to the raw ext4 size,
+    # while only the compressed rootfs is shipped in the release payload.
+    (images / "rootfs.ext4").write_bytes(b"raw-rootfs" * 257)
+
     manifest = {
         "schema": 1,
         "project": "wana-os",
@@ -76,14 +86,14 @@ def main() -> int:
         if good.returncode != 0:
             print(good.stdout, end="")
             raise SystemExit("valid release fixture was rejected")
-        for name in (*PAYLOAD, "build-manifest.json", "release.json", "RELEASE-SHA256SUMS"):
+        for name in (*PAYLOAD, "build-manifest.json", "release.json", "update.txt", "RELEASE-SHA256SUMS"):
             if not (out / name).is_file():
                 raise SystemExit(f"release output missing {name}")
         release_sums = {}
         for line in (out / "RELEASE-SHA256SUMS").read_text().splitlines():
             digest_value, name = line.split("  ", 1)
             release_sums[name] = digest_value
-        expected = set(PAYLOAD) | {"build-manifest.json", "release.json"}
+        expected = set(PAYLOAD) | {"build-manifest.json", "release.json", "update.txt"}
         if set(release_sums) != expected:
             raise SystemExit(
                 f"release checksum closure mismatch: {sorted(release_sums)} != {sorted(expected)}"
@@ -91,6 +101,11 @@ def main() -> int:
         for name, digest_value in release_sums.items():
             if digest(out / name) != digest_value:
                 raise SystemExit(f"release checksum mismatch: {name}")
+
+        update = (out / "update.txt").read_text()
+        raw_size = (images / "rootfs.ext4").stat().st_size
+        if f"rootfs_raw_size={raw_size}\n" not in update:
+            raise SystemExit("update metadata does not bind raw rootfs size")
 
         (images / "bzImage").write_bytes(b"tampered")
         bad = run(images, out)
