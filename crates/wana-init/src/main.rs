@@ -17,7 +17,7 @@ mod udev;
 use cmdline::TestAction;
 use mounts::Outcome;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -602,10 +602,11 @@ fn apply_staged_update(opts: &cmdline::Options) -> Result<char, String> {
     let metadata = wana_update::verify_staged(&pending)?;
     info!(
         INIT,
-        "update verified: version={} commit={} active={} target={inactive}",
+        "update verified: version={} commit={} active={} target={inactive} raw_rootfs_bytes={}",
         metadata.version,
         metadata.commit,
-        opts.active_slot
+        opts.active_slot,
+        metadata.rootfs_raw_size
     );
 
     let compressed = pending.join(wana_update::ROOTFS_FILE);
@@ -620,6 +621,23 @@ fn apply_staged_update(opts: &cmdline::Options) -> Result<char, String> {
 
     let target = device_from_spec(target_spec)?;
     require_block_device(&target)?;
+    let mut capacity_probe = OpenOptions::new()
+        .read(true)
+        .open(&target)
+        .map_err(|e| format!("open inactive root {} for sizing: {e}", target.display()))?;
+    let target_capacity = capacity_probe
+        .seek(SeekFrom::End(0))
+        .map_err(|e| format!("size inactive root {}: {e}", target.display()))?;
+    if target_capacity < metadata.rootfs_raw_size {
+        return Err(format!(
+            "inactive root {} too small: {} bytes available, {} bytes required",
+            target.display(),
+            target_capacity,
+            metadata.rootfs_raw_size
+        ));
+    }
+    drop(capacity_probe);
+
     let output = OpenOptions::new()
         .write(true)
         .open(&target)
