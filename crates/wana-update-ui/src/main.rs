@@ -1,7 +1,9 @@
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use wana_client::app::{App, Window};
 use wana_log::{error, info, Subsystem};
+use wana_power::{request as power_request, Command as PowerCommand};
+use wana_update::broker_request as update_request;
 use wana_text::bidi::Base;
 use wana_text::font::Font;
 use wana_text::layout::{layout, Align, FontSet, Style};
@@ -24,24 +26,8 @@ enum State {
     Error(String),
 }
 
-fn command(program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|e| format!("{program}: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if output.status.success() {
-        Ok(stdout)
-    } else if stderr.is_empty() {
-        Err(format!("{program} exited {}", output.status))
-    } else {
-        Err(stderr)
-    }
-}
-
 fn initial_state() -> State {
-    match command("/usr/bin/wana-update-client", &["status"]) {
+    match update_request("status") {
         Ok(reply) if reply.starts_with("PENDING ") => State::Pending(reply),
         Ok(_) => State::Ready,
         Err(e) => State::Error(e),
@@ -214,7 +200,7 @@ fn present(app: &App, window: &Window, fonts: &FontSet, state: &State) -> Result
 }
 
 fn fetch() -> State {
-    match command("/usr/bin/wana-update-client", &["fetch-stage"]) {
+    match update_request("fetch-stage") {
         Ok(reply) if reply.starts_with("CURRENT ") => State::Current(reply),
         Ok(reply) if reply.starts_with("STAGED ") => State::Pending(reply),
         Ok(reply) => State::Error(format!("رد غير متوقع: {reply}")),
@@ -260,7 +246,7 @@ fn run() -> Result<(), String> {
                     KEY_ENTER => match &state {
                         State::Pending(_) => {
                             info!(LOG, "update UI confirmed reboot into staged update");
-                            command("/usr/bin/wana-power", &["reboot"])?;
+                            power_request(PowerCommand::Reboot)?;
                         }
                         _ => {
                             state = State::Downloading;
@@ -271,7 +257,7 @@ fn run() -> Result<(), String> {
                         }
                     },
                     KEY_DELETE if matches!(state, State::Pending(_)) => {
-                        match command("/usr/bin/wana-update-client", &["clear"]) {
+                        match update_request("clear") {
                             Ok(_) => state = State::Ready,
                             Err(e) => state = State::Error(e),
                         }
