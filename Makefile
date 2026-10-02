@@ -729,11 +729,11 @@ services-boot-test:
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service user-bus ready: /run/user/1100/bus' \
+		--expect '\[INIT\] info: service user-bus ready: /run/user/1000/bus' \
 		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service pipewire ready: /run/user/1100/pipewire-0' \
+		--expect '\[INIT\] info: service pipewire ready: /run/user/1000/pipewire-0' \
 		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service pipewire-pulse ready: /run/user/1100/pulse/native' \
+		--expect '\[INIT\] info: service pipewire-pulse ready: /run/user/1000/pulse/native' \
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
@@ -1089,7 +1089,7 @@ audio-compatibility-boot-test:
 	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-audio-compat.img "$(AUDIO_COMPAT_ARGS)"
 	tools/qemu-boot-test.sh --disk out/test/disk-audio-compat.img \
 		--log out/logs/audio-compatibility-boot.log --timeout 180 \
-		--expect 'WANA_AUDIO_READY runtime=/run/user/1100' \
+		--expect 'WANA_AUDIO_READY runtime=/run/user/1000' \
 		--expect '\[INIT\] info: /usr/bin/wana-audio exited successfully' \
 		--expect 'reboot: Power down' \
 		--reject '\[INIT\] error'
