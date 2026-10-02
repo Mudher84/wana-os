@@ -170,6 +170,15 @@ jobs:
       - name: Production desktop session (normal boot, no wana.run)
         run: make production-session-boot-test
 
+      - name: Local authentication (first setup, persistent login, in-session relock)
+        run: make auth-login-boot-test
+
+      - name: Desktop power lifecycle (uid-1000 UI through privileged broker)
+        run: make power-ui-boot-test
+
+      - name: A/B update lifecycle (offline apply to B + persistent trial confirmation)
+        run: make update-ab-boot-test
+
       - name: Live ISO (OVMF -> GRUB -> kernel + initramfs, explicit Live mode)
         run: make live-iso-boot-test
 
