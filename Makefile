@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test auth-login-boot-test power-ui-boot-test update-ab-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test auth-login-boot-test power-ui-boot-test update-ab-boot-test time-sync-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -71,6 +71,7 @@ help:
 	@echo "    make auth-login-boot-test  persist first password setup, then verify login on the next boot"
 	@echo "    make power-ui-boot-test  launch Power from the real uid-1000 desktop and power off through the broker"
 	@echo "    make update-ab-boot-test  apply a staged A/B update, boot the new slot, and confirm the trial boot"
+	@echo "    make time-sync-boot-test  verify the supervised Chrony client and local tracking interface"
 	@echo "    make stable-bundle VERSION=0.1.0  validate and package the stable payload"
 	@echo "    make final-validation-test  run the complete source + image + stable runtime gate once, at the end"
 	@echo "    make br-<target>    run any Buildroot target, e.g. make br-menuconfig"
@@ -723,6 +724,7 @@ services-boot-test:
 		--expect '\[INIT\] info: service update started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service update ready: /run/wana/update.sock' \
 		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service time-sync started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
@@ -734,12 +736,13 @@ services-boot-test:
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 14 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 14 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 15 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 15 service\(s\)' \
 		--expect '\[INIT\] info: service order: grow-root' \
 		--expect '\[INIT\] info: service order: system-bus' \
 		--expect '\[INIT\] info: service order: auth' \
 		--expect '\[INIT\] info: service order: bluetooth' \
+		--expect '\[INIT\] info: service order: time-sync' \
 		--expect '\[INIT\] info: service order: power' \
 		--expect '\[INIT\] info: service order: update' \
 		--expect '\[INIT\] info: service order: user-bus' \
@@ -765,7 +768,7 @@ production-session-boot-test:
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
 		--expect '\[INIT\] info: service auth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service auth ready: /run/wana/auth.sock' \
-		--expect '\[INIT\] info: services ready: 14 service\(s\); marker=/run/wana/services.ready' \
+		--expect '\[INIT\] info: services ready: 15 service\(s\); marker=/run/wana/services.ready' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: session environment: language=ar locale=ar_IQ.UTF-8 timezone=Asia/Baghdad theme=dark accent=blue' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
@@ -878,9 +881,24 @@ update-ab-boot-test:
 		--expect '\[BOOT\] info: loading Wana OS slot B' \
 		--expect 'root=PARTUUID=' \
 		--expect '\[INIT\] info: persistent data: .*home,wifi,updates,waydroid,bluetooth bound' \
-		--expect '\[INIT\] info: services ready: 14 service\(s\); marker=/run/wana/services.ready' \
+		--expect '\[INIT\] info: services ready: 15 service\(s\); marker=/run/wana/services.ready' \
 		--expect '\[INIT\] info: trial boot confirmed: slot=B' \
 		--expect '\[INIT\] info: ready'
+
+# Phase 38: the supervised network-time client must be reachable locally.
+# This gate does not require external synchronization; real network sync is
+# recorded separately so CI is not coupled to public NTP availability.
+TIME_SYNC_ARGS := wana.run=/usr/bin/wana-time,status wana.services=1 wana.test=poweroff wana.shell=0
+time-sync-boot-test:
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-time-sync.img "$(TIME_SYNC_ARGS)"
+	tools/qemu-boot-test.sh --disk out/test/disk-time-sync.img \
+		--log out/logs/time-sync-boot.log --timeout 180 \
+		--expect '\[INIT\] info: service time-sync started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect 'WANA_TIME_READY stratum=.* leap=.*' \
+		--expect '\[INIT\] info: /usr/bin/wana-time exited successfully' \
+		--expect 'reboot: Power down' \
+		--reject '\[INIT\] error'
 
 # Phase 18: boot the generated UEFI Live ISO. Live mode runs entirely
 # from the initramfs, with no installed root partition. The QEMU monitor exits
@@ -1173,6 +1191,7 @@ stable-release-test:
 	$(MAKE) auth-login-boot-test
 	$(MAKE) power-ui-boot-test
 	$(MAKE) update-ab-boot-test
+	$(MAKE) time-sync-boot-test
 	$(MAKE) gl-boot-test
 	$(MAKE) seat-boot-test
 	$(MAKE) text-boot-test
