@@ -20,7 +20,7 @@ struct Disk {
     bytes: u64,
 }
 
-fn disks(sys: &Path, source: &Path) -> Result<Vec<Disk>, String> {
+fn disks(sys: &Path, source: &Path, minimum_bytes: u64) -> Result<Vec<Disk>, String> {
     let source_name = source.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mut out = Vec::new();
     let root = sys.join("class/block");
@@ -45,10 +45,14 @@ fn disks(sys: &Path, source: &Path) -> Result<Vec<Disk>, String> {
         if sectors == 0 {
             continue;
         }
+        let bytes = sectors.saturating_mul(512);
+        if bytes < minimum_bytes {
+            continue;
+        }
         out.push(Disk {
             path: PathBuf::from("/dev").join(&name),
             name,
-            bytes: sectors.saturating_mul(512),
+            bytes,
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -268,7 +272,13 @@ fn parse_args() -> Result<Args, String> {
 
 fn run() -> Result<(), String> {
     let a = parse_args()?;
-    let mut list = disks(Path::new("/sys"), &a.source)?;
+    let source_meta = fs::metadata(&a.source)
+        .map_err(|e| format!("installer source {}: {e}", a.source.display()))?;
+    let minimum_bytes = source_meta.len();
+    if minimum_bytes == 0 {
+        return Err("installer source image is empty".into());
+    }
+    let mut list = disks(Path::new("/sys"), &a.source, minimum_bytes)?;
     if let Some(target) = &a.target {
         list.retain(|d| &d.path == target);
         if list.is_empty() {
@@ -405,9 +415,17 @@ mod tests {
     }
 
     #[test]
+    fn disk_discovery_excludes_undersized_targets() {
+        let r = root();
+        let got = disks(&r, Path::new("/dev/vda"), 2_000_000).unwrap();
+        assert!(got.is_empty());
+        let _ = fs::remove_dir_all(r);
+    }
+
+    #[test]
     fn disk_discovery_excludes_source_and_virtual_noise() {
         let r = root();
-        let got = disks(&r, Path::new("/dev/vda")).unwrap();
+        let got = disks(&r, Path::new("/dev/vda"), 1_000_000).unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].name, "vdb");
         assert_eq!(got[0].bytes, 2000 * 512);
