@@ -52,6 +52,18 @@ defconfig_root_size=$(sed -n 's/^BR2_TARGET_ROOTFS_EXT2_SIZE="\([^"]*\)"/\1/p' \
 [ "$defconfig_root_size" = "$WANA_ROOT_SLOT_SIZE" ] ||
     err "rootfs size $defconfig_root_size does not match A/B slot size $WANA_ROOT_SLOT_SIZE"
 
+# A/B update metadata has one schema-critical capacity field. Keep the
+# producer, offline fixture, parser and PID 1 consumer in lockstep so a future
+# edit cannot silently reintroduce partial writes to an undersized slot.
+grep -q 'rootfs_raw_size=' tools/prepare-release.py ||
+    err "release producer is missing rootfs_raw_size"
+grep -q 'rootfs_raw_size=' tools/mk-update-test-disk.sh ||
+    err "A/B test fixture is missing rootfs_raw_size"
+grep -q 'pub rootfs_raw_size: u64' crates/wana-update/src/lib.rs ||
+    err "update metadata parser is missing rootfs_raw_size"
+grep -q 'metadata.rootfs_raw_size' crates/wana-init/src/main.rs ||
+    err "PID 1 update preflight is missing rootfs_raw_size capacity check"
+
 # Source files must not land with explicit implementation placeholders. Keep
 # historical prose/audit documents out of this check.
 placeholders=$(git grep -n -E 'TODO|FIXME|todo!\(|unimplemented!\(' -- \
