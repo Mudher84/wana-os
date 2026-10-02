@@ -16,6 +16,13 @@ pub const PENDING_DIR: &str = "/var/lib/wana/update/pending";
 pub const INSTALLED_RELEASE: &str = "/etc/wana-release";
 pub const STABLE_RELEASE_BASE: &str =
     "https://github.com/Mudher84/wana-os/releases/latest/download";
+const RELEASE_DOWNLOAD_PREFIX: &str =
+    "https://github.com/Mudher84/wana-os/releases/download";
+const MAX_UPDATE_METADATA_BYTES: u64 = 64 * 1024;
+const MAX_RELEASE_SUMS_BYTES: u64 = 1024 * 1024;
+const MAX_ROOTFS_DOWNLOAD_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_KERNEL_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_INITRD_DOWNLOAD_BYTES: u64 = 1024 * 1024 * 1024;
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -439,11 +446,19 @@ pub fn installed_release() -> Result<Option<InstalledRelease>, String> {
     Ok(Some(InstalledRelease { version, commit }))
 }
 
-fn curl_download(name: &str, target: &Path) -> Result<(), String> {
+fn tagged_release_base(version: &str) -> Result<String, String> {
+    stable_version_parts(version)?;
+    Ok(format!("{RELEASE_DOWNLOAD_PREFIX}/v{version}"))
+}
+
+fn curl_download(base: &str, name: &str, target: &Path, max_bytes: u64) -> Result<(), String> {
     if name.starts_with('/') || name.split('/').any(|part| matches!(part, "" | "." | "..")) {
         return Err(format!("unsafe release asset name {name:?}"));
     }
-    let url = format!("{STABLE_RELEASE_BASE}/{name}");
+    if base != STABLE_RELEASE_BASE && !base.starts_with(&format!("{RELEASE_DOWNLOAD_PREFIX}/v")) {
+        return Err(format!("unsafe release base {base:?}"));
+    }
+    let url = format!("{base}/{name}");
     let status = Command::new("/usr/bin/curl")
         .args([
             "--fail",
@@ -460,8 +475,10 @@ fn curl_download(name: &str, target: &Path) -> Result<(), String> {
             "--retry-all-errors",
             "--user-agent",
             "Wana-OS-Updater/1",
-            "--output",
+            "--max-filesize",
         ])
+        .arg(max_bytes.to_string())
+        .arg("--output")
         .arg(target)
         .arg(&url)
         .status()
@@ -495,11 +512,36 @@ pub fn fetch_latest_and_stage() -> Result<FetchOutcome, String> {
         .map_err(|e| format!("create {}: {e}", download.display()))?;
 
     let result = (|| -> Result<FetchOutcome, String> {
-        curl_download(UPDATE_FILE, &download.join(UPDATE_FILE))?;
-        curl_download(SUMS_FILE, &download.join(SUMS_FILE))?;
+        // Discover the current stable version from GitHub's latest stable
+        // release, then pin every subsequent request to that immutable tag.
+        curl_download(
+            STABLE_RELEASE_BASE,
+            UPDATE_FILE,
+            &download.join(UPDATE_FILE),
+            MAX_UPDATE_METADATA_BYTES,
+        )?;
+        let latest_text = read_text_regular(&download.join(UPDATE_FILE), MAX_UPDATE_METADATA_BYTES)?;
+        let latest_metadata = parse_update(&latest_text)?;
+        let tagged_base = tagged_release_base(&latest_metadata.version)?;
 
-        let update_text = read_text_regular(&download.join(UPDATE_FILE), 64 * 1024)?;
+        curl_download(
+            &tagged_base,
+            UPDATE_FILE,
+            &download.join(UPDATE_FILE),
+            MAX_UPDATE_METADATA_BYTES,
+        )?;
+        curl_download(
+            &tagged_base,
+            SUMS_FILE,
+            &download.join(SUMS_FILE),
+            MAX_RELEASE_SUMS_BYTES,
+        )?;
+
+        let update_text = read_text_regular(&download.join(UPDATE_FILE), MAX_UPDATE_METADATA_BYTES)?;
         let metadata = parse_update(&update_text)?;
+        if metadata.version != latest_metadata.version {
+            return Err("latest release changed while pinning its stable tag".into());
+        }
         let sums = release_sums(&download.join(SUMS_FILE))?;
         let (_, update_sha) = sha256_file(&download.join(UPDATE_FILE))?;
         if sums.get(UPDATE_FILE) != Some(&update_sha) {
@@ -531,8 +573,12 @@ pub fn fetch_latest_and_stage() -> Result<FetchOutcome, String> {
             stable_version_parts(&metadata.version)?;
         }
 
-        for name in [ROOTFS_FILE, KERNEL_FILE, INITRD_FILE] {
-            curl_download(name, &download.join(name))?;
+        for (name, max_bytes) in [
+            (ROOTFS_FILE, MAX_ROOTFS_DOWNLOAD_BYTES),
+            (KERNEL_FILE, MAX_KERNEL_DOWNLOAD_BYTES),
+            (INITRD_FILE, MAX_INITRD_DOWNLOAD_BYTES),
+        ] {
+            curl_download(&tagged_base, name, &download.join(name), max_bytes)?;
         }
         let verified = verify_bundle(&download)?;
         let staged = stage_bundle(&download)?;
@@ -725,6 +771,15 @@ mod tests {
             hex(&h.finish()),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn stable_tag_download_base_is_fixed_to_project_release() {
+        assert_eq!(
+            tagged_release_base("1.2.3").unwrap(),
+            "https://github.com/Mudher84/wana-os/releases/download/v1.2.3"
+        );
+        assert!(tagged_release_base("1.2.3-beta.1").is_err());
     }
 
     #[test]
