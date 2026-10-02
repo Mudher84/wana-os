@@ -1,4 +1,5 @@
-use std::io;
+use std::io::{self, Read, Write};
+use std::os::unix::net::UnixStream;
 use std::os::fd::{AsRawFd, RawFd};
 
 pub const SOCKET_PATH: &str = "/run/wana/power.sock";
@@ -87,6 +88,27 @@ impl Command {
 
 pub fn authorized(uid: u32) -> bool {
     uid == 0 || uid == DESKTOP_UID
+}
+
+pub fn request(command: Command) -> Result<String, String> {
+    let mut stream = UnixStream::connect(SOCKET_PATH)
+        .map_err(|e| format!("connect {SOCKET_PATH}: {e}"))?;
+    stream
+        .write_all(format!("{}\n", command.as_str()).as_bytes())
+        .map_err(|e| format!("write {SOCKET_PATH}: {e}"))?;
+    let mut reply = String::new();
+    stream
+        .take(256)
+        .read_to_string(&mut reply)
+        .map_err(|e| format!("read {SOCKET_PATH}: {e}"))?;
+    let reply = reply.trim().to_string();
+    if let Some(reason) = reply.strip_prefix("ERR ") {
+        Err(reason.to_string())
+    } else if reply.starts_with("OK ") {
+        Ok(reply)
+    } else {
+        Err(format!("unexpected power broker reply {reply:?}"))
+    }
 }
 
 #[cfg(test)]
