@@ -9,3 +9,4 @@
 أندرويد	/usr/bin/wana-android	ui
 الطاقة	/usr/bin/wana-power-ui
 تحديث النظام	/usr/bin/wana-update-ui
+قفل الشاشة	/usr/bin/wana-lock
