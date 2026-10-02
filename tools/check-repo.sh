@@ -55,7 +55,8 @@ defconfig_root_size=$(sed -n 's/^BR2_TARGET_ROOTFS_EXT2_SIZE="\([^"]*\)"/\1/p' \
 # Source files must not land with explicit implementation placeholders. Keep
 # historical prose/audit documents out of this check.
 placeholders=$(git grep -n -E 'TODO|FIXME|todo!\(|unimplemented!\(' -- \
-    '*.rs' '*.sh' '*.py' '*.mk' '*.yml' '*.service' 2>/dev/null || true)
+    '*.rs' '*.sh' '*.py' '*.mk' '*.yml' '*.service' 2>/dev/null | \
+    grep -v '^tools/check-repo\.sh:' || true)
 [ -z "$placeholders" ] || err "implementation placeholders are tracked:
 $placeholders"
 
