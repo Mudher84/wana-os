@@ -116,8 +116,21 @@ exhaustion is rejected rather than silently wrapping or duplicating IDs.
 The desktop does not expose the launcher until local authentication succeeds.
 
 `wana-authd`, `wana-powerd` and `wana-updated` are root brokers under
-`/run/wana`. Desktop access is authenticated with Linux `SO_PEERCRED` and
-limited to uid 1000 (plus root).
+`/run/wana`. Linux `SO_PEERCRED` establishes the peer uid/pid, but uid 1000
+alone is not treated as sufficient for privileged mutations because ordinary
+desktop applications share that uid.
+
+For sensitive desktop requests the broker also binds `/proc/<pid>/exe` to the
+root-owned/read-only trusted executable by device/inode and verifies process
+lineage:
+
+- auth setup/verify: `wana-shell` parented by `wana-compositor`;
+- poweroff/reboot: `wana-power-ui` or `wana-update-ui` parented by
+  `wana-shell`;
+- update fetch/stage/clear: `wana-update-ui` parented by `wana-shell`.
+
+Root retains administrative CLI access, while status queries can remain
+available to the desktop user.
 
 Credentials are stored as a salted PBKDF2-HMAC-SHA256 verifier with 200,000
 iterations under root-owned persistent state. Credential reads bind the opened
