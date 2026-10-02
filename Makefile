@@ -800,11 +800,27 @@ auth-login-boot-test:
 		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
 		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
 		--send 'sendkey ret' \
-		--send 'wait:authentication complete' --send 'quit' \
+		--send 'wait:authentication complete' \
+		--send 'sendkey meta_l' \
+		--send 'wait:launcher shown: .*selected 1/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 8/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 9/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 10/10 "قفل الشاشة"' \
+		--send 'sendkey ret' \
+		--send 'wait:locked by user request' --send 'quit' \
 		--expect '\[SECURITY\] info: desktop credential verified: pid=[0-9]+ uid=1000' \
 		--expect '\[SHELL\] info: desktop credential accepted' \
 		--expect '\[SHELL\] info: authentication complete' \
-		--expect '\[SHELL\] info: ready'
+		--expect '\[SHELL\] info: ready' \
+		--expect '\[SHELL\] info: app "قفل الشاشة": /usr/bin/wana-lock \(pid [0-9]+\)' \
+		--expect 'WANA_DESKTOP_LOCK_REQUESTED' \
+		--expect '\[SHELL\] info: locked by user request'
 
 # Phase 35: real desktop power path. Start the production uid-1000 session,
 # launch Power from the launcher, require a second confirmation Enter, and
@@ -816,14 +832,14 @@ power-ui-boot-test:
 		--log out/logs/power-ui-boot.log \
 		--send-on '\[SHELL\] info: ready' \
 		--send 'sendkey meta_l' \
-		--send 'wait:launcher shown: .*selected 1/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 2/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 3/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 4/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 5/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 6/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 7/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 8/9 "الطاقة"' \
+		--send 'wait:launcher shown: .*selected 1/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 8/10 "الطاقة"' \
 		--send 'sendkey ret' \
 		--send 'wait:power UI mapped: 620x360' \
 		--send 'sendkey ret' \
@@ -1078,16 +1094,16 @@ android-session-boot-test:
 		--log out/logs/android-session-boot.log \
 		--send-on '\[SHELL\] info: ready' \
 		--send 'sendkey meta_l' \
-		--send 'wait:launcher shown: .*selected 1/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 2/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 3/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 4/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 5/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 6/9' \
-		--send 'sendkey down' --send 'wait:launcher: selected 7/9 "أندرويد"' \
+		--send 'wait:launcher shown: .*selected 1/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 2/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 3/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 4/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 5/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 6/10' \
+		--send 'sendkey down' --send 'wait:launcher: selected 7/10 "أندرويد"' \
 		--send 'sendkey ret' \
 		--send 'wait:WANA_ANDROID_SESSION_READY display=wayland-0' --send 'quit' \
-		--expect '\[SHELL\] info: apps: 9 from /usr/share/wana-shell/apps' \
+		--expect '\[SHELL\] info: apps: 10 from /usr/share/wana-shell/apps' \
 		--expect '\[SHELL\] info: app "أندرويد": /usr/bin/wana-android ui \(pid [0-9]+\)' \
 		--expect 'WANA_ANDROID_SESSION_READY display=wayland-0' \
 		--expect 'WANA_ANDROID_APK_LAUNCH package=$(ANDROID_TEST_PACKAGE)' \
