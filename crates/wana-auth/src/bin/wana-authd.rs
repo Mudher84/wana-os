@@ -45,6 +45,34 @@ fn peer_executable_matches(pid: i32, expected: &str) -> Result<bool, String> {
     Ok(peer.dev() == trusted.dev() && peer.ino() == trusted.ino())
 }
 
+fn parent_pid(pid: i32) -> Result<Option<i32>, String> {
+    if pid <= 0 {
+        return Ok(None);
+    }
+    let path = format!("/proc/{pid}/status");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("read {path}: {e}")),
+    };
+    let ppid = text
+        .lines()
+        .find_map(|line| line.strip_prefix("PPid:"))
+        .and_then(|value| value.trim().parse::<i32>().ok())
+        .ok_or_else(|| format!("{path}: PPid missing or invalid"))?;
+    Ok((ppid > 0).then_some(ppid))
+}
+
+fn trusted_shell_client(pid: i32) -> Result<bool, String> {
+    if !peer_executable_matches(pid, "/usr/bin/wana-shell")? {
+        return Ok(false);
+    }
+    let Some(parent) = parent_pid(pid)? else {
+        return Ok(false);
+    };
+    peer_executable_matches(parent, "/usr/bin/wana-compositor")
+}
+
 fn prepare_state() -> Result<(), String> {
     fs::create_dir_all(CREDENTIAL_DIR).map_err(|e| format!("create {CREDENTIAL_DIR}: {e}"))?;
     let meta = fs::symlink_metadata(CREDENTIAL_DIR)
@@ -228,7 +256,7 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
 
     if cred.uid != 0
         && matches!(operation, Operation::Setup | Operation::Verify)
-        && !peer_executable_matches(cred.pid, "/usr/bin/wana-shell")?
+        && !trusted_shell_client(cred.pid)?
     {
         warn!(
             LOG,
