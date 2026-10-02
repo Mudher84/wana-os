@@ -9,7 +9,7 @@ use wana_log::{error, info, warn, Subsystem};
 const LOG: Subsystem = Subsystem::Security;
 const DESKTOP_UID: u32 = 1000;
 const DESKTOP_GID: u32 = 1000;
-const SOL_wana_update::BROKER_SOCKET: i32 = 1;
+const SOL_SOCKET: i32 = 1;
 const SO_PEERCRED: i32 = 17;
 
 #[repr(C)]
@@ -58,7 +58,7 @@ fn peer(stream: &UnixStream) -> Result<PeerCred, String> {
     let rc = unsafe {
         getsockopt(
             stream.as_raw_fd(),
-            SOL_wana_update::BROKER_SOCKET,
+            SOL_SOCKET,
             SO_PEERCRED,
             (&mut cred as *mut PeerCred).cast(),
             &mut len,
