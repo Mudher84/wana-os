@@ -11,6 +11,11 @@ Status: **IN PROGRESS**
 - Online stable updates accept only strict `X.Y.Z` versions. A candidate older
   than the installed version is rejected, and reusing the same version with a
   different commit is rejected as version equivocation.
+- `latest` is used only to discover the stable version. Metadata, checksums and
+  payloads are then re-fetched from the immutable `vX.Y.Z` release-tag path, so
+  a moving `latest` pointer cannot mix assets from two releases.
+- Downloader size ceilings bound metadata/checksums, rootfs, kernel and initrd
+  transfers before the verified staging step.
 - `wana-updated` is a root broker; the desktop can only request status,
   fetch/stage and clear over a peer-credential-authenticated Unix socket.
 - Staging uses a root-owned Data directory, create-new temporary state, fsync
