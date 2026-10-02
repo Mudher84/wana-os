@@ -31,6 +31,10 @@ Status: **IN PROGRESS**
   that was inspected before opening, so symlink/path-swap races are rejected.
 - GRUB detects a fully staged update and boots an isolated update environment
   from the staged kernel/initramfs without mutating the active root.
+- Release metadata records both the compressed rootfs size and the raw ext4
+  size. Before decompression, PID 1 measures the inactive block device and
+  rejects an update whose raw rootfs cannot fit, so an older installation is
+  never partially overwritten by a larger future system image.
 - PID 1 verifies the staged payload, zstd stream, inactive block device and
   written filesystem before switching slots.
 - The new kernel is installed through a temporary ESP file, verified by
