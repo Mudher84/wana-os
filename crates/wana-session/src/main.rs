@@ -36,6 +36,12 @@ fn timezone(settings: &Settings) -> String {
     }
 }
 
+fn auth_test_bypass() -> bool {
+    std::fs::read_to_string("/proc/cmdline")
+        .ok()
+        .is_some_and(|line| line.split_whitespace().any(|token| token == "wana.auth-test-bypass=1"))
+}
+
 fn run() -> Result<(), String> {
     let mut argv = std::env::args_os().skip(1);
     let program = argv
@@ -67,6 +73,10 @@ fn run() -> Result<(), String> {
         .env("WANA_LANGUAGE", &settings.language)
         .env("WANA_THEME", &settings.theme)
         .env("WANA_ACCENT", &settings.accent);
+    if auth_test_bypass() {
+        command.env_remove("WANA_REQUIRE_AUTH");
+        warn!(LOG, "authentication disabled by explicit test-only kernel flag");
+    }
     let err = command.exec();
     Err(format!("exec {:?}: {err}", program))
 }
