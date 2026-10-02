@@ -16,6 +16,20 @@ const HEIGHT: u32 = 420;
 const KEY_ESC: u32 = 1;
 const KEY_ENTER: u32 = 28;
 const KEY_DELETE: u32 = 111;
+const PR_SET_DUMPABLE: i32 = 4;
+
+unsafe extern "C" {
+    fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
+}
+
+fn protect_trusted_process() -> Result<(), String> {
+    // SAFETY: PR_SET_DUMPABLE with arg2=0 changes only this process attribute.
+    if unsafe { prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) } == 0 {
+        Ok(())
+    } else {
+        Err(format!("PR_SET_DUMPABLE=0: {}", std::io::Error::last_os_error()))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum State {
@@ -209,6 +223,7 @@ fn fetch() -> State {
 }
 
 fn run() -> Result<(), String> {
+    protect_trusted_process()?;
     let font_dir = PathBuf::from(fonts::DEFAULT_DIR);
     fonts::verify_dir(&font_dir)?;
     let fonts = FontSet {
