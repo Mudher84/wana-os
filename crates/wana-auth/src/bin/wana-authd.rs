@@ -28,6 +28,23 @@ fn chown_path(path: &str, owner: u32, group: u32) -> Result<(), String> {
     }
 }
 
+fn peer_executable_matches(pid: i32, expected: &str) -> Result<bool, String> {
+    if pid <= 0 {
+        return Ok(false);
+    }
+    let trusted = fs::metadata(expected).map_err(|e| format!("metadata {expected}: {e}"))?;
+    if !trusted.is_file() || trusted.uid() != 0 || trusted.mode() & 0o022 != 0 {
+        return Err(format!("{expected}: trusted client executable is not root-owned/read-only"));
+    }
+    let proc_exe = format!("/proc/{pid}/exe");
+    let peer = match fs::metadata(&proc_exe) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("metadata {proc_exe}: {e}")),
+    };
+    Ok(peer.dev() == trusted.dev() && peer.ino() == trusted.ino())
+}
+
 fn prepare_state() -> Result<(), String> {
     fs::create_dir_all(CREDENTIAL_DIR).map_err(|e| format!("create {CREDENTIAL_DIR}: {e}"))?;
     let meta = fs::symlink_metadata(CREDENTIAL_DIR)
@@ -208,6 +225,19 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
         .read_exact(&mut payload)
         .map_err(|e| format!("read auth payload: {e}"))?;
     let password = std::str::from_utf8(&payload).map_err(|_| "credential payload is not UTF-8")?;
+
+    if cred.uid != 0
+        && matches!(operation, Operation::Setup | Operation::Verify)
+        && !peer_executable_matches(cred.pid, "/usr/bin/wana-shell")?
+    {
+        warn!(
+            LOG,
+            "auth privileged request rejected: operation={operation:?} pid={} uid={}",
+            cred.pid,
+            cred.uid
+        );
+        return reply(&mut stream, "ERR unauthorized-client\n");
+    }
 
     match operation {
         Operation::Status => {
