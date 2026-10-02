@@ -60,12 +60,38 @@ fn credential_exists() -> Result<bool, String> {
 }
 
 fn read_hash() -> Result<String, String> {
-    if !credential_exists()? {
-        return Err("credential is not initialized".into());
+    let before = fs::symlink_metadata(CREDENTIAL_FILE)
+        .map_err(|e| format!("{CREDENTIAL_FILE}: {e}"))?;
+    if before.file_type().is_symlink()
+        || !before.is_file()
+        || before.uid() != 0
+        || before.mode() & 0o077 != 0
+        || before.len() == 0
+        || before.len() > 1024
+    {
+        return Err(format!("{CREDENTIAL_FILE}: unsafe credential file"));
     }
-    fs::read_to_string(CREDENTIAL_FILE)
-        .map(|value| value.trim().to_string())
-        .map_err(|e| format!("read {CREDENTIAL_FILE}: {e}"))
+
+    let mut file = File::open(CREDENTIAL_FILE)
+        .map_err(|e| format!("open {CREDENTIAL_FILE}: {e}"))?;
+    let opened = file
+        .metadata()
+        .map_err(|e| format!("metadata {CREDENTIAL_FILE}: {e}"))?;
+    if before.dev() != opened.dev()
+        || before.ino() != opened.ino()
+        || !opened.is_file()
+        || opened.uid() != 0
+        || opened.mode() & 0o077 != 0
+        || opened.len() == 0
+        || opened.len() > 1024
+    {
+        return Err(format!("{CREDENTIAL_FILE}: changed or became unsafe while opening"));
+    }
+
+    let mut value = String::new();
+    file.read_to_string(&mut value)
+        .map_err(|e| format!("read {CREDENTIAL_FILE}: {e}"))?;
+    Ok(value.trim().to_string())
 }
 
 fn write_hash_atomic(value: &str) -> Result<(), String> {
