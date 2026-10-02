@@ -65,6 +65,7 @@ use wana_wayland::protocols::{
 const SHELL: Subsystem = Subsystem::Shell;
 const F_SETFD: i32 = 2;
 const FD_CLOEXEC: i32 = 1;
+const PR_SET_DUMPABLE: i32 = 4;
 const BTN_LEFT: u32 = 0x110;
 const CAP_POINTER: u32 = 1;
 const CAP_KEYBOARD: u32 = 2;
@@ -75,6 +76,16 @@ const KEY_ENTER: u32 = 28;
 
 extern "C" {
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
+}
+
+fn protect_trusted_process() -> Result<(), String> {
+    // SAFETY: PR_SET_DUMPABLE with arg2=0 changes only this process attribute.
+    if unsafe { prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) } == 0 {
+        Ok(())
+    } else {
+        Err(format!("PR_SET_DUMPABLE=0: {}", std::io::Error::last_os_error()))
+    }
 }
 
 struct Args {
@@ -568,6 +579,7 @@ fn auth_key(lock: &mut LockScreen, key: u32, text: &str) -> Result<bool, String>
     }
 }
 fn run(args: &Args) -> Result<(), String> {
+    protect_trusted_process()?;
     info!(SHELL, "wana-shell {} starting", env!("CARGO_PKG_VERSION"));
     // libwayland reads WAYLAND_SOCKET (and unsets it); keep that privileged
     // descriptor out of every program the shell starts.
