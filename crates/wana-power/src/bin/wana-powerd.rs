@@ -150,9 +150,10 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             Ok(())
         }
         Command::PowerOff | Command::Reboot => {
-            let trusted_ui = trusted_shell_ui(cred.pid, "/usr/bin/wana-power-ui")?
-                || trusted_shell_ui(cred.pid, "/usr/bin/wana-update-ui")?;
-            if cred.uid != 0 && !trusted_ui {
+            if cred.uid != 0
+                && !(trusted_shell_ui(cred.pid, "/usr/bin/wana-power-ui")?
+                    || trusted_shell_ui(cred.pid, "/usr/bin/wana-update-ui")?)
+            {
                 warn!(
                     LOG,
                     "power action rejected for untrusted client: {} pid={} uid={}",
