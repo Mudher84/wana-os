@@ -189,6 +189,8 @@ Stable online updates:
 - reject downgrades;
 - reject one version number being reused for a different commit;
 - stage atomically on persistent Data;
+- bind update metadata to the uncompressed ext4 size and reject an inactive
+  slot that is too small before decompression starts;
 - write only the inactive root slot.
 
 Current online release-origin trust is GitHub HTTPS and repository/release
