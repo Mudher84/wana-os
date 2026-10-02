@@ -1,3 +1,4 @@
+pub mod crypto;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
