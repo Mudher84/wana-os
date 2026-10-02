@@ -10,3 +10,4 @@
 الطاقة	/usr/bin/wana-power-ui
 تحديث النظام	/usr/bin/wana-update-ui
 قفل الشاشة	/usr/bin/wana-lock
+تشخيص النظام	/usr/bin/wana-diagnostics
