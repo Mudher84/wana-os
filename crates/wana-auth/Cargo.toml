@@ -8,7 +8,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-argon2 = "0.5"
 wana-log = { path = "../wana-log" }
 
 [lints]
