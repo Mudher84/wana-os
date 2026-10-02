@@ -38,6 +38,7 @@ mod toplevels;
 use apps::App;
 use launcher::{Action, Menu};
 use std::fs::File;
+use std::io::Read;
 use std::os::unix::io::FromRawFd;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
@@ -46,6 +47,8 @@ use toplevels::Toplevels;
 use wana_client::client::{Connection, Event, Proxy, Req, Val};
 use wana_client::layer::{self, LayerSurface, Spec};
 use wana_client::shm::Buffer;
+use wana_auth::AuthStatus;
+use wana_input::keyboard::{Keyboard, Modifiers};
 use wana_log::{debug, error, info, warn, Subsystem};
 use wana_motion::{duration, Curve, Motion};
 use wana_text::font::Font;
@@ -214,6 +217,15 @@ fn show_unhashed(
 }
 
 /// The open launcher.
+struct LockScreen {
+    ls: LayerSurface,
+    setup_required: bool,
+    confirming: bool,
+    first: Option<String>,
+    input: String,
+    error: Option<String>,
+}
+
 struct Launcher {
     ls: LayerSurface,
     menu: Menu,
@@ -241,6 +253,7 @@ struct Devices {
     pointer_on: Option<Proxy>,
     at: (f64, f64),
     keyboard_on: Option<Proxy>,
+    keymap: Option<Keyboard>,
 }
 
 /// What an input event asks of the shell.
@@ -248,7 +261,7 @@ enum Input {
     /// Left button pressed on `surface` at surface-local `x`, `y`.
     Click(Proxy, f64, f64),
     /// Key pressed while `surface` has the keyboard.
-    Key(Proxy, u32),
+    Key(Proxy, u32, String),
 }
 
 impl Devices {
@@ -291,16 +304,49 @@ impl Devices {
             debug!(SHELL, "seat capabilities {caps:#x}");
         } else if Some(ev.target) == self.keyboard {
             match (ev.opcode, &ev.args[..]) {
-                (kev::KEYMAP, [_, Val::Int(fd), _]) => {
-                    // Navigation uses evdev codes: the keymap is not needed.
-                    // SAFETY: the fd came with the event and is ours.
-                    drop(unsafe { File::from_raw_fd(*fd) });
+                (kev::KEYMAP, [_, Val::Int(fd), Val::Uint(size)]) => {
+                    // SAFETY: the fd came with the event and ownership is transferred
+                    // to the client by the Wayland protocol.
+                    let file = unsafe { File::from_raw_fd(*fd) };
+                    let mut text = String::new();
+                    file.take(u64::from(*size))
+                        .read_to_string(&mut text)
+                        .map_err(|e| format!("read keyboard keymap: {e}"))?;
+                    let text = text.trim_end_matches('\0');
+                    self.keymap = Some(Keyboard::from_string(text)?);
                 }
                 (kev::ENTER, [_, s, _]) => self.keyboard_on = surface(s),
                 (kev::LEAVE, [_, s]) if surface(s) == self.keyboard_on => self.keyboard_on = None,
-                (kev::KEY, [_, _, Val::Uint(key), Val::Uint(1)]) => {
-                    if let Some(s) = self.keyboard_on {
-                        return Ok(Some(Input::Key(s, *key)));
+                (
+                    kev::MODIFIERS,
+                    [
+                        _,
+                        Val::Uint(depressed),
+                        Val::Uint(latched),
+                        Val::Uint(locked),
+                        Val::Uint(group),
+                    ],
+                ) => {
+                    if let Some(keymap) = self.keymap.as_mut() {
+                        keymap.set_modifiers(&Modifiers {
+                            depressed: *depressed,
+                            latched: *latched,
+                            locked: *locked,
+                            group: *group,
+                        });
+                    }
+                }
+                (kev::KEY, [_, _, Val::Uint(key), Val::Uint(state)]) => {
+                    let pressed = *state == 1;
+                    let text = self
+                        .keymap
+                        .as_mut()
+                        .map(|keyboard| keyboard.key(*key, pressed).text)
+                        .unwrap_or_default();
+                    if pressed {
+                        if let Some(s) = self.keyboard_on {
+                            return Ok(Some(Input::Key(s, *key, text)));
+                        }
                     }
                 }
                 _ => {}
