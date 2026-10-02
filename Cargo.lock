@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "wana-auth"
+version = "0.1.0"
+dependencies = [
+ "wana-log",
+]
+
+[[package]]
 name = "wana-client"
 version = "0.1.0"
 dependencies = [
@@ -158,7 +165,9 @@ dependencies = [
 name = "wana-shell"
 version = "0.1.0"
 dependencies = [
+ "wana-auth",
  "wana-client",
+ "wana-input",
  "wana-log",
  "wana-motion",
  "wana-text",
