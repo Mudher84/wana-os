@@ -196,6 +196,26 @@ fn valid_commit(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+fn stable_version_parts(value: &str) -> Result<[u64; 3], String> {
+    let parts: Vec<_> = value.split('.').collect();
+    if parts.len() != 3 {
+        return Err(format!("stable version must be X.Y.Z, got {value:?}"));
+    }
+    let mut out = [0u64; 3];
+    for (index, part) in parts.into_iter().enumerate() {
+        if part.is_empty()
+            || !part.bytes().all(|b| b.is_ascii_digit())
+            || (part.len() > 1 && part.starts_with('0'))
+        {
+            return Err(format!("invalid stable version component {part:?} in {value:?}"));
+        }
+        out[index] = part
+            .parse::<u64>()
+            .map_err(|e| format!("stable version {value:?}: {e}"))?;
+    }
+    Ok(out)
+}
+
 pub fn parse_update(text: &str) -> Result<Metadata, String> {
     let mut lines = text.lines();
     if lines.next() != Some(UPDATE_HEADER) {
@@ -486,10 +506,29 @@ pub fn fetch_latest_and_stage() -> Result<FetchOutcome, String> {
             return Err("downloaded update.txt does not match release checksums".into());
         }
 
-        if installed_release()?
-            .is_some_and(|installed| installed.commit == metadata.commit)
-        {
-            return Ok(FetchOutcome::Current(metadata));
+        if let Some(installed) = installed_release()? {
+            if installed.commit == metadata.commit {
+                return Ok(FetchOutcome::Current(metadata));
+            }
+
+            let current_version = stable_version_parts(&installed.version)?;
+            let candidate_version = stable_version_parts(&metadata.version)?;
+            if candidate_version < current_version {
+                return Err(format!(
+                    "refusing release downgrade: installed {} ({}) -> candidate {} ({})",
+                    installed.version, installed.commit, metadata.version, metadata.commit
+                ));
+            }
+            if candidate_version == current_version {
+                return Err(format!(
+                    "release version {} is already installed with a different commit; refusing equivocation",
+                    installed.version
+                ));
+            }
+        } else {
+            // Online stable updates must still use a stable X.Y.Z version even
+            // on a system whose release identity predates this updater.
+            stable_version_parts(&metadata.version)?;
         }
 
         for name in [ROOTFS_FILE, KERNEL_FILE, INITRD_FILE] {
@@ -686,6 +725,18 @@ mod tests {
             hex(&h.finish()),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn stable_versions_are_strict_and_orderable() {
+        assert_eq!(stable_version_parts("0.1.0").unwrap(), [0, 1, 0]);
+        assert_eq!(stable_version_parts("10.20.30").unwrap(), [10, 20, 30]);
+        assert!(stable_version_parts("0.1.0-beta.1").is_err());
+        assert!(stable_version_parts("01.2.3").is_err());
+        assert!(stable_version_parts("1.2").is_err());
+        assert!(stable_version_parts("1.2.3.4").is_err());
+        assert!(stable_version_parts("1.two.3").is_err());
+        assert!(stable_version_parts("1.2.4").unwrap() > stable_version_parts("1.2.3").unwrap());
     }
 
     #[test]
