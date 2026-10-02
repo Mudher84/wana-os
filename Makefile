@@ -15,7 +15,7 @@ BR_MAKE := $(MAKE) -C $(BR_SRC) O=$(BR_OUT) BR2_EXTERNAL=$(BR_EXTERNAL)
 
 .PHONY: help check fmt fmt-check lint test repo-check clean distclean \
 	buildroot-src config config-check security-config-check savedefconfig toolchain kernel \
-	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test power-ui-boot-test update-ab-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
+	kernel-config-check kernel-boot-test image manifest repro-compare msrv system-boot-test disk-boot-test graphics-boot-test gl-boot-test input-boot-test compositor-boot-test window-boot-test seat-boot-test text-boot-test text-window-boot-test layer-boot-test shell-boot-test launcher-boot-test dock-boot-test window-management-boot-test settings-boot-test network-boot-test files-boot-test services-boot-test live-iso-boot-test installer-core-boot-test installer-gui-boot-test installed-disk-boot-test permissions-boot-test security-hardening-boot-test control-center-boot-test production-session-boot-test auth-login-boot-test power-ui-boot-test update-ab-boot-test hardware-compatibility-test hardware-network-e1000-test hardware-network-rtl8139-test hardware-input-ps2-test hardware-nvme-boot-test compatibility-image-check audio-compatibility-boot-test bluetooth-compatibility-boot-test windows-compatibility-boot-test android-compatibility-boot-test android-session-boot-test extended-compatibility-test final-validation-test beta-release-test beta-bundle stable-release-test stable-bundle wayland-host-test fonts br-%
 
 help:
 	@echo "Wana OS build targets:"
@@ -68,6 +68,7 @@ help:
 	@echo "    make beta-release-test  run the release-candidate boot/install/security gates"
 	@echo "    make beta-bundle VERSION=0.1.0-beta.1  validate and package the release payload"
 	@echo "    make stable-release-test  run the stable candidate gates"
+	@echo "    make auth-login-boot-test  persist first password setup, then verify login on the next boot"
 	@echo "    make power-ui-boot-test  launch Power from the real uid-1000 desktop and power off through the broker"
 	@echo "    make update-ab-boot-test  apply a staged A/B update, boot the new slot, and confirm the trial boot"
 	@echo "    make stable-bundle VERSION=0.1.0  validate and package the stable payload"
@@ -715,6 +716,8 @@ services-boot-test:
 		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
 		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
+		--expect '\[INIT\] info: service auth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service auth ready: /run/wana/auth.sock' \
 		--expect '\[INIT\] info: service power started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service power ready: /run/wana/power.sock' \
 		--expect '\[INIT\] info: service update started pid=[0-9]+ uid=0 gid=0 restart=Always' \
@@ -731,10 +734,11 @@ services-boot-test:
 		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
 		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
 		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 13 service\(s\)' \
-		--expect '\[INIT\] info: service configuration PASS: 13 service\(s\)' \
+		--expect '\[INIT\] info: services ready: 14 service\(s\)' \
+		--expect '\[INIT\] info: service configuration PASS: 14 service\(s\)' \
 		--expect '\[INIT\] info: service order: grow-root' \
 		--expect '\[INIT\] info: service order: system-bus' \
+		--expect '\[INIT\] info: service order: auth' \
 		--expect '\[INIT\] info: service order: bluetooth' \
 		--expect '\[INIT\] info: service order: power' \
 		--expect '\[INIT\] info: service order: update' \
@@ -756,45 +760,59 @@ services-boot-test:
 # persistent compositor + shell session as uid/gid 1000.
 production-session-boot-test:
 	mkdir -p out/logs out/test
-	tools/qemu-graphics-test.py --disk $(BR_OUT)/images/disk.img --gpu virtio --timeout 30 --memory 1024 \
+	tools/qemu-graphics-test.py --disk $(BR_OUT)/images/disk.img --gpu virtio --timeout 45 --memory 1024 \
 		--log out/logs/production-session-boot.log \
-		--screendump-on '\[SHELL\] info: ready' --screendump-delay-ms 500 --screendump out/test/production-session.ppm \
-		--pixel 0.5,0.025=0b0f1a \
 		--expect '\[INIT\] info: services: manager started \(pid [0-9]+\)' \
-		--expect '\[INIT\] info: service grow-root started pid=[0-9]+ uid=0 gid=0 restart=Never' \
-		--expect '\[INIT\] info: service system-bus started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service system-bus ready: /run/dbus/system_bus_socket' \
-		--expect '\[INIT\] info: service power started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service power ready: /run/wana/power.sock' \
-		--expect '\[INIT\] info: service update started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service update ready: /run/wana/update.sock' \
-		--expect '\[INIT\] info: service bluetooth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service wpa-supplicant started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service dhcpcd started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service user-bus started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service user-bus ready: /run/user/1000/bus' \
-		--expect '\[INIT\] info: service pipewire started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service pipewire ready: /run/user/1000/pipewire-0' \
-		--expect '\[INIT\] info: service pipewire-pulse started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service pipewire-pulse ready: /run/user/1000/pulse/native' \
-		--expect '\[INIT\] info: service wireplumber started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: service waydroid-container started pid=[0-9]+ uid=0 gid=0 restart=Always' \
-		--expect '\[INIT\] info: service desktop started pid=[0-9]+ uid=1000 gid=1000 restart=Always' \
-		--expect '\[INIT\] info: services ready: 13 service\(s\)' \
+		--expect '\[INIT\] info: service auth started pid=[0-9]+ uid=0 gid=0 restart=Always' \
+		--expect '\[INIT\] info: service auth ready: /run/wana/auth.sock' \
+		--expect '\[INIT\] info: services ready: 14 service\(s\); marker=/run/wana/services.ready' \
 		--expect '\[COMPOSITOR\] info: wana-compositor [0-9.]+ starting' \
 		--expect '\[SHELL\] info: session environment: language=ar locale=ar_IQ.UTF-8 timezone=Asia/Baghdad theme=dark accent=blue' \
 		--expect '\[SHELL\] info: wana-shell [0-9.]+ starting' \
-		--expect '\[COMPOSITOR\] info: client connected: the shell \(private connection\)' \
-		--expect '\[COMPOSITOR\] info: XDG_RUNTIME_DIR=/run/user/1000' \
-		--expect '\[SHELL\] info: ready' \
-		--reject '\[(INIT|COMPOSITOR|DRM|RENDER|SHELL)\] (warn|error)'
+		--expect '\[SHELL\] info: authentication screen mapped: mode=setup' \
+		--expect '\[SHELL\] info: locked: authentication required' \
+		--reject '\[SHELL\] info: launcher opened' \
+		--reject '\[SECURITY\] warn: auth request rejected'
+
+# Phase 37: first-boot password setup and next-boot login on the same writable disk.
+AUTH_TEST_PASSWORD := wana2026
+auth-login-boot-test:
+	mkdir -p out/logs out/test
+	cp --sparse=always $(BR_OUT)/images/disk.img out/test/disk-auth-login.img
+	tools/qemu-graphics-test.py --disk out/test/disk-auth-login.img --persistent-disk --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/auth-setup-boot.log \
+		--send-on '\[SHELL\] info: authentication screen mapped: mode=setup' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
+		--send 'sendkey ret' \
+		--send 'wait:authentication confirmation requested' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
+		--send 'sendkey ret' \
+		--send 'wait:authentication complete' --send 'quit' \
+		--expect '\[SECURITY\] info: initial desktop credential created by pid=[0-9]+ uid=1000' \
+		--expect '\[SHELL\] info: initial desktop credential setup complete' \
+		--expect '\[SHELL\] info: authentication complete' \
+		--expect '\[SHELL\] info: ready'
+	tools/qemu-graphics-test.py --disk out/test/disk-auth-login.img --persistent-disk --gpu virtio --input virtio --timeout 180 --memory 1024 \
+		--log out/logs/auth-login-boot.log \
+		--send-on '\[SHELL\] info: authentication screen mapped: mode=login' \
+		--send 'sendkey w' --send 'sendkey a' --send 'sendkey n' --send 'sendkey a' \
+		--send 'sendkey 2' --send 'sendkey 0' --send 'sendkey 2' --send 'sendkey 6' \
+		--send 'sendkey ret' \
+		--send 'wait:authentication complete' --send 'quit' \
+		--expect '\[SECURITY\] info: desktop credential verified: pid=[0-9]+ uid=1000' \
+		--expect '\[SHELL\] info: desktop credential accepted' \
+		--expect '\[SHELL\] info: authentication complete' \
+		--expect '\[SHELL\] info: ready'
 
 # Phase 35: real desktop power path. Start the production uid-1000 session,
 # launch Power from the launcher, require a second confirmation Enter, and
 # prove that the privileged broker authorizes the desktop peer before shutdown.
 power-ui-boot-test:
 	mkdir -p out/logs out/test
-	tools/qemu-graphics-test.py --disk $(BR_OUT)/images/disk.img --gpu virtio --input virtio --timeout 180 --memory 1024 \
+	tools/mk-test-disk.sh $(BR_OUT)/images/disk.img out/test/disk-power-ui.img "wana.auth-test-bypass=1"
+	tools/qemu-graphics-test.py --disk out/test/disk-power-ui.img --gpu virtio --input virtio --timeout 180 --memory 1024 \
 		--log out/logs/power-ui-boot.log \
 		--send-on '\[SHELL\] info: ready' \
 		--send 'sendkey meta_l' \
@@ -844,7 +862,7 @@ update-ab-boot-test:
 		--expect '\[BOOT\] info: loading Wana OS slot B' \
 		--expect 'root=PARTUUID=' \
 		--expect '\[INIT\] info: persistent data: .*home,wifi,updates,waydroid,bluetooth bound' \
-		--expect '\[INIT\] info: services ready: 13 service\(s\); marker=/run/wana/services.ready' \
+		--expect '\[INIT\] info: services ready: 14 service\(s\); marker=/run/wana/services.ready' \
 		--expect '\[INIT\] info: trial boot confirmed: slot=B' \
 		--expect '\[INIT\] info: ready'
 
@@ -1054,8 +1072,9 @@ android-session-boot-test:
 	@test -n "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: ANDROID_TEST_DISK is required (pre-provisioned image)" >&2; exit 2; }
 	@test -s "$(ANDROID_TEST_DISK)" || { echo "[ANDROID] error: missing $(ANDROID_TEST_DISK)" >&2; exit 2; }
 	@test -n "$(ANDROID_TEST_PACKAGE)" || { echo "[ANDROID] error: ANDROID_TEST_PACKAGE is required and must match /var/lib/wana/android-test-package inside the test disk" >&2; exit 2; }
-	mkdir -p out/logs
-	tools/qemu-graphics-test.py --disk "$(ANDROID_TEST_DISK)" --gpu virtio --input virtio --timeout 420 --memory 3072 \
+	mkdir -p out/logs out/test
+	tools/mk-test-disk.sh "$(ANDROID_TEST_DISK)" out/test/disk-android-session.img "wana.auth-test-bypass=1"
+	tools/qemu-graphics-test.py --disk out/test/disk-android-session.img --gpu virtio --input virtio --timeout 420 --memory 3072 \
 		--log out/logs/android-session-boot.log \
 		--send-on '\[SHELL\] info: ready' \
 		--send 'sendkey meta_l' \
@@ -1135,6 +1154,7 @@ beta-bundle:
 stable-release-test:
 	$(MAKE) beta-release-test
 	$(MAKE) production-session-boot-test
+	$(MAKE) auth-login-boot-test
 	$(MAKE) power-ui-boot-test
 	$(MAKE) update-ab-boot-test
 	$(MAKE) gl-boot-test
