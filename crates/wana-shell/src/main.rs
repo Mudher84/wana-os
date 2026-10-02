@@ -798,36 +798,40 @@ fn run(args: &Args) -> Result<(), String> {
             }
 
             let input = devices.event(&conn, seat, &ev)?;
+            let mut auth_unlocked = false;
             if let Some(active) = lock.as_mut() {
-                if let Some(Input::Key(surface, key, text)) = input {
+                if let Some(Input::Key(surface, key, ref text)) = input {
                     if surface == active.ls.surface {
-                        let unlocked = auth_key(active, key, &text)?;
-                        if unlocked {
-                            let finished = lock.take().expect("authentication lock exists");
-                            close_lock(&conn, finished);
-                            info!(SHELL, "authentication complete");
-                            info!(SHELL, "ready");
-                            if let Some(cmd) = &args.autostart {
-                                started.push(Started {
-                                    name: "autostart".into(),
-                                    child: spawn(cmd, "autostart")?,
-                                    ends_shell: args.exit_with_autostart,
-                                });
-                            }
-                            if test_launch.is_some() {
-                                launcher = Some(open_launcher(
-                                    &conn,
-                                    compositor,
-                                    layer_shell,
-                                    shm,
-                                    &set,
-                                    &apps,
-                                    &mut events,
-                                )?);
-                            }
-                        } else {
+                        auth_unlocked = auth_key(active, key, text)?;
+                        if !auth_unlocked {
                             redraw_lock(&conn, shm, &set, active)?;
                         }
+                    }
+                }
+            }
+            if lock.is_some() {
+                if auth_unlocked {
+                    let finished = lock.take().expect("authentication lock exists");
+                    close_lock(&conn, finished);
+                    info!(SHELL, "authentication complete");
+                    info!(SHELL, "ready");
+                    if let Some(cmd) = &args.autostart {
+                        started.push(Started {
+                            name: "autostart".into(),
+                            child: spawn(cmd, "autostart")?,
+                            ends_shell: args.exit_with_autostart,
+                        });
+                    }
+                    if test_launch.is_some() {
+                        launcher = Some(open_launcher(
+                            &conn,
+                            compositor,
+                            layer_shell,
+                            shm,
+                            &set,
+                            &apps,
+                            &mut events,
+                        )?);
                     }
                 }
                 continue;
