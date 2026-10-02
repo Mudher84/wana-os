@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+case "${1:-status}" in
+    status)
+        if output=$(/usr/bin/chronyc -n tracking 2>/dev/null); then
+            leap=$(printf '%s\n' "$output" | sed -n 's/^Leap status[[:space:]]*:[[:space:]]*//p')
+            stratum=$(printf '%s\n' "$output" | sed -n 's/^Stratum[[:space:]]*:[[:space:]]*//p')
+            echo "WANA_TIME_READY stratum=${stratum:-unknown} leap=${leap:-unknown}"
+            printf '%s\n' "$output"
+            exit 0
+        fi
+        echo "WANA_TIME_NOT_READY" >&2
+        exit 1
+        ;;
+    sources)
+        exec /usr/bin/chronyc -n sources -v
+        ;;
+    wait)
+        # Up to 30 checks, 1 second apart; correction/skew limits left to
+        # chrony's normal tracking policy.
+        exec /usr/bin/chronyc waitsync 30 0 0 1
+        ;;
+    *)
+        echo "usage: wana-time {status|sources|wait}" >&2
+        exit 2
+        ;;
+esac
