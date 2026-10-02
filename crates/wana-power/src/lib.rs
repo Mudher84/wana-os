@@ -90,11 +90,11 @@ pub fn authorized(uid: u32) -> bool {
     uid == 0 || uid == DESKTOP_UID
 }
 
-pub fn request(command: Command) -> Result<String, String> {
+fn request_line(line: &str) -> Result<String, String> {
     let mut stream = UnixStream::connect(SOCKET_PATH)
         .map_err(|e| format!("connect {SOCKET_PATH}: {e}"))?;
     stream
-        .write_all(format!("{}\n", command.as_str()).as_bytes())
+        .write_all(format!("{line}\n").as_bytes())
         .map_err(|e| format!("write {SOCKET_PATH}: {e}"))?;
     let mut reply = String::new();
     stream
@@ -109,6 +109,17 @@ pub fn request(command: Command) -> Result<String, String> {
     } else {
         Err(format!("unexpected power broker reply {reply:?}"))
     }
+}
+
+pub fn request(command: Command) -> Result<String, String> {
+    request_line(command.as_str())
+}
+
+pub fn request_from_ui(command: Command, compositor_pid: i32) -> Result<String, String> {
+    if compositor_pid <= 0 {
+        return Err("invalid compositor pid".into());
+    }
+    request_line(&format!("{} {compositor_pid}", command.as_str()))
 }
 
 #[cfg(test)]
