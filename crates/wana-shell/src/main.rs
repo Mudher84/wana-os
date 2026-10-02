@@ -394,9 +394,12 @@ fn open_lock(
         Spec {
             namespace: "wana-auth",
             layer: layer::OVERLAY,
-            anchor: 0,
-            width: draw::AUTH_WIDTH,
-            height: draw::AUTH_HEIGHT,
+            anchor: layer::ANCHOR_TOP
+                | layer::ANCHOR_BOTTOM
+                | layer::ANCHOR_LEFT
+                | layer::ANCHOR_RIGHT,
+            width: 0,
+            height: 0,
             zone: 0,
             keyboard: layer::KEYBOARD_EXCLUSIVE,
         },
@@ -430,6 +433,8 @@ fn redraw_lock(
         shm,
         lock.ls.surface,
         &draw::auth(
+            lock.ls.width,
+            lock.ls.height,
             fonts,
             lock.setup_required,
             lock.confirming,
@@ -787,9 +792,24 @@ fn run(args: &Args) -> Result<(), String> {
                 return Err("the compositor closed a shell surface".into());
             }
             if let Some(active) = lock.as_mut() {
-                if let Some((serial, _, _)) = layer::configure_of(&ev, active.ls.layer_surface) {
+                if let Some((serial, width, height)) =
+                    layer::configure_of(&ev, active.ls.layer_surface)
+                {
                     layer::ack(&conn, active.ls.layer_surface, serial)?;
-                    redraw_lock(&conn, shm, &set, active)?;
+                    show_unhashed(
+                        &conn,
+                        shm,
+                        active.ls.surface,
+                        &draw::auth(
+                            width,
+                            height,
+                            &set,
+                            active.setup_required,
+                            active.confirming,
+                            active.input.chars().count(),
+                            active.error.as_deref(),
+                        )?,
+                    )?;
                     continue;
                 }
                 if layer::closed(&ev, active.ls.layer_surface) {
