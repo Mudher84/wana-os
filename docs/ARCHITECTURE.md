@@ -1,237 +1,183 @@
 # Wana OS Architecture
 
-This document records the architecture decisions that are in force now, and
-the ones that are proposed but not yet validated. A proposed decision becomes
-final only after the phase that implements it has been built and tested (see
-[ROADMAP.md](ROADMAP.md)).
+This document describes the implementation currently present on the pre-stable
+line. Phase status and evidence remain authoritative in
+[ROADMAP.md](ROADMAP.md).
 
-Status legend: **Decided**: in force. **Proposed**: planned, to be confirmed by
-the phase that implements it.
+## 1. Boot and storage
 
-## 1. System layers and boot flow
-
-```
-Firmware (UEFI)
-  -> Bootloader (GRUB, x86_64-efi, /EFI/BOOT/bootx64.efi on the ESP)
-                                                   platform/board/x86_64/grub.cfg
-  -> Linux kernel (+ initramfs for live ISO)       platform/board/x86_64/linux.fragment
-  -> wana-init (PID 1)                             crates/wana-init
-       -> early mounts (proc, sys, devtmpfs, devpts, shm, run, tmp), hostname
-       -> reaps orphans; supervises the console debug shell (Phase 4)
-       -> device manager (udev)                    eudev, from Buildroot
-       -> system services (supervised by wana-init)
-            display/session   -> wana-compositor   crates/wana-compositor
-            input             -> inside the compositor's seat, via wana-input
-            permissions       -> wana-permd        crates/wana-permd
-            network, power, notifications (later)
-  -> wana-compositor (owns DRM master + seat)
-       -> wana-shell (privileged Wayland client: desktop, dock, launcher, status)
-       -> applications (unprivileged Wayland clients, sandboxed)
+```text
+UEFI
+  -> GRUB on the EFI System Partition
+     -> normal slot A or B
+     -> staged update environment when a complete update is pending
+     -> manual force-slot A/B recovery entries
+  -> Linux 6.18.33
+  -> wana-init (PID 1)
+  -> wana-services
+  -> unprivileged desktop session
 ```
 
-Each arrow is a process or ownership boundary. No single desktop program owns
-the whole system. When a layer fails, the ones below it keep running and keep
-logging, so the first broken layer can be identified (see §9).
+The installed GPT layout is:
 
-## 2. Build system: Buildroot (**Decided**)
+1. EFI System Partition;
+2. fixed-size ext4 system slot A;
+3. fixed-size ext4 system slot B;
+4. persistent ext4 Data partition.
 
-We use Buildroot with a `BR2_EXTERNAL` tree (`platform/`). The Buildroot
-version is pinned by git tag and fetched from `github.com/buildroot/buildroot`.
+Data is last so `embiggen-disk` can grow the installed system to the target
+device without moving either replaceable system slot.
 
-Why Buildroot:
+GRUB reads the durable slot selector from Data. A staged update boots an
+isolated update initramfs, writes only the inactive slot, installs the new
+kernel through a verified temporary ESP file, arms a trial boot, then switches
+the slot selector. A healthy service-ready boot confirms the new slot; a
+degraded trial restores the previous selector and reboots.
 
-- It builds the whole system from source (toolchain, kernel, libraries,
-  rootfs) with no upstream distribution underneath. That matches the goal of
-  a distribution that is not a derivative of Ubuntu, Debian, or Arch.
-- Configuration is Kconfig `defconfig` files plus a kernel config fragment.
-  All of it lives in this repository and is diffable.
-- `BR2_EXTERNAL` keeps every Wana-specific file outside the Buildroot tree, so
-  moving to a newer Buildroot means changing one pinned tag.
-- It has native Cargo package support, so our Rust crates are built by the
-  same reproducible pipeline as everything else.
-- It can produce the kernel, a rootfs image, and an EFI GRUB setup in one
-  documented command, which is requirement 10.
+## 2. Build system and reproducibility
 
-Alternatives considered:
+Wana is a Buildroot distribution using `platform/` as a BR2_EXTERNAL tree.
+Buildroot, Linux, Rust/MSRV and all Wana source are pinned by repository
+configuration.
 
-| Option | Why not (now) |
-|--------|---------------|
-| Yocto/OpenEmbedded | Solves the same problem with much more machinery (layers, BitBake, sstate). Its strengths, such as many machines and SDK generation, are not our bottleneck. Build times and the learning curve are several times higher. |
-| Debian/Ubuntu bootstrap (debootstrap, live-build) | Would make Wana a Debian derivative, which the project explicitly rejects. |
-| Hand-written LFS-style scripts | No dependency tracking, no license or hash checking, poor reproducibility. We would be re-implementing Buildroot badly. |
+`make image` produces the kernel, initramfs, ext4 root, installed disk, Live
+ISO, build manifest and checksums. The Stable workflow performs an independent
+second build with ccache disabled and rejects differences in source/build
+inputs or artifact SHA-256 values.
 
-Known Buildroot limitation: it produces an image, not a package-managed
-system. Proposed answer: Wana ships as an **immutable, image-based system**
-(read-only root, A/B root partitions for updates, writable `/home` and
-`/var`). This is a feature for stability and security. User-installable
-applications will need their own mechanism, which is decided in a later phase.
+## 3. PID 1 and service model
 
-## 2a. Disk layout (**Decided**, Phase 5)
+`wana-init` is Wana's Rust PID 1. It owns early mounts, device-manager bringup,
+persistent Data setup, update/trial-boot handling, process reaping and start of
+`wana-services`.
 
-GPT. Partition 1 is the EFI System Partition (vfat, `WANA-ESP`): GRUB at
-`/EFI/BOOT/bootx64.efi` (the removable-media path, so no NVRAM boot entry
-is needed), `grub.cfg` next to it, and the kernel at `/wana/bzImage`.
-Partition 2 is the root filesystem (ext4, GPT type
-`4f68bce3-e8cd-4db1-96e7-fbcaf984b709`, "Linux root x86-64"). The kernel
-finds it by `root=PARTUUID=`, mounted read-only. GRUB sources an optional
-`/wana/test.cfg` so automated tests can add kernel arguments to a copy of
-the image without rebuilding it. GRUB stays replaceable: only `grub.cfg`,
-the `BR2_TARGET_GRUB2*` symbols and `post-image.sh` know about it.
+`wana-services` loads root-owned service definitions from
+`/etc/wana/services.d`. Each service declares:
 
-## 3. C library: glibc (**Proposed**, Phase 2)
+- executable/arguments;
+- uid/gid and optional HOME/environment;
+- dependency ordering;
+- restart policy;
+- optional `ready_path` under transient `/run`.
 
-glibc rather than musl. Mesa, libinput, and future compatibility layers
-(ordinary Linux binaries, Wine) are developed and tested against glibc first,
-and requirement 35 says Wana must be able to run normal Linux applications.
+Readiness paths are cleared before each start/restart and must be recreated by
+the new service instance before dependents continue. A stale socket therefore
+cannot satisfy readiness after a crash.
 
-## 4. Languages
+The production graph includes system/user D-Bus, disk growth, WPA supplicant,
+DHCP, Bluetooth, Chrony, PipeWire, PipeWire Pulse compatibility, WirePlumber,
+authentication, power, update, Waydroid container management and the desktop.
 
-- **Rust** for every new Wana component: init, services, graphics backend,
-  compositor, shell, settings, installer logic, the permission broker, and
-  utilities. All crates share one Cargo workspace (`Cargo.toml`) with a single
-  lockfile and a pinned toolchain (`rust-toolchain.toml`).
-- **C** only where we consume existing system libraries (Mesa, libinput,
-  libdrm, eudev). We call them through Rust bindings and do not fork them.
-- **Shell / Make / Kconfig** for build glue: Buildroot configuration,
-  post-build and post-image scripts, and the top-level `Makefile`.
+## 4. Desktop privilege boundary
 
-## 5. Graphics stack (DRM/KMS **Decided**, Phase 7; GBM/EGL/GLES **Decided**, Phase 8)
+The normal graphical session runs as `wana`, uid/gid 1000, with a private
+`/run/user/1000`. PID 1/service policy grants only the device/runtime access
+required by the desktop.
 
-```
-Linux DRM/KMS  ->  GBM  ->  EGL  ->  OpenGL ES 3  ->  wana-compositor  ->  wana-shell
-```
+`wana-session` sets locale/timezone/theme environment and launches the
+compositor. The compositor starts `wana-shell` over a private Wayland
+connection. Privileged shell globals, including layer-shell, foreign-toplevel
+and `wana_shell_control_v1`, are hidden from ordinary clients.
 
-- Device discovery enumerates the `drm` subsystem through udev (sysfs
-  fallback) and picks the card with a connected connector. It never
-  hard-codes `/dev/dri/card0`.
-- `wana-drm` (implemented): uses the kernel DRM uAPI directly, with no libdrm. `repr(C)`
-  structs and ioctl numbers are checked against `<drm/drm_mode.h>` in unit tests. It opens the device and becomes DRM master. It enumerates
-  connectors, encoders, CRTCs and modes, picks a mode (preferred first, then
-  highest refresh at native resolution), does atomic modesetting (legacy as
-  fallback), and page flipping driven by vblank events. It never uses a fixed
-  60 Hz timer, so 90 Hz and 120 Hz panels work without code changes.
-- `wana-render` (implemented): GBM surfaces, an EGL context with
-  `EGL_PLATFORM_GBM_KHR`, and a GLES 3 renderer.
-- Mesa 26 provides GBM, EGL and GLES (gallium `softpipe` + `virgl`; no LLVM yet). Under QEMU we use `virtio-gpu` for KMS.
-  Rendering there is Mesa software (llvmpipe) at first, so CI can test it
-  without a GPU.
-- Weston is not used, not even for bring-up. The first graphical milestone
-  draws directly through our own stack.
+The global launcher key is Super. The compositor consumes it and sends
+`toggle_launcher` only over the private shell-control protocol; see
+[Decision 0004](decisions/0004-shell-control.md).
 
-## 6. Input (**Decided**, Phase 9)
+## 5. Graphics and input
 
-```
-kernel evdev  ->  udev (eudev)  ->  libinput  ->  xkbcommon  ->  wana-input  ->  compositor seat (Phase 10)
+```text
+DRM/KMS -> GBM -> EGL -> GLES -> wana-compositor -> scanout
+kernel evdev -> eudev -> libinput -> xkbcommon -> compositor seat
 ```
 
-- `/dev` is created by the kernel (devtmpfs) and managed by **eudev**.
-  `wana-init` starts `udevd` as its own child before `ready`, replays the
-  boot-time device events (`udevadm trigger` + `settle`) and restarts
-  `udevd` if it dies. `wana.udev=0` turns this off for debugging.
-- libinput (1.31) is used through a small Rust FFI in `wana-input`, with
-  no crates. It gets devices from udev on `seat0` and handles pointer
-  acceleration, scrolling and buttons.
-- Keyboard layouts come from xkbcommon (1.9) and the xkeyboard-config data
-  (`evdev` rules, `pc105`, layout per user; `us` by default). Key codes
-  become keysyms and text before anything above sees them.
-- `wana-input` turns libinput events into owned Wana events that carry
-  the source device. Pointer, keyboard, buttons and wheel are handled now.
-  Touch, gesture, tablet and switch events are already in the event model
-  (`Other`) and get handled when hardware and tests need them.
-- No component other than `wana-input` touches `/dev/input/event*`. The
-  shell and applications receive input only from the compositor.
-- Not yet: the udev hardware database (hwdb: per-device keymap fixes,
-  mouse DPI) is disabled to keep the image small. It becomes necessary for
-  real laptops (Phase 27).
+Wana owns DRM discovery/modesetting and its compositor path. Mesa supplies
+GBM/EGL/GLES. The current compatibility matrix includes software/virtual
+drivers plus the documented hardware targets in Phase 28; LLVM-backed
+Iris/RadeonSI acceleration remains a non-blocking follow-up outside the current
+Phase 28 exit gate.
 
-## 7. Compositor, shell, and applications (protocol layer **Decided**, Phase 10; rest **Proposed**, Phases 10-13)
+Arabic/Latin shaping and rasterization are provided by the Wana text stack.
+Keyboard text comes through xkbcommon and is routed only to the focused
+surface.
 
-- The client protocol is **Wayland**, so ordinary Linux applications (GTK,
-  Qt, SDL, Chromium, and later Xwayland and Wine) can run without dictating
-  our desktop. The implementation is our own Rust code. Whether we build on
-  the Smithay protocol library or on bare `wayland-server` is decided at the
-  start of Phase 10, with written reasons: see
-  [decision 0001](decisions/0001-wayland-protocol-layer.md) (**accepted**:
-  `libwayland-server`, the freedesktop C reference library, through our own
-  FFI and protocol generator; no Smithay, no crates).
-- `wana-shell` is a separate process: a privileged client for its surfaces
-  (desktop, dock, launcher, status area, control center). A shell crash must
-  not take down the compositor or the applications. Decision 0003
-  (**accepted**): the surfaces use `wlr-layer-shell` (pinned XML), and the
-  compositor starts the shell on a private socketpair connection; privileged
-  globals are filtered out for every other client.
-- A design system (`design/`: tokens for color, radius, spacing, type, and
-  motion curves) is shared by the shell and the apps, so screens are not
-  styled one at a time.
+## 6. Shell and native applications
 
-## 8. Services, IPC, and security (**Proposed**, Phases 17, 22-23)
+The shell provides desktop surfaces, top bar, Dock, launcher and window
+management. Native Wana applications include Settings, Files, Permissions,
+Control Center, Power, Update and diagnostics; the launcher also exposes
+screen lock and Android integration.
 
-- `wana-init` supervises services. Each service has a declared owner (its
-  own UID where possible), a restart policy, and a dependency list.
-- IPC is Unix domain sockets under `/run/wana/`. Peers are authenticated with
-  `SO_PEERCRED`, and messages use a versioned format (`wana-ipc`). D-Bus is
-  added only when application compatibility needs it (XDG portals,
-  notifications).
-- Permissions: applications start with no user-level capabilities. They run
-  sandboxed (mount/user/pid namespaces, seccomp, Landlock). Access to files,
-  camera, microphone, location, network, notifications, clipboard, USB, and
-  background activity is granted by `wana-permd`.
-- Permission audit: `wana-permd` records (app, permission, action, decision,
-  timestamp) in a bounded ring buffer that only the `wana-permd` user can
-  write. Applications have no write path to it.
+Persistent Settings/Permissions/Notifications stores use bounded, atomic
+writes and validate ownership/mode. Notification and permission-audit sequence
+exhaustion is rejected rather than silently wrapping or duplicating IDs.
 
-## 8a. wana-init (**Decided**, Phase 4)
+## 7. Authentication and privileged brokers
 
-- PID 1 is our own Rust program, not BusyBox init or systemd. It has no
-  crates.io dependencies: PID 1 keeps a small, auditable surface, and
-  Buildroot builds local Cargo packages with `--offline`. The few libc
-  calls std lacks (`mount`, `sethostname`, `reboot`, `waitpid`) are wrapped
-  in `crates/wana-init/src/sys.rs`.
-- It is `/init` in the initramfs and `/sbin/init` on disk (same binary).
-- It never exits. Failures are logged as `[INIT] error` and the boot
-  continues degraded, so the console shows the first broken step.
-- Kernel command line options: `wana.log=`, `wana.test=poweroff|reboot`
-  (automated test boots), `wana.shell=0`.
-- MSRV = the Rust version shipped by the pinned Buildroot (1.88 for
-  2026.02.3). CI checks it.
+The desktop does not expose the launcher until local authentication succeeds.
 
-## 9. Logging (**Decided**)
+`wana-authd`, `wana-powerd` and `wana-updated` are root brokers under
+`/run/wana`. Desktop access is authenticated with Linux `SO_PEERCRED` and
+limited to uid 1000 (plus root).
 
-Every component logs through `wana-log` with a subsystem tag:
-`[BOOT] [KERNEL] [INIT] [DRM] [GBM] [EGL] [RENDER] [INPUT] [COMPOSITOR]
-[SHELL] [NETWORK] [INSTALLER] [SECURITY]`. Each line has the form
-`[TAG] level: message`, so CI and developers can grep a serial console log
-and find the first failing layer.
+Credentials are stored as a salted PBKDF2-HMAC-SHA256 verifier with 200,000
+iterations under root-owned persistent state. Credential reads bind the opened
+file back to the checked inode/device and revalidate ownership/mode/size before
+reading.
 
-## 10. Repository layout
+The Power UI requires an explicit second confirmation before a destructive
+operation.
 
-Directories are created when their first component lands. There are no empty
-placeholder trees.
+## 8. Networking, time, audio and Bluetooth
 
-```
-wana-os/
-├── Makefile              single entry point (make help)
-├── Cargo.toml            Rust workspace for all Wana userspace components
-├── rust-toolchain.toml   pinned Rust toolchain
-├── crates/               one crate per Wana component
-│   └── wana-log/         [present] tagged logging
-├── platform/             Buildroot BR2_EXTERNAL tree            (Phase 2)
-│   ├── configs/          wana_x86_64_defconfig
-│   ├── board/x86_64/     kernel fragment, grub.cfg, rootfs overlay, post-image
-│   └── package/          Buildroot packages for our crates
-├── tests/                QEMU boot and graphics tests            (Phase 5+)
-├── design/               design system tokens, icons, fonts     (Phase 11+)
-├── tools/                developer and CI scripts
-├── .github/workflows/    CI
-└── docs/                 architecture, roadmap, audits, test reports
-```
+Networking uses supervised WPA supplicant + DHCP. Wi-Fi credentials stay in a
+root-managed configuration while the desktop uses the controlled WPA socket.
 
-Where the directories from the original project brief live:
+BlueZ provides Bluetooth Classic/LE and desktop audio/HID integration. PipeWire
+and WirePlumber run in the uid-1000 session; `pipewire-pulse` provides the
+PulseAudio protocol used by compatibility clients. Chrony provides supervised
+network time synchronization.
 
-| Requested | Location | Reason |
-|-----------|----------|--------|
-| `kernel/`, `boot/`, `buildroot/` | `platform/` | In Buildroot these are all board configuration consumed by one defconfig. Keeping them together avoids cross-tree path glue. |
-| `init/`, `services/`, `compositor/`, `shell/`, `settings/`, `installer/`, `security/`, `permissions/`, `graphics/` | `crates/wana-*` | One Cargo workspace gives a shared lockfile, one lint policy, and one `cargo test`. |
-| `apps/` | `crates/wana-app-*` | Same reason. |
-| `assets/` | `design/` | Assets belong to the design system. |
-| `ci/` | `.github/workflows/` + `tools/` | GitHub reads workflows only from `.github/`. The scripts they call live in `tools/`. |
+## 9. Windows and Android compatibility
+
+Wine 11.0 is built as an x86_64 native-Wayland runtime with ALSA and Pulse
+client support; Pulse traffic reaches the normal PipeWire graph. The Wine
+source and license files have fixed hashes in the Wana Buildroot package.
+
+Waydroid 1.6.3 is integrated through Binder/BinderFS, LXC and Wana's own service
+model without systemd. Its privileged container helper waits for Waydroid's
+upstream initialized state before starting, so first boot does not restart-loop
+while Android images are absent.
+
+Android UI/session evidence uses a separate pre-provisioned test disk; Android
+OTA images are not embedded into the reproducible Wana release.
+
+## 10. Installer and update security
+
+Installer validation is bound to opened source/target objects and rejects
+symlink/hard-link/block-device alias races before destructive writes.
+
+Stable online updates:
+
+- use strict `X.Y.Z` versions;
+- discover `latest` only to choose the stable version;
+- re-fetch metadata/checksums/payload from the exact `vX.Y.Z` tag;
+- enforce download size ceilings;
+- verify metadata and payload SHA-256 values;
+- reject downgrades;
+- reject one version number being reused for a different commit;
+- stage atomically on persistent Data;
+- write only the inactive root slot.
+
+Current online release-origin trust is GitHub HTTPS and repository/release
+control. Closed hashes protect artifact integrity. Detached offline release
+signatures are not part of the current Phase 36 exit gate.
+
+## 11. Diagnostics and validation
+
+`wana-diagnostics` collects a deliberately bounded support summary as the
+desktop user. It does not copy arbitrary home/state trees, Wi-Fi credentials,
+the authentication verifier or notification history.
+
+`make final-validation-test` is the consolidated end-of-implementation gate.
+It is run only after the source revision is frozen. Phase reports remain
+IN PROGRESS until their actual final evidence is recorded.
