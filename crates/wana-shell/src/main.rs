@@ -476,6 +476,7 @@ fn auth_key(lock: &mut LockScreen, key: u32, text: &str) -> Result<bool, String>
             if !lock.confirming {
                 lock.first = Some(std::mem::take(&mut lock.input));
                 lock.confirming = true;
+                info!(SHELL, "authentication confirmation requested");
                 return Ok(false);
             }
             let Some(first) = lock.first.take() else {
