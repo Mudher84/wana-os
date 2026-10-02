@@ -67,6 +67,9 @@ const BTN_LEFT: u32 = 0x110;
 const CAP_POINTER: u32 = 1;
 const CAP_KEYBOARD: u32 = 2;
 const LAUNCHER_SELECTION_MOTION: Motion = Motion::new(duration::QUICK_MS, 6, Curve::EaseOutCubic);
+const KEY_BACKSPACE: u32 = 14;
+const KEY_ENTER: u32 = 28;
+
 
 extern "C" {
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
@@ -371,6 +374,145 @@ impl Devices {
     }
 }
 
+fn require_auth() -> bool {
+    std::env::var("WANA_REQUIRE_AUTH").is_ok_and(|value| value == "1")
+}
+
+fn open_lock(
+    conn: &Connection,
+    compositor: Proxy,
+    layer_shell: Proxy,
+    shm: Proxy,
+    fonts: &FontSet,
+    events: &mut Vec<Event>,
+) -> Result<LockScreen, String> {
+    let setup_required = matches!(wana_auth::status()?, AuthStatus::SetupRequired);
+    let ls = LayerSurface::new(
+        conn,
+        compositor,
+        layer_shell,
+        Spec {
+            namespace: "wana-auth",
+            layer: layer::OVERLAY,
+            anchor: 0,
+            width: draw::AUTH_WIDTH,
+            height: draw::AUTH_HEIGHT,
+            zone: 0,
+            keyboard: layer::KEYBOARD_EXCLUSIVE,
+        },
+        events,
+    )?;
+    let lock = LockScreen {
+        ls,
+        setup_required,
+        confirming: false,
+        first: None,
+        input: String::new(),
+        error: None,
+    };
+    redraw_lock(conn, shm, fonts, &lock)?;
+    info!(
+        SHELL,
+        "authentication screen mapped: mode={}",
+        if setup_required { "setup" } else { "login" }
+    );
+    Ok(lock)
+}
+
+fn redraw_lock(
+    conn: &Connection,
+    shm: Proxy,
+    fonts: &FontSet,
+    lock: &LockScreen,
+) -> Result<(), String> {
+    show_unhashed(
+        conn,
+        shm,
+        lock.ls.surface,
+        &draw::auth(
+            fonts,
+            lock.setup_required,
+            lock.confirming,
+            lock.input.chars().count(),
+            lock.error.as_deref(),
+        )?,
+    )
+}
+
+fn close_lock(conn: &Connection, lock: LockScreen) {
+    conn.destroy(
+        lock.ls.layer_surface,
+        proto::zwlr_layer_surface_v1::request::DESTROY,
+    );
+    conn.destroy(lock.ls.surface, wayland::wl_surface::request::DESTROY);
+}
+
+fn append_auth_text(lock: &mut LockScreen, text: &str) {
+    for ch in text.chars() {
+        if ch.is_control() {
+            continue;
+        }
+        let extra = ch.len_utf8();
+        if lock.input.len() + extra > wana_auth::MAX_PASSWORD_BYTES {
+            break;
+        }
+        lock.input.push(ch);
+    }
+}
+
+fn auth_key(lock: &mut LockScreen, key: u32, text: &str) -> Result<bool, String> {
+    lock.error = None;
+    match key {
+        KEY_BACKSPACE => {
+            lock.input.pop();
+            Ok(false)
+        }
+        KEY_ENTER if lock.setup_required => {
+            wana_auth::validate_password(&lock.input).map_err(|e| {
+                lock.error = Some(e.clone());
+                e
+            })?;
+            if !lock.confirming {
+                lock.first = Some(std::mem::take(&mut lock.input));
+                lock.confirming = true;
+                return Ok(false);
+            }
+            let Some(first) = lock.first.take() else {
+                lock.confirming = false;
+                lock.input.clear();
+                lock.error = Some("أعد إنشاء كلمة المرور".into());
+                return Ok(false);
+            };
+            if first != lock.input {
+                lock.input.clear();
+                lock.confirming = false;
+                lock.error = Some("كلمتا المرور غير متطابقتين".into());
+                return Ok(false);
+            }
+            wana_auth::setup(&lock.input)?;
+            lock.input.clear();
+            info!(SHELL, "initial desktop credential setup complete");
+            Ok(true)
+        }
+        KEY_ENTER => {
+            let ok = wana_auth::verify(&lock.input)?;
+            lock.input.clear();
+            if ok {
+                info!(SHELL, "desktop credential accepted");
+                Ok(true)
+            } else {
+                lock.error = Some("كلمة المرور غير صحيحة".into());
+                Ok(false)
+            }
+        }
+        _ => {
+            if !text.is_empty() {
+                append_auth_text(lock, text);
+            }
+            Ok(false)
+        }
+    }
+}
 fn run(args: &Args) -> Result<(), String> {
     info!(SHELL, "wana-shell {} starting", env!("CARGO_PKG_VERSION"));
     // libwayland reads WAYLAND_SOCKET (and unsets it); keep that privileged
