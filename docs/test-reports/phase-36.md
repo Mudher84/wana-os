@@ -12,6 +12,8 @@ Status: **IN PROGRESS**
   fetch/stage and clear over a peer-credential-authenticated Unix socket.
 - Staging uses a root-owned Data directory, create-new temporary state, fsync
   and atomic rename.
+- Update metadata/checksum reads are bound to the same checked inode/device
+  that was inspected before opening, so symlink/path-swap races are rejected.
 - GRUB detects a fully staged update and boots an isolated update environment
   from the staged kernel/initramfs without mutating the active root.
 - PID 1 verifies the staged payload, zstd stream, inactive block device and
