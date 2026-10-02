@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use wana_client::app::{App, Window};
 use wana_log::{error, info, Subsystem};
-use wana_power::{request as power_request, Command as PowerCommand};
+use wana_power::{request_from_ui as power_request, Command as PowerCommand};
 use wana_text::bidi::Base;
 use wana_text::font::Font;
 use wana_text::layout::{layout, Align, FontSet, Style};
@@ -132,13 +132,13 @@ fn render(fonts: &FontSet, selected: usize, confirm: bool) -> Result<Canvas, Str
     Ok(canvas)
 }
 
-fn execute(choice: Choice) -> Result<(), String> {
+fn execute(choice: Choice, compositor_pid: i32) -> Result<(), String> {
     let Some(action) = choice.command() else {
         return Ok(());
     };
     info!(LOG, "power UI confirmed action={action}");
     let command = PowerCommand::parse(action).map_err(str::to_string)?;
-    power_request(command)?;
+    power_request(command, compositor_pid)?;
     Ok(())
 }
 
@@ -154,6 +154,7 @@ fn run() -> Result<(), String> {
     };
 
     let app = App::connect()?;
+    let compositor_pid = app.conn.peer_cred()?.pid;
     let keyboard = app.keyboard()?.ok_or("power UI requires a keyboard seat")?;
     let window = Window::new(
         &app,
@@ -192,7 +193,7 @@ fn run() -> Result<(), String> {
                     }
                     KEY_ENTER if confirm => {
                         let choice = Choice::ALL[selected];
-                        execute(choice)?;
+                        execute(choice, compositor_pid)?;
                         if choice == Choice::Cancel {
                             window.destroy(&app);
                             return Ok(());
