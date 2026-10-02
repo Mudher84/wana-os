@@ -129,6 +129,10 @@ lineage:
   `wana-shell`;
 - update fetch/stage/clear: `wana-update-ui` parented by `wana-shell`.
 
+The compositor, shell, Power UI and Update UI set `PR_SET_DUMPABLE=0`, so
+ordinary same-uid applications cannot ptrace or inspect the trusted process
+chain and then reuse its broker identity.
+
 Root retains administrative CLI access, while status queries can remain
 available to the desktop user.
 
