@@ -76,8 +76,16 @@ safe_run() {
     fi
 } > "$tmp/summary.txt"
 
+if grep -Eq 'wifi\.conf|default\.cred|/var/lib/wana/auth|psk=|password=' "$tmp/summary.txt"; then
+    echo "WANA_DIAGNOSTICS_PRIVACY_FAIL" >&2
+    exit 1
+fi
+echo "WANA_DIAGNOSTICS_PRIVACY_PASS"
+
 tar -czf "$bundle" -C "$tmp" summary.txt
 chmod 0600 "$bundle"
-printf 'WANA_DIAGNOSTICS_BUNDLE path=%s\n' "$bundle"
+mode=$(stat -c '%a' "$bundle")
+[ "$mode" = "600" ] || { echo "diagnostics: unsafe bundle mode $mode" >&2; exit 1; }
+printf 'WANA_DIAGNOSTICS_BUNDLE path=%s mode=%s\n' "$bundle" "$mode"
 
 /usr/bin/wana-control-center notify     org.wana.Diagnostics     "حزمة تشخيص النظام جاهزة"     "$bundle" >/dev/null 2>&1 || true
