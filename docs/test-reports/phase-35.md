@@ -11,7 +11,8 @@ Status: **IN PROGRESS**
   desktop are accepted only when the peer is the root-owned/read-only
   `wana-power-ui` or `wana-update-ui` executable and its parent is the
   trusted `wana-shell` executable. Executable identity is bound by device/inode,
-  not process name.
+  not process name. The compositor/shell/confirmation UIs are non-dumpable so
+  same-uid applications cannot ptrace the trusted chain.
 - Supported operations are deliberately narrow: status, poweroff and reboot.
 - The broker syncs filesystems before invoking the Linux reboot syscall.
 - The native Arabic `wana-power-ui` requires a second Enter confirmation for
