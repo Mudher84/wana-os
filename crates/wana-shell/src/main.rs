@@ -468,10 +468,11 @@ fn auth_key(lock: &mut LockScreen, key: u32, text: &str) -> Result<bool, String>
             Ok(false)
         }
         KEY_ENTER if lock.setup_required => {
-            wana_auth::validate_password(&lock.input).map_err(|e| {
-                lock.error = Some(e.clone());
-                e
-            })?;
+            if let Err(e) = wana_auth::validate_password(&lock.input) {
+                lock.input.clear();
+                lock.error = Some(e);
+                return Ok(false);
+            }
             if !lock.confirming {
                 lock.first = Some(std::mem::take(&mut lock.input));
                 lock.confirming = true;
