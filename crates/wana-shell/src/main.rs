@@ -39,7 +39,9 @@ use apps::App;
 use launcher::{Action, Menu};
 use std::fs::File;
 use std::io::Read;
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::io::FromRawFd;
+use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -374,6 +376,51 @@ impl Devices {
     }
 }
 
+fn prepare_lock_socket() -> Result<Option<UnixDatagram>, String> {
+    if !require_auth() {
+        return Ok(None);
+    }
+
+    let path = std::path::Path::new(wana_auth::LOCK_SOCKET_PATH);
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if !meta.file_type().is_socket() || meta.uid() != 1000 {
+                return Err(format!(
+                    "{}: refusing to replace unsafe lock endpoint",
+                    path.display()
+                ));
+            }
+            std::fs::remove_file(path)
+                .map_err(|e| format!("remove stale {}: {e}", path.display()))?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    }
+
+    let socket = UnixDatagram::bind(path)
+        .map_err(|e| format!("bind {}: {e}", path.display()))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| format!("nonblocking {}: {e}", path.display()))?;
+    info!(SHELL, "desktop lock endpoint ready: {}", path.display());
+    Ok(Some(socket))
+}
+
+fn lock_requested(socket: &UnixDatagram) -> Result<bool, String> {
+    let mut buffer = [0u8; 16];
+    loop {
+        match socket.recv(&mut buffer) {
+            Ok(size) => {
+                if &buffer[..size] == b"lock" {
+                    return Ok(true);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+            Err(e) => return Err(format!("read desktop lock request: {e}")),
+        }
+    }
+}
+
 fn require_auth() -> bool {
     std::env::var("WANA_REQUIRE_AUTH").is_ok_and(|value| value == "1")
 }
@@ -702,6 +749,7 @@ fn run(args: &Args) -> Result<(), String> {
         toplevels.len()
     );
 
+    let lock_socket = prepare_lock_socket()?;
     let mut lock = if require_auth() {
         Some(open_lock(
             &conn,
@@ -749,6 +797,23 @@ fn run(args: &Args) -> Result<(), String> {
     }
 
     loop {
+        if lock.is_none()
+            && lock_socket
+                .as_ref()
+                .is_some_and(|socket| lock_requested(socket).unwrap_or(false))
+        {
+            close_launcher(&conn, &mut launcher);
+            lock = Some(open_lock(
+                &conn,
+                compositor,
+                layer_shell,
+                shm,
+                &set,
+                &mut events,
+            )?);
+            info!(SHELL, "locked by user request");
+        }
+
         // Wake at least every second: the clock and the started programs.
         // Events queued while opening the launcher are handled at once.
         conn.wait(if events.is_empty() { 1000 } else { 0 })?;
