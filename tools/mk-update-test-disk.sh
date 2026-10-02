@@ -52,6 +52,7 @@ version=$version
 commit=$commit
 rootfs=rootfs.ext4.zst
 rootfs_size=$(size "$work/rootfs.ext4.zst")
+rootfs_raw_size=$(size "$work/rootfs.ext4")
 rootfs_sha256=$(sha "$work/rootfs.ext4.zst")
 kernel=bzImage
 kernel_size=$(size "$work/bzImage")
