@@ -84,8 +84,8 @@ echo "WANA_DIAGNOSTICS_PRIVACY_PASS"
 
 tar -czf "$bundle" -C "$tmp" summary.txt
 chmod 0600 "$bundle"
-mode=$(stat -c '%a' "$bundle")
-[ "$mode" = "600" ] || { echo "diagnostics: unsafe bundle mode $mode" >&2; exit 1; }
-printf 'WANA_DIAGNOSTICS_BUNDLE path=%s mode=%s\n' "$bundle" "$mode"
+mode=$(ls -ln "$bundle" | awk '{print $1}')
+[ "$mode" = "-rw-------" ] || { echo "diagnostics: unsafe bundle mode $mode" >&2; exit 1; }
+printf 'WANA_DIAGNOSTICS_BUNDLE path=%s mode=600\n' "$bundle"
 
 /usr/bin/wana-control-center notify     org.wana.Diagnostics     "حزمة تشخيص النظام جاهزة"     "$bundle" >/dev/null 2>&1 || true
