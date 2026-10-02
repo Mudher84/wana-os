@@ -1,7 +1,3 @@
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -10,6 +6,7 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 use wana_auth::{
+    crypto::{constant_time_eq, decode_hex, hex, pbkdf2, random_salt, ITERATIONS},
     peer_cred, validate_password, Operation, CREDENTIAL_DIR, CREDENTIAL_FILE, DESKTOP_GID,
     DESKTOP_UID, MAX_PASSWORD_BYTES, SOCKET_PATH,
 };
@@ -101,19 +98,37 @@ fn write_hash_atomic(value: &str) -> Result<(), String> {
 }
 
 fn hash_password(password: &str) -> Result<String, String> {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map(|hash| hash.to_string())
-        .map_err(|e| format!("argon2 hash: {e}"))
+    let salt = random_salt()?;
+    let derived = pbkdf2(password.as_bytes(), &salt, ITERATIONS);
+    Ok(format!(
+        "WANA-PBKDF2-SHA256${}${}${}",
+        ITERATIONS,
+        hex(&salt),
+        hex(&derived)
+    ))
 }
 
 fn verify_password(password: &str) -> Result<bool, String> {
     let encoded = read_hash()?;
-    let parsed = PasswordHash::new(&encoded).map_err(|e| format!("stored password hash: {e}"))?;
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok())
+    let mut parts = encoded.split('$');
+    if parts.next() != Some("WANA-PBKDF2-SHA256") {
+        return Err("stored credential has an unsupported format".into());
+    }
+    let iterations = parts
+        .next()
+        .ok_or("stored credential missing iterations")?
+        .parse::<u32>()
+        .map_err(|_| "stored credential has invalid iterations")?;
+    if iterations < 100_000 || iterations > 1_000_000 {
+        return Err("stored credential iterations outside policy".into());
+    }
+    let salt = decode_hex::<16>(parts.next().ok_or("stored credential missing salt")?)?;
+    let want = decode_hex::<32>(parts.next().ok_or("stored credential missing hash")?)?;
+    if parts.next().is_some() {
+        return Err("stored credential has extra fields".into());
+    }
+    let got = pbkdf2(password.as_bytes(), &salt, iterations);
+    Ok(constant_time_eq(&got, &want))
 }
 
 fn prepare_socket() -> Result<UnixListener, String> {
@@ -216,7 +231,7 @@ fn run() -> Result<(), String> {
     let listener = prepare_socket()?;
     info!(
         LOG,
-        "auth broker ready: socket={} credential={} mode=0600",
+        "auth broker ready: socket={} credential={} mode=0600 scheme=PBKDF2-HMAC-SHA256",
         SOCKET_PATH,
         CREDENTIAL_FILE
     );
