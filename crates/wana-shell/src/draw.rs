@@ -226,9 +226,44 @@ pub fn launcher_transition(
     Ok(c)
 }
 
-/// Authentication/setup overlay. It never renders the password itself:
-/// only a bounded bullet count and generic status/error text.
+/// Draws RTL text inside a bounded rectangle.
+fn line_box(
+    canvas: &mut Canvas,
+    fonts: &FontSet,
+    text: &str,
+    x: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+    rgb: u32,
+) -> Result<(), String> {
+    let available = width.saturating_sub((LAUNCHER_PADDING * 2.0) as u32);
+    let style = Style {
+        size: LAUNCHER_TEXT,
+        base: Base::Rtl,
+        align: Align::Start,
+        width: Some(available as f32),
+        language: "ar".into(),
+    };
+    let layout = layout(text, fonts, &style)?;
+    let y = top as f32 + (height as f32 - layout.height) / 2.0;
+    draw(
+        canvas,
+        &layout,
+        fonts,
+        LAUNCHER_TEXT,
+        x as f32 + LAUNCHER_PADDING,
+        y,
+        rgb,
+    );
+    Ok(())
+}
+
+/// Full-screen authentication/setup overlay. The password itself is never
+/// rendered: only a bounded bullet count and generic status/error text.
 pub fn auth(
+    width: u32,
+    height: u32,
     fonts: &FontSet,
     setup_required: bool,
     confirming: bool,
@@ -236,15 +271,46 @@ pub fn auth(
     error: Option<&str>,
 ) -> Result<Canvas, String> {
     let palette = wana_theme::current();
-    let mut c = Canvas::new(AUTH_WIDTH, AUTH_HEIGHT, palette.shell_border);
-    fill(&mut c, 1, 1, AUTH_WIDTH - 2, AUTH_HEIGHT - 2, palette.shell_panel);
+    let mut canvas = Canvas::new(width, height, palette.desktop_top);
+    let panel_width = AUTH_WIDTH.min(width.saturating_sub(32)).max(240);
+    let panel_height = AUTH_HEIGHT.min(height.saturating_sub(32)).max(220);
+    let panel_x = width.saturating_sub(panel_width) / 2;
+    let panel_y = height.saturating_sub(panel_height) / 2;
+
+    fill(
+        &mut canvas,
+        panel_x,
+        panel_y,
+        panel_width,
+        panel_height,
+        palette.shell_border,
+    );
+    if panel_width > 2 && panel_height > 2 {
+        fill(
+            &mut canvas,
+            panel_x + 1,
+            panel_y + 1,
+            panel_width - 2,
+            panel_height - 2,
+            palette.shell_panel,
+        );
+    }
 
     let title = if setup_required {
         "إعداد كلمة مرور الجهاز"
     } else {
         "تسجيل الدخول"
     };
-    line(&mut c, fonts, title, 18, 48, palette.shell_bar_text)?;
+    line_box(
+        &mut canvas,
+        fonts,
+        title,
+        panel_x,
+        panel_y + 18,
+        panel_width,
+        48,
+        palette.shell_bar_text,
+    )?;
 
     let hint = if setup_required && confirming {
         "أعد كتابة كلمة المرور للتأكيد"
@@ -253,33 +319,69 @@ pub fn auth(
     } else {
         "اكتب كلمة المرور ثم اضغط Enter"
     };
-    line(&mut c, fonts, hint, 72, 42, palette.shell_dim)?;
+    line_box(
+        &mut canvas,
+        fonts,
+        hint,
+        panel_x,
+        panel_y + 72,
+        panel_width,
+        42,
+        palette.shell_dim,
+    )?;
 
-    fill(&mut c, 36, 128, AUTH_WIDTH - 72, 54, palette.card);
+    let field_x = panel_x + 36;
+    let field_width = panel_width.saturating_sub(72);
+    fill(
+        &mut canvas,
+        field_x,
+        panel_y + 128,
+        field_width,
+        54,
+        palette.card,
+    );
     let bullets = "•".repeat(password_chars.min(32));
-    line(
-        &mut c,
+    line_box(
+        &mut canvas,
         fonts,
         if bullets.is_empty() { "••••••••" } else { &bullets },
-        128,
+        field_x,
+        panel_y + 128,
+        field_width,
         54,
-        if password_chars == 0 { palette.shell_dim } else { palette.shell_bar_text },
+        if password_chars == 0 {
+            palette.shell_dim
+        } else {
+            palette.shell_bar_text
+        },
     )?;
 
     if let Some(message) = error {
         let safe: String = message.chars().take(52).collect();
-        line(&mut c, fonts, &safe, 196, 42, palette.danger)?;
+        line_box(
+            &mut canvas,
+            fonts,
+            &safe,
+            panel_x,
+            panel_y + 196,
+            panel_width,
+            42,
+            palette.danger,
+        )?;
     } else {
-        line(
-            &mut c,
+        line_box(
+            &mut canvas,
             fonts,
             "Backspace للحذف — Enter للمتابعة",
-            196,
+            panel_x,
+            panel_y + 196,
+            panel_width,
             42,
             palette.shell_dim,
         )?;
     }
-    Ok(c)
+
+    Ok(canvas)
 }
 
 /// Draws the bottom Dock. The first four mapped toplevels are shown from
