@@ -6,7 +6,10 @@ Status: **IN PROGRESS**
 
 - Native Arabic installer GUI.
 - Real disk discovery and explicit confirmation.
-- GUI drives the production installer core rather than a mock installer.
+- The GUI reads the actual Live `Wana-OS.img` size and excludes candidate
+  disks that are smaller than the installation image.
+- GUI drives the production installer core rather than a mock installer; the
+  core independently repeats its own target-size and safety checks.
 
 ## Exit gate
 
