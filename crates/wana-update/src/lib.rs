@@ -270,11 +270,27 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
 }
 
 fn read_text_regular(path: &Path, max: u64) -> Result<String, String> {
-    let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > max {
+    let before = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if before.file_type().is_symlink() || !before.is_file() || before.len() > max {
         return Err(format!("{}: invalid metadata file", path.display()));
     }
-    fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
+
+    let mut file = File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    let opened = file
+        .metadata()
+        .map_err(|e| format!("metadata {}: {e}", path.display()))?;
+    if before.dev() != opened.dev()
+        || before.ino() != opened.ino()
+        || !opened.is_file()
+        || opened.len() > max
+    {
+        return Err(format!("{}: changed or became invalid while opening", path.display()));
+    }
+
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    Ok(text)
 }
 
 fn release_sums(path: &Path) -> Result<BTreeMap<String, String>, String> {
@@ -377,8 +393,8 @@ pub struct InstalledRelease {
 
 pub fn installed_release() -> Result<Option<InstalledRelease>, String> {
     let path = Path::new(INSTALLED_RELEASE);
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
+    let text = match fs::symlink_metadata(path) {
+        Ok(_) => read_text_regular(path, 4096)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
