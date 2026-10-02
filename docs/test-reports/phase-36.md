@@ -16,8 +16,11 @@ Status: **IN PROGRESS**
   a moving `latest` pointer cannot mix assets from two releases.
 - Downloader size ceilings bound metadata/checksums, rootfs, kernel and initrd
   transfers before the verified staging step.
-- `wana-updated` is a root broker; the desktop can only request status,
-  fetch/stage and clear over a peer-credential-authenticated Unix socket.
+- `wana-updated` is a root broker. Status may be queried from the desktop,
+  while fetch/stage and clear from uid 1000 require the root-owned/read-only
+  `wana-update-ui` executable parented by the trusted `wana-shell`; the
+  broker compares executable device/inode through `/proc` rather than trusting
+  a process name. Root retains administrative CLI access.
 - Staging uses a root-owned Data directory, create-new temporary state, fsync
   and atomic rename.
 - Update metadata/checksum reads are bound to the same checked inode/device
