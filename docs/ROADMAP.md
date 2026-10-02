@@ -76,7 +76,8 @@ evidence is linked. Status values: `PASS`, `FAIL`, `IN PROGRESS`,
 | 35 | Power + session lifecycle — peer-authenticated shutdown/reboot broker and native confirmation UI ([phase 35 report](test-reports/phase-35.md)) | IN PROGRESS |
 | 36 | Atomic A/B system updates + trial-boot rollback + recovery entries ([phase 36 report](test-reports/phase-36.md)) | IN PROGRESS |
 | 37 | Local authentication + persistent credential setup + in-session screen lock ([phase 37 report](test-reports/phase-37.md)) | IN PROGRESS |
+| 38 | Network time synchronization — supervised Chrony client and local tracking diagnostics ([phase 38 report](test-reports/phase-38.md)) | IN PROGRESS |
 
-Implementation for phases 12–37 is allowed to land before evidence is collected.
+Implementation for phases 12–38 is allowed to land before evidence is collected.
 No phase is promoted to PASS until its final exit gate has actually run and the
 resulting evidence is recorded.
