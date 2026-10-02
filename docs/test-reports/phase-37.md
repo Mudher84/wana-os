@@ -6,9 +6,11 @@ Status: **IN PROGRESS**
 
 - The production desktop no longer exposes the launcher before local
   authentication succeeds.
-- A root-owned `wana-authd` broker exposes `/run/wana/auth.sock` and
-  authorizes only uid 0 and the dedicated desktop uid 1000 through Linux
-  `SO_PEERCRED`.
+- A root-owned `wana-authd` broker exposes `/run/wana/auth.sock`. Status is
+  available to uid 0 and the dedicated desktop uid 1000 through Linux
+  `SO_PEERCRED`; setup/verify from uid 1000 additionally require the exact
+  root-owned/read-only `wana-shell` executable parented by the trusted
+  `wana-compositor`, matched by executable device/inode.
 - First boot enters credential setup mode; later boots enter login mode.
 - Password input is decoded through the compositor-provided xkbcommon keymap,
   supports modifiers/layout text, is bounded to 128 UTF-8 bytes, and is never
