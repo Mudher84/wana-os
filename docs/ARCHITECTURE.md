@@ -129,6 +129,12 @@ lineage:
   `wana-shell`;
 - update fetch/stage/clear: `wana-update-ui` parented by `wana-shell`.
 
+The Power/Update UIs additionally read `SO_PEERCRED` from their connected
+Wayland socket and include the server PID in privileged broker mutations. The
+broker requires that PID to equal the trusted `wana-compositor` that is the
+shell's parent. Replacing the public `wayland-0` socket with a same-uid fake
+server therefore cannot turn a genuine UI process into an authorized request.
+
 The compositor, shell, Power UI and Update UI set `PR_SET_DUMPABLE=0`, so
 ordinary same-uid applications cannot ptrace or inspect the trusted process
 chain and then reuse its broker identity.
