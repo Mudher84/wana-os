@@ -152,6 +152,12 @@ def main() -> int:
 
     by_name = {entry["path"]: entry for entry in release_entries}
     rootfs = by_name["rootfs.ext4.zst"]
+    rootfs_raw = args.images / "rootfs.ext4"
+    if not rootfs_raw.is_file():
+        fail("rootfs.ext4 is required to bind update slot capacity")
+    rootfs_raw_size = rootfs_raw.stat().st_size
+    if rootfs_raw_size <= 0:
+        fail("rootfs.ext4 is empty")
     kernel = by_name["bzImage"]
     initrd = by_name["rootfs.cpio.zst"]
     update_txt = args.out / "update.txt"
@@ -161,6 +167,7 @@ def main() -> int:
         f"commit={commit}\n"
         "rootfs=rootfs.ext4.zst\n"
         f"rootfs_size={rootfs['size']}\n"
+        f"rootfs_raw_size={rootfs_raw_size}\n"
         f"rootfs_sha256={rootfs['sha256']}\n"
         "kernel=bzImage\n"
         f"kernel_size={kernel['size']}\n"
