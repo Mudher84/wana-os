@@ -239,9 +239,13 @@ fn parse(path: &Path) -> Result<Service, String> {
             }
             "ready_path" => {
                 let p = PathBuf::from(value);
-                if !p.is_absolute() || value.split('/').any(|part| part == "..") {
+                if !p.is_absolute()
+                    || value.split('/').any(|part| part == "..")
+                    || !p.starts_with("/run")
+                    || p == Path::new("/run")
+                {
                     return Err(format!(
-                        "{}:{}: ready_path must be an absolute safe path",
+                        "{}:{}: ready_path must be a safe transient path under /run",
                         path.display(),
                         line_no + 1
                     ));
@@ -393,6 +397,43 @@ fn spawn(s: &Service) -> Result<Child, String> {
     Ok(child)
 }
 
+fn clear_stale_ready_path(service: &Service) -> Result<(), String> {
+    let Some(path) = &service.ready_path else {
+        return Ok(());
+    };
+    match fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || meta.is_dir() {
+                return Err(format!(
+                    "service {} readiness path {} is unsafe to replace",
+                    service.name,
+                    path.display()
+                ));
+            }
+            fs::remove_file(path).map_err(|e| {
+                format!(
+                    "service {} remove stale readiness path {}: {e}",
+                    service.name,
+                    path.display()
+                )
+            })?;
+            info!(
+                LOG,
+                "service {} removed stale readiness path {}",
+                service.name,
+                path.display()
+            );
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "service {} inspect readiness path {}: {e}",
+            service.name,
+            path.display()
+        )),
+    }
+}
+
 fn wait_ready(service: &Service, child: &mut Child) -> Result<(), String> {
     let Some(path) = &service.ready_path else {
         return Ok(());
@@ -433,6 +474,7 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
     let sequence = order(&map)?;
     let mut children: BTreeMap<String, Child> = BTreeMap::new();
     for name in &sequence {
+        clear_stale_ready_path(&map[name])?;
         let mut child = spawn(&map[name])?;
         wait_ready(&map[name], &mut child)?;
         children.insert(name.clone(), child);
@@ -461,6 +503,7 @@ fn supervise(map: BTreeMap<String, Service>, timeout: Option<Duration>) -> Resul
             if again {
                 warn!(LOG, "service {name} exited {status}; restarting");
                 sleep(Duration::from_millis(250));
+                clear_stale_ready_path(&map[name])?;
                 let mut replacement = spawn(&map[name])?;
                 wait_ready(&map[name], &mut replacement)?;
                 children.insert(name.clone(), replacement);
@@ -577,6 +620,18 @@ mod tests {
         symlink("/etc/passwd", &service).unwrap();
         assert!(load(&d).is_err());
 
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn readiness_paths_must_be_transient_runtime_paths() {
+        let d = dir();
+        fs::write(
+            d.join("bad-ready.service"),
+            "name=bad-ready\nexec=/bin/true\nready_path=/tmp/service.ready\n",
+        )
+        .unwrap();
+        assert!(load(&d).is_err());
         let _ = fs::remove_dir_all(d);
     }
 
