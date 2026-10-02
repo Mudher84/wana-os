@@ -182,6 +182,7 @@ pub struct Metadata {
     pub version: String,
     pub commit: String,
     pub rootfs_size: u64,
+    pub rootfs_raw_size: u64,
     pub rootfs_sha256: String,
     pub kernel_size: u64,
     pub kernel_sha256: String,
@@ -238,7 +239,7 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
         let (key, value) = line.split_once('=').ok_or("update metadata expects key=value")?;
         if !matches!(
             key,
-            "version" | "commit" | "rootfs" | "rootfs_size" | "rootfs_sha256"
+            "version" | "commit" | "rootfs" | "rootfs_size" | "rootfs_raw_size" | "rootfs_sha256"
                 | "kernel" | "kernel_size" | "kernel_sha256"
                 | "initrd" | "initrd_size" | "initrd_sha256"
         ) {
@@ -273,6 +274,11 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
         .ok_or("missing rootfs_size")?
         .parse::<u64>()
         .map_err(|e| format!("rootfs_size: {e}"))?;
+    let rootfs_raw_size = values
+        .get("rootfs_raw_size")
+        .ok_or("missing rootfs_raw_size")?
+        .parse::<u64>()
+        .map_err(|e| format!("rootfs_raw_size: {e}"))?;
     let kernel_size = values
         .get("kernel_size")
         .ok_or("missing kernel_size")?
@@ -283,13 +289,14 @@ pub fn parse_update(text: &str) -> Result<Metadata, String> {
         .ok_or("missing initrd_size")?
         .parse::<u64>()
         .map_err(|e| format!("initrd_size: {e}"))?;
-    if rootfs_size == 0 || kernel_size == 0 || initrd_size == 0 {
+    if rootfs_size == 0 || rootfs_raw_size == 0 || kernel_size == 0 || initrd_size == 0 {
         return Err("update payload sizes must be non-zero".into());
     }
     Ok(Metadata {
         version,
         commit,
         rootfs_size,
+        rootfs_raw_size,
         rootfs_sha256,
         kernel_size,
         kernel_sha256,
@@ -842,6 +849,7 @@ mod tests {
             "commit=0123456789abcdef0123456789abcdef01234567\n",
             "rootfs=rootfs.ext4.zst\n",
             "rootfs_size=123\n",
+            "rootfs_raw_size=1024\n",
             "rootfs_sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
             "kernel=bzImage\n",
             "kernel_size=456\n",
@@ -853,6 +861,7 @@ mod tests {
         let meta = parse_update(text).unwrap();
         assert_eq!(meta.version, "0.1.0");
         assert_eq!(meta.rootfs_size, 123);
+        assert_eq!(meta.rootfs_raw_size, 1024);
         assert!(parse_update(&(text.to_string() + "escape=1\n")).is_err());
     }
 }
