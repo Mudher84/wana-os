@@ -7,7 +7,7 @@ fn read_password() -> Result<String, String> {
         .take((wana_auth::MAX_PASSWORD_BYTES + 2) as u64)
         .read_to_string(&mut input)
         .map_err(|e| format!("read password: {e}"))?;
-    while input.ends_with(['\n', '\r']) {
+    while input.ends_with('\n') || input.ends_with('\r') {
         input.pop();
     }
     Ok(input)
