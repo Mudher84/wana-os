@@ -1,7 +1,8 @@
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use wana_client::app::{App, Window};
 use wana_log::{error, info, Subsystem};
+use wana_power::{request as power_request, Command as PowerCommand};
 use wana_text::bidi::Base;
 use wana_text::font::Font;
 use wana_text::layout::{layout, Align, FontSet, Style};
@@ -122,15 +123,9 @@ fn execute(choice: Choice) -> Result<(), String> {
         return Ok(());
     };
     info!(LOG, "power UI confirmed action={action}");
-    let status = Command::new("/usr/bin/wana-power")
-        .arg(action)
-        .status()
-        .map_err(|e| format!("wana-power {action}: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("wana-power {action} exited {status}"))
-    }
+    let command = PowerCommand::parse(action).map_err(str::to_string)?;
+    power_request(command)?;
+    Ok(())
 }
 
 fn run() -> Result<(), String> {
