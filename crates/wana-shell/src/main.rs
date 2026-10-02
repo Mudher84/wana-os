@@ -797,21 +797,23 @@ fn run(args: &Args) -> Result<(), String> {
     }
 
     loop {
-        if lock.is_none()
-            && lock_socket
-                .as_ref()
-                .is_some_and(|socket| lock_requested(socket).unwrap_or(false))
-        {
-            close_launcher(&conn, &mut launcher);
-            lock = Some(open_lock(
-                &conn,
-                compositor,
-                layer_shell,
-                shm,
-                &set,
-                &mut events,
-            )?);
-            info!(SHELL, "locked by user request");
+        if lock.is_none() {
+            let requested = match &lock_socket {
+                Some(socket) => lock_requested(socket)?,
+                None => false,
+            };
+            if requested {
+                close_launcher(&conn, &mut launcher);
+                lock = Some(open_lock(
+                    &conn,
+                    compositor,
+                    layer_shell,
+                    shm,
+                    &set,
+                    &mut events,
+                )?);
+                info!(SHELL, "locked by user request");
+            }
         }
 
         // Wake at least every second: the clock and the started programs.
