@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -11,6 +12,7 @@ pub const SUMS_FILE: &str = "RELEASE-SHA256SUMS";
 pub const ROOTFS_FILE: &str = "rootfs.ext4.zst";
 pub const KERNEL_FILE: &str = "bzImage";
 pub const INITRD_FILE: &str = "rootfs.cpio.zst";
+pub const BROKER_SOCKET: &str = "/run/wana/update.sock";
 pub const STATE_ROOT: &str = "/var/lib/wana/update";
 pub const PENDING_DIR: &str = "/var/lib/wana/update/pending";
 pub const INSTALLED_RELEASE: &str = "/etc/wana-release";
@@ -487,6 +489,30 @@ fn curl_download(base: &str, name: &str, target: &Path, max_bytes: u64) -> Resul
         Ok(())
     } else {
         Err(format!("download {url} failed: {status}"))
+    }
+}
+
+pub fn broker_request(command: &str) -> Result<String, String> {
+    if !matches!(command, "status" | "fetch-stage" | "clear") {
+        return Err("update broker command must be status|fetch-stage|clear".into());
+    }
+    let mut stream =
+        UnixStream::connect(BROKER_SOCKET).map_err(|e| format!("connect {BROKER_SOCKET}: {e}"))?;
+    stream
+        .write_all(format!("{command}\n").as_bytes())
+        .map_err(|e| format!("write {BROKER_SOCKET}: {e}"))?;
+    let mut reply = String::new();
+    stream
+        .take(1024)
+        .read_to_string(&mut reply)
+        .map_err(|e| format!("read {BROKER_SOCKET}: {e}"))?;
+    let reply = reply.trim().to_string();
+    if let Some(reason) = reply.strip_prefix("ERR ") {
+        Err(reason.to_string())
+    } else if reply.is_empty() {
+        Err("empty update broker reply".into())
+    } else {
+        Ok(reply)
     }
 }
 
