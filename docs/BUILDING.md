@@ -108,8 +108,10 @@ make stable-bundle VERSION=0.1.0
 ```
 
 `tools/prepare-release.py` binds the release to the exact Git commit and
-closed SHA-256 artifact set. Stable update assets include strict `update.txt`,
-compressed rootfs, kernel and initramfs metadata.
+closed SHA-256 artifact set. Stable update assets include strict `update.txt`, compressed rootfs, kernel
+and initramfs metadata. The update metadata also records the raw ext4 size so
+older installations can reject a system image that will not fit their inactive
+A/B slot before any slot write begins.
 
 The Stable GitHub workflow performs an independent second no-ccache build and
 compares manifests/artifact hashes before publication. Publication permission
