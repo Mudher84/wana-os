@@ -695,22 +695,41 @@ fn run(args: &Args) -> Result<(), String> {
         toplevels.len()
     );
 
+    let mut lock = if require_auth() {
+        Some(open_lock(
+            &conn,
+            compositor,
+            layer_shell,
+            shm,
+            &set,
+            &mut events,
+        )?)
+    } else {
+        None
+    };
+
     conn.roundtrip()?;
-    info!(SHELL, "ready");
+    if lock.is_some() {
+        info!(SHELL, "locked: authentication required");
+    } else {
+        info!(SHELL, "ready");
+    }
 
     let mut started: Vec<Started> = Vec::new();
-    if let Some(cmd) = &args.autostart {
-        started.push(Started {
-            name: "autostart".into(),
-            child: spawn(cmd, "autostart")?,
-            ends_shell: args.exit_with_autostart,
-        });
+    if lock.is_none() {
+        if let Some(cmd) = &args.autostart {
+            started.push(Started {
+                name: "autostart".into(),
+                child: spawn(cmd, "autostart")?,
+                ends_shell: args.exit_with_autostart,
+            });
+        }
     }
 
     let mut devices = Devices::default();
     let mut launcher: Option<Launcher> = None;
     let mut test_launch = args.test_launch;
-    if test_launch.is_some() {
+    if lock.is_none() && test_launch.is_some() {
         launcher = Some(open_launcher(
             &conn,
             compositor,
@@ -764,6 +783,52 @@ fn run(args: &Args) -> Result<(), String> {
                 || layer::closed(&ev, dock.layer_surface)
             {
                 return Err("the compositor closed a shell surface".into());
+            }
+            if let Some(active) = lock.as_mut() {
+                if let Some((serial, _, _)) = layer::configure_of(&ev, active.ls.layer_surface) {
+                    layer::ack(&conn, active.ls.layer_surface, serial)?;
+                    redraw_lock(&conn, shm, &set, active)?;
+                    continue;
+                }
+                if layer::closed(&ev, active.ls.layer_surface) {
+                    return Err("the compositor closed the authentication surface".into());
+                }
+            }
+
+            let input = devices.event(&conn, seat, &ev)?;
+            if let Some(active) = lock.as_mut() {
+                if let Some(Input::Key(surface, key, text)) = input {
+                    if surface == active.ls.surface {
+                        let unlocked = auth_key(active, key, &text)?;
+                        if unlocked {
+                            let finished = lock.take().expect("authentication lock exists");
+                            close_lock(&conn, finished);
+                            info!(SHELL, "authentication complete");
+                            info!(SHELL, "ready");
+                            if let Some(cmd) = &args.autostart {
+                                started.push(Started {
+                                    name: "autostart".into(),
+                                    child: spawn(cmd, "autostart")?,
+                                    ends_shell: args.exit_with_autostart,
+                                });
+                            }
+                            if test_launch.is_some() {
+                                launcher = Some(open_launcher(
+                                    &conn,
+                                    compositor,
+                                    layer_shell,
+                                    shm,
+                                    &set,
+                                    &apps,
+                                    &mut events,
+                                )?);
+                            }
+                        } else {
+                            redraw_lock(&conn, shm, &set, active)?;
+                        }
+                    }
+                }
+                continue;
             }
             if toplevels.event(&conn, &ev)? {
                 let labels = toplevels.labels();
@@ -833,7 +898,7 @@ fn run(args: &Args) -> Result<(), String> {
                     }
                 }
             }
-            match devices.event(&conn, seat, &ev)? {
+            match input {
                 Some(Input::Click(s, x, _)) if s == bar.surface => {
                     // The bar's start is its right end (RTL).
                     if x >= f64::from(bar_width.saturating_sub(draw::BRAND_HIT)) {
@@ -862,7 +927,7 @@ fn run(args: &Args) -> Result<(), String> {
                         action = Action::Launch(row);
                     }
                 }
-                Some(Input::Key(s, key)) => {
+                Some(Input::Key(s, key, _)) => {
                     if let Some(l) = launcher.as_mut().filter(|l| l.ls.surface == s) {
                         let before = l.menu.selected;
                         action = l.menu.key(key);
