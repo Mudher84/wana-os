@@ -33,6 +33,34 @@ fn peer_executable_matches(pid: i32, expected: &str) -> Result<bool, String> {
     Ok(peer.dev() == trusted.dev() && peer.ino() == trusted.ino())
 }
 
+fn parent_pid(pid: i32) -> Result<Option<i32>, String> {
+    if pid <= 0 {
+        return Ok(None);
+    }
+    let path = format!("/proc/{pid}/status");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("read {path}: {e}")),
+    };
+    let ppid = text
+        .lines()
+        .find_map(|line| line.strip_prefix("PPid:"))
+        .and_then(|value| value.trim().parse::<i32>().ok())
+        .ok_or_else(|| format!("{path}: PPid missing or invalid"))?;
+    Ok((ppid > 0).then_some(ppid))
+}
+
+fn trusted_shell_ui(pid: i32, ui: &str) -> Result<bool, String> {
+    if !peer_executable_matches(pid, ui)? {
+        return Ok(false);
+    }
+    let Some(parent) = parent_pid(pid)? else {
+        return Ok(false);
+    };
+    peer_executable_matches(parent, "/usr/bin/wana-shell")
+}
+
 fn chown_socket(path: &str) -> Result<(), String> {
     let path = std::ffi::CString::new(path).map_err(|_| "socket path contains NUL")?;
     // SAFETY: path is a live C string and chown only reads it.
@@ -122,8 +150,8 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             Ok(())
         }
         Command::PowerOff | Command::Reboot => {
-            let trusted_ui = peer_executable_matches(cred.pid, "/usr/bin/wana-power-ui")?
-                || peer_executable_matches(cred.pid, "/usr/bin/wana-update-ui")?;
+            let trusted_ui = trusted_shell_ui(cred.pid, "/usr/bin/wana-power-ui")?
+                || trusted_shell_ui(cred.pid, "/usr/bin/wana-update-ui")?;
             if cred.uid != 0 && !trusted_ui {
                 warn!(
                     LOG,
