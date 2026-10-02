@@ -2,8 +2,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use wana_client::app::{App, Window};
 use wana_log::{error, info, Subsystem};
-use wana_power::{request as power_request, Command as PowerCommand};
-use wana_update::broker_request as update_request;
+use wana_power::{request_from_ui as power_request, Command as PowerCommand};
+use wana_update::{
+    broker_request as update_status_request, broker_request_from_ui as update_request,
+};
 use wana_text::bidi::Base;
 use wana_text::font::Font;
 use wana_text::layout::{layout, Align, FontSet, Style};
@@ -41,7 +43,7 @@ enum State {
 }
 
 fn initial_state() -> State {
-    match update_request("status") {
+    match update_status_request("status") {
         Ok(reply) if reply.starts_with("PENDING ") => State::Pending(reply),
         Ok(_) => State::Ready,
         Err(e) => State::Error(e),
@@ -213,8 +215,8 @@ fn present(app: &App, window: &Window, fonts: &FontSet, state: &State) -> Result
     window.present(app, &canvas.bytes())
 }
 
-fn fetch() -> State {
-    match update_request("fetch-stage") {
+fn fetch(compositor_pid: i32) -> State {
+    match update_request("fetch-stage", compositor_pid) {
         Ok(reply) if reply.starts_with("CURRENT ") => State::Current(reply),
         Ok(reply) if reply.starts_with("STAGED ") => State::Pending(reply),
         Ok(reply) => State::Error(format!("رد غير متوقع: {reply}")),
@@ -233,6 +235,7 @@ fn run() -> Result<(), String> {
             .collect::<Result<_, _>>()?,
     };
     let app = App::connect()?;
+    let compositor_pid = app.conn.peer_cred()?.pid;
     let keyboard = app.keyboard()?.ok_or("update UI requires a keyboard seat")?;
     let window = Window::new(
         &app,
@@ -261,18 +264,18 @@ fn run() -> Result<(), String> {
                     KEY_ENTER => match &state {
                         State::Pending(_) => {
                             info!(LOG, "update UI confirmed reboot into staged update");
-                            power_request(PowerCommand::Reboot)?;
+                            power_request(PowerCommand::Reboot, compositor_pid)?;
                         }
                         _ => {
                             state = State::Downloading;
                             present(&app, &window, &fonts, &state)?;
-                            state = fetch();
+                            state = fetch(compositor_pid);
                             present(&app, &window, &fonts, &state)?;
                             info!(LOG, "update UI fetch result: {state:?}");
                         }
                     },
                     KEY_DELETE if matches!(state, State::Pending(_)) => {
-                        match update_request("clear") {
+                        match update_request("clear", compositor_pid) {
                             Ok(_) => state = State::Ready,
                             Err(e) => state = State::Error(e),
                         }
