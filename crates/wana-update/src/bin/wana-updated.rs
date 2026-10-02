@@ -7,10 +7,9 @@ use std::path::Path;
 use wana_log::{error, info, warn, Subsystem};
 
 const LOG: Subsystem = Subsystem::Security;
-const SOCKET: &str = "/run/wana/update.sock";
 const DESKTOP_UID: u32 = 1000;
 const DESKTOP_GID: u32 = 1000;
-const SOL_SOCKET: i32 = 1;
+const SOL_wana_update::BROKER_SOCKET: i32 = 1;
 const SO_PEERCRED: i32 = 17;
 
 #[repr(C)]
@@ -59,7 +58,7 @@ fn peer(stream: &UnixStream) -> Result<PeerCred, String> {
     let rc = unsafe {
         getsockopt(
             stream.as_raw_fd(),
-            SOL_SOCKET,
+            SOL_wana_update::BROKER_SOCKET,
             SO_PEERCRED,
             (&mut cred as *mut PeerCred).cast(),
             &mut len,
@@ -73,22 +72,22 @@ fn peer(stream: &UnixStream) -> Result<PeerCred, String> {
 
 fn prepare_socket() -> Result<UnixListener, String> {
     fs::create_dir_all("/run/wana").map_err(|e| format!("create /run/wana: {e}"))?;
-    let path = Path::new(SOCKET);
+    let path = Path::new(wana_update::BROKER_SOCKET);
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_socket() => {
-            fs::remove_file(path).map_err(|e| format!("remove stale {SOCKET}: {e}"))?;
+            fs::remove_file(path).map_err(|e| format!("remove stale {wana_update::BROKER_SOCKET}: {e}"))?;
         }
-        Ok(_) => return Err(format!("{SOCKET}: refusing to replace non-socket path")),
+        Ok(_) => return Err(format!("{wana_update::BROKER_SOCKET}: refusing to replace non-socket path")),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(format!("{SOCKET}: {e}")),
+        Err(e) => return Err(format!("{wana_update::BROKER_SOCKET}: {e}")),
     }
-    let listener = UnixListener::bind(path).map_err(|e| format!("bind {SOCKET}: {e}"))?;
+    let listener = UnixListener::bind(path).map_err(|e| format!("bind {wana_update::BROKER_SOCKET}: {e}"))?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o660))
-        .map_err(|e| format!("chmod {SOCKET}: {e}"))?;
-    let cpath = std::ffi::CString::new(SOCKET).map_err(|_| "socket path contains NUL")?;
+        .map_err(|e| format!("chmod {wana_update::BROKER_SOCKET}: {e}"))?;
+    let cpath = std::ffi::CString::new(wana_update::BROKER_SOCKET).map_err(|_| "socket path contains NUL")?;
     // SAFETY: cpath is a live C string.
     if unsafe { chown(cpath.as_ptr(), 0, DESKTOP_GID) } != 0 {
-        return Err(format!("chown {SOCKET}: {}", std::io::Error::last_os_error()));
+        return Err(format!("chown {wana_update::BROKER_SOCKET}: {}", std::io::Error::last_os_error()));
     }
     Ok(listener)
 }
@@ -176,7 +175,7 @@ fn run() -> Result<(), String> {
     info!(
         LOG,
         "update broker ready: socket={} mode=0660 owner=0 group={DESKTOP_GID}",
-        SOCKET
+        wana_update::BROKER_SOCKET
     );
     for incoming in listener.incoming() {
         match incoming {
