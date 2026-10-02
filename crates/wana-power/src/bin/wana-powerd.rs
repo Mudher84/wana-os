@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use wana_log::{error, info, warn, Subsystem};
@@ -14,6 +14,23 @@ unsafe extern "C" {
     fn chown(path: *const std::ffi::c_char, owner: u32, group: u32) -> i32;
     fn reboot(cmd: i32) -> i32;
     fn sync();
+}
+
+fn peer_executable_matches(pid: i32, expected: &str) -> Result<bool, String> {
+    if pid <= 0 {
+        return Ok(false);
+    }
+    let trusted = fs::metadata(expected).map_err(|e| format!("metadata {expected}: {e}"))?;
+    if !trusted.is_file() || trusted.uid() != 0 || trusted.mode() & 0o022 != 0 {
+        return Err(format!("{expected}: trusted client executable is not root-owned/read-only"));
+    }
+    let proc_exe = format!("/proc/{pid}/exe");
+    let peer = match fs::metadata(&proc_exe) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("metadata {proc_exe}: {e}")),
+    };
+    Ok(peer.dev() == trusted.dev() && peer.ino() == trusted.ino())
 }
 
 fn chown_socket(path: &str) -> Result<(), String> {
@@ -105,6 +122,19 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             Ok(())
         }
         Command::PowerOff | Command::Reboot => {
+            if cred.uid != 0 && !peer_executable_matches(cred.pid, "/usr/bin/wana-power-ui")? {
+                warn!(
+                    LOG,
+                    "power action rejected for untrusted client: {} pid={} uid={}",
+                    command.as_str(),
+                    cred.pid,
+                    cred.uid
+                );
+                stream
+                    .write_all(b"ERR unauthorized-client\n")
+                    .map_err(|e| e.to_string())?;
+                return Ok(());
+            }
             stream
                 .write_all(format!("OK {}\n", command.as_str()).as_bytes())
                 .map_err(|e| e.to_string())?;
