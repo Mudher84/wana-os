@@ -4,6 +4,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 pub const SOCKET_PATH: &str = "/run/wana/auth.sock";
+pub const LOCK_SOCKET_PATH: &str = "/run/user/1000/wana-shell-lock.sock";
 pub const CREDENTIAL_DIR: &str = "/var/lib/wana/auth";
 pub const CREDENTIAL_FILE: &str = "/var/lib/wana/auth/default.cred";
 pub const DESKTOP_UID: u32 = 1000;
