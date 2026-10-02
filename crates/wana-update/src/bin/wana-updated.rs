@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use wana_log::{error, info, warn, Subsystem};
@@ -29,6 +29,23 @@ unsafe extern "C" {
         optlen: *mut u32,
     ) -> i32;
     fn chown(path: *const std::ffi::c_char, owner: u32, group: u32) -> i32;
+}
+
+fn peer_executable_matches(pid: i32, expected: &str) -> Result<bool, String> {
+    if pid <= 0 {
+        return Ok(false);
+    }
+    let trusted = fs::metadata(expected).map_err(|e| format!("metadata {expected}: {e}"))?;
+    if !trusted.is_file() || trusted.uid() != 0 || trusted.mode() & 0o022 != 0 {
+        return Err(format!("{expected}: trusted client executable is not root-owned/read-only"));
+    }
+    let proc_exe = format!("/proc/{pid}/exe");
+    let peer = match fs::metadata(&proc_exe) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("metadata {proc_exe}: {e}")),
+    };
+    Ok(peer.dev() == trusted.dev() && peer.ino() == trusted.ino())
 }
 
 fn peer(stream: &UnixStream) -> Result<PeerCred, String> {
@@ -115,6 +132,15 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             }
         }
         "fetch-stage" => {
+            if cred.uid != 0 && !peer_executable_matches(cred.pid, "/usr/bin/wana-update-ui")? {
+                warn!(
+                    LOG,
+                    "update fetch rejected for untrusted client: pid={} uid={}",
+                    cred.pid,
+                    cred.uid
+                );
+                return respond(&mut stream, "ERR unauthorized-client");
+            }
             info!(LOG, "update fetch requested by uid={} pid={}", cred.uid, cred.pid);
             match wana_update::fetch_latest_and_stage()? {
                 wana_update::FetchOutcome::Current(meta) => respond(
@@ -128,6 +154,15 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             }
         }
         "clear" => {
+            if cred.uid != 0 && !peer_executable_matches(cred.pid, "/usr/bin/wana-update-ui")? {
+                warn!(
+                    LOG,
+                    "update clear rejected for untrusted client: pid={} uid={}",
+                    cred.pid,
+                    cred.uid
+                );
+                return respond(&mut stream, "ERR unauthorized-client");
+            }
             wana_update::clear_pending()?;
             info!(LOG, "pending update cleared by uid={} pid={}", cred.uid, cred.pid);
             respond(&mut stream, "CLEARED")
