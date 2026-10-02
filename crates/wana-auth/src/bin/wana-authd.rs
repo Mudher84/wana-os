@@ -73,7 +73,7 @@ fn write_hash_atomic(value: &str) -> Result<(), String> {
     if credential_exists()? {
         return Err("credential already initialized".into());
     }
-    let temp = format!("{CREDENTIAL_DIR}/.default.phc.tmp-{}", std::process::id());
+    let temp = format!("{CREDENTIAL_DIR}/.default.cred.tmp-{}", std::process::id());
     match fs::symlink_metadata(&temp) {
         Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
             return Err(format!("{temp}: unsafe stale temp"))
