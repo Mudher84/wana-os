@@ -9,8 +9,11 @@ Status: **IN PROGRESS**
 - Secure service configuration ownership/mode/symlink checks.
 - Clean service execution environment with explicit UID/GID and cleared
   supplementary groups.
-- Services may declare an absolute `ready_path=`; startup waits for that
-  runtime socket/path before launching dependent services.
+- Services may declare `ready_path=` only under transient `/run`; startup waits
+  for that runtime endpoint before launching dependent services.
+- Before every initial start or restart, the supervisor removes a stale
+  non-directory readiness endpoint and refuses symlink/directory replacements,
+  so a socket left behind by a crashed process cannot create a false-ready.
 - System D-Bus, user D-Bus, PipeWire and PipeWire Pulse compatibility use
   readiness paths, so dependent services no longer rely on process-start
   ordering alone.
