@@ -65,14 +65,23 @@ fn parent_pid(pid: i32) -> Result<Option<i32>, String> {
     Ok((ppid > 0).then_some(ppid))
 }
 
-fn trusted_update_ui(pid: i32) -> Result<bool, String> {
-    if !peer_executable_matches(pid, "/usr/bin/wana-update-ui")? {
+fn trusted_update_ui(pid: i32, compositor_pid: i32) -> Result<bool, String> {
+    if compositor_pid <= 0 || !peer_executable_matches(pid, "/usr/bin/wana-update-ui")? {
         return Ok(false);
     }
-    let Some(parent) = parent_pid(pid)? else {
+    let Some(shell_pid) = parent_pid(pid)? else {
         return Ok(false);
     };
-    peer_executable_matches(parent, "/usr/bin/wana-shell")
+    if !peer_executable_matches(shell_pid, "/usr/bin/wana-shell")? {
+        return Ok(false);
+    }
+    let Some(parent_compositor) = parent_pid(shell_pid)? else {
+        return Ok(false);
+    };
+    if parent_compositor != compositor_pid {
+        return Ok(false);
+    }
+    peer_executable_matches(compositor_pid, "/usr/bin/wana-compositor")
 }
 
 fn peer(stream: &UnixStream) -> Result<PeerCred, String> {
@@ -145,7 +154,20 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
     BufReader::new(reader)
         .read_line(&mut line)
         .map_err(|e| format!("read request: {e}"))?;
-    let command = line.trim();
+    let mut fields = line.split_whitespace();
+    let Some(command) = fields.next() else {
+        return respond(&mut stream, "ERR empty-request");
+    };
+    let compositor_pid = match fields.next() {
+        Some(value) => match value.parse::<i32>() {
+            Ok(pid) if pid > 0 => Some(pid),
+            _ => return respond(&mut stream, "ERR invalid-compositor-pid"),
+        },
+        None => None,
+    };
+    if fields.next().is_some() {
+        return respond(&mut stream, "ERR too-many-fields");
+    }
 
     match command {
         "status" => {
@@ -159,7 +181,7 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             }
         }
         "fetch-stage" => {
-            if cred.uid != 0 && !trusted_update_ui(cred.pid)? {
+            if cred.uid != 0 && !trusted_update_ui(cred.pid, compositor_pid.unwrap_or(0))? {
                 warn!(
                     LOG,
                     "update fetch rejected for untrusted client: pid={} uid={}",
@@ -181,7 +203,7 @@ fn handle(mut stream: UnixStream) -> Result<(), String> {
             }
         }
         "clear" => {
-            if cred.uid != 0 && !trusted_update_ui(cred.pid)? {
+            if cred.uid != 0 && !trusted_update_ui(cred.pid, compositor_pid.unwrap_or(0))? {
                 warn!(
                     LOG,
                     "update clear rejected for untrusted client: pid={} uid={}",
