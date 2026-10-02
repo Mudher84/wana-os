@@ -178,6 +178,11 @@ jobs:
 
       - name: A/B update lifecycle (offline apply to B + persistent trial confirmation)
         run: make update-ab-boot-test
+      - name: Network time service (local Chrony tracking interface)
+        run: make time-sync-boot-test
+
+      - name: Diagnostics support bundle (uid-1000 + privacy/mode assertions)
+        run: make diagnostics-boot-test
 
       - name: Live ISO (OVMF -> GRUB -> kernel + initramfs, explicit Live mode)
         run: make live-iso-boot-test
