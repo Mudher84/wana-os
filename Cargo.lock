@@ -124,6 +124,7 @@ version = "0.1.0"
 dependencies = [
  "wana-client",
  "wana-log",
+ "wana-power",
  "wana-text",
  "wana-theme",
 ]
@@ -192,8 +193,10 @@ version = "0.1.0"
 dependencies = [
  "wana-client",
  "wana-log",
+ "wana-power",
  "wana-text",
  "wana-theme",
+ "wana-update",
 ]
 
 [[package]]
